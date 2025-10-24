@@ -237,18 +237,20 @@ def find_card_by_slug(slug: str):
     if slug in db["cards"]: return db, slug, db["cards"][slug]
     return db, None, None
 
-@app.get("/u/{slug}", response_class=HTMLResponse)
+# removed misplaced decorator
 def profile_complete(prof: dict) -> bool:
     if not prof: return False
     has_name = bool(prof.get("full_name") and prof.get("full_name") != "Seu Nome")
     has_contact = bool(prof.get("whatsapp") or prof.get("email_public") or (prof.get("links") and len(prof.get("links"))>0))
     return has_name and has_contact
 
+@app.get("/u/{slug}", response_class=HTMLResponse)
 def public_card(slug: str, request: Request):
     db, uid, card = find_card_by_slug(slug)
     if not card: raise HTTPException(404, "Cartão não encontrado")
     prof = db["profiles"].get(card.get("user",""), {})
     photo = html.escape(prof.get("photo_url","")) if prof else ""
+    return visitor_public_card(prof, slug, False)
     links = "".join([f"<li><a href='{html.escape(l.get('href',''))}' target='_blank'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
     banner = ""
     if card.get("billing_status") == "late":
@@ -637,7 +639,7 @@ def root_slug(slug: str, request: Request):
             </main></body></html>
             """)
         return visitor_public_card(prof, slug)
-    return visitor_public_card(prof, slug)
+    return visitor_public_card(prof, slug, True)
     links = "".join([f"<li><a href='{html.escape(l.get('href',''))}' target='_blank'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
     photo = html.escape(prof.get("photo_url","")) if prof else ""
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
