@@ -31,6 +31,7 @@ Windows (PowerShell):
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r api\requirements.txt
+set PUBLIC_BASE_URL=http://localhost:8000
 uvicorn api.app:app --reload --port 8000
 ```
 
@@ -39,6 +40,7 @@ macOS/Linux:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r api/requirements.txt
+export PUBLIC_BASE_URL=http://localhost:8000
 uvicorn api.app:app --reload --port 8000
 ```
 
@@ -48,16 +50,16 @@ Depois, acesse:
 - `http://localhost:8000/q/abc123.png`
 - `http://localhost:8000/v/abc123.vcf`
 
-Observação: `api/data.json` é um armazenamento simples para o MVP e pode ser recriado a qualquer momento.
+Observação: `PUBLIC_BASE_URL` controla o domínio usado para QR/vCard. Em produção, defina como `https://soomei.cc`.
 
 ## Cloudflare Worker (Router curto)
 Pré‑requisitos: `wrangler` instalado e logado (`npm i -g wrangler`).
 
-1. Edite `cloudflare/wrangler.toml` com o ID do seu KV e Queue.
-2. Desenvolver localmente:
+1. Edite `cloudflare/wrangler.toml` com KV/Queue e a variável `API_BASE` (por padrão `https://soomei.cc`).
+2. Desenvolver localmente (redirecionando para a API local):
 ```
 cd cloudflare
-wrangler dev
+wrangler dev --var API_BASE=http://localhost:8000
 ```
 3. Deploy:
 ```

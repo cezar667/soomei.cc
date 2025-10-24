@@ -9,3 +9,9 @@ id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 [[queues.producers]]
 queue = "taps-queue"
 binding = "TAPS"
+
+[vars]
+# Base da API/páginas públicas. Em produção use o domínio final.
+# Em desenvolvimento, você pode sobrescrever com:
+#   wrangler dev --var API_BASE=http://localhost:8000
+API_BASE = "https://soomei.cc"

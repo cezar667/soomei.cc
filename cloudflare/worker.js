@@ -6,12 +6,13 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname.split("/").filter(Boolean);
+    const apiBase = (env.API_BASE || `https://${url.host}`).replace(/\/+$/, '');
 
     if (p.length === 2 && p[0] === "r") {
       const uid = p[1];
       const raw = await env.CARDS.get(`card:${uid}`);
       if (!raw) {
-        return Response.redirect(`https://${url.host}/onboard/${uid}`, 302);
+        return Response.redirect(`${apiBase}/onboard/${uid}`, 302);
       }
       let card = {};
       try { card = JSON.parse(raw); } catch (_) {}
@@ -29,13 +30,13 @@ export default {
       } catch (_) {}
 
       if (card.status === "blocked") {
-        return Response.redirect(`https://${url.host}/blocked`, 302);
+        return Response.redirect(`${apiBase}/blocked`, 302);
       }
       if (!card.status || card.status === "pending") {
-        return Response.redirect(`https://${url.host}/onboard/${uid}`, 302);
+        return Response.redirect(`${apiBase}/onboard/${uid}`, 302);
       }
       const dest = card.vanity ? `/u/${card.vanity}` : `/u/${uid}`;
-      return Response.redirect(`https://${url.host}${dest}`, 302);
+      return Response.redirect(`${apiBase}${dest}`, 302);
     }
     return new Response("not found", { status: 404 });
   }

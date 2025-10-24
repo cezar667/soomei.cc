@@ -10,6 +10,9 @@ DATA = os.path.join(BASE, "data.json")
 WEB  = os.path.join(BASE, "..", "web")
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 
+# Base pública para gerar URLs (QR/vCard). Defina PUBLIC_BASE_URL para ambiente.
+PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "https://soomei.cc").rstrip("/")
+
 # --- util json "db" (MVP: troque por Postgres depois) ---
 def load():
     if os.path.exists(DATA):
@@ -133,7 +136,7 @@ def public_card(slug: str, request: Request):
 
 @app.get("/q/{slug}.png")
 def qr(slug: str):
-    img = qrcode.make(f"https://soomei.cc/{slug}")
+    img = qrcode.make(f"{PUBLIC_BASE}/{slug}")
     buf = io.BytesIO(); img.save(buf, format="PNG"); buf.seek(0)
     return StreamingResponse(buf, media_type="image/png")
 
@@ -143,7 +146,7 @@ def vcard(slug: str):
     if not card: raise HTTPException(404, "Cartão não encontrado")
     prof = db["profiles"].get(card.get("user",""), {})
     name = prof.get("full_name",""); tel = prof.get("whatsapp",""); email = prof.get("email_public","")
-    url = f"https://soomei.cc/{slug}"
+    url = f"{PUBLIC_BASE}/{slug}"
     vcf = f"BEGIN:VCARD\nVERSION:3.0\nN:{name};;;;\nFN:{name}\nORG:Soomei\nTITLE:{prof.get('title','')}\nTEL;TYPE=CELL:{tel}\nEMAIL;TYPE=INTERNET:{email}\nURL:{url}\nEND:VCARD\n"
     return PlainTextResponse(vcf, media_type="text/vcard")
 
