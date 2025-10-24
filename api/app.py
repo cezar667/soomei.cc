@@ -635,6 +635,7 @@ def root_slug(slug: str, request: Request):
             </main></body></html>
             """)
         return visitor_public_card(prof, slug)
+    return visitor_public_card(prof, slug)
     links = "".join([f"<li><a href='{html.escape(l.get('href',''))}' target='_blank'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
     photo = html.escape(prof.get("photo_url","")) if prof else ""
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
