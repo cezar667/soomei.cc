@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
-import os, json, html, qrcode, io, hashlib, time, secrets
+import os, json, html, qrcode, io, hashlib, time, secrets, re
 
 app = FastAPI(title="Soomei Card API v2")
 
@@ -49,6 +49,17 @@ def current_user_email(request: Request):
     s = db["sessions"].get(token)
     return s.get("email") if s else None
 
+RESERVED_SLUGS = {"onboard","login","auth","q","v","u","static","blocked","edit","hooks","slug"}
+
+def is_valid_slug(value: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9-]{3,30}", value or "")) and value not in RESERVED_SLUGS
+
+def slug_in_use(db, value: str) -> bool:
+    for _uid, c in db.get("cards", {}).items():
+        if c.get("vanity") == value:
+            return True
+    return False
+
 # --- onboarding (primeiro acesso com PIN da carta) ---
 @app.get("/onboard/{uid}", response_class=HTMLResponse)
 def onboard(uid: str):
@@ -94,6 +105,13 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
             password: str = Form(...), vanity: str = Form(""), lgpd: str = Form(None)):
     if not lgpd: raise HTTPException(400, "É necessário aceitar os termos")
     db = db_defaults(load())
+    # validação de slug (se informado) e disponibilidade
+    vanity = (vanity or "").strip()
+    if vanity:
+        if not is_valid_slug(vanity):
+            return HTMLResponse("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
+        if slug_in_use(db, vanity):
+            return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
     card = db["cards"].get(uid) or {"uid":uid, "status":"pending", "pin":"123456"}
     if pin != card.get("pin","123456"):
         return RedirectResponse(f"/onboard/{uid}", status_code=303)
@@ -240,6 +258,13 @@ def vcard(slug: str):
     vcf = f"BEGIN:VCARD\nVERSION:3.0\nN:{name};;;;\nFN:{name}\nORG:Soomei\nTITLE:{prof.get('title','')}\nTEL;TYPE=CELL:{tel}\nEMAIL;TYPE=INTERNET:{email}\nURL:{url}\nEND:VCARD\n"
     return PlainTextResponse(vcf, media_type="text/vcard")
 
+@app.get("/slug/check")
+def slug_check(value: str = ""):
+    db = db_defaults(load())
+    value = (value or "").strip()
+    available = is_valid_slug(value) and (not slug_in_use(db, value))
+    return {"available": available}
+
 # Webhook do TheMembers → governa billing/status
 @app.post("/hooks/themembers")
 def hook(payload: dict):
@@ -345,6 +370,9 @@ def blocked():
 @app.get("/{slug}", response_class=HTMLResponse)
 def root_slug(slug: str, request: Request):
     db, uid, card = find_card_by_slug(slug)
+    # redireciona para a URL canônica (vanity) se existir
+    if card and card.get("vanity") and slug != card.get("vanity"):
+        return RedirectResponse(f"/{html.escape(card.get('vanity'))}", status_code=302)
     if not card or not card.get("status") or card.get("status") == "pending":
         return RedirectResponse(f"/onboard/{html.escape(uid or slug)}", status_code=302)
     if card.get("status") == "blocked":
