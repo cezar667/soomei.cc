@@ -1,0 +1,27 @@
+{
+  "ab12": {
+    "name": "Cezar Damasceno",
+    "bio": "Empreendedor | Soomei",
+    "links": [
+      {
+        "label": "WhatsApp",
+        "href": "https://wa.me/5534999999999"
+      },
+      {
+        "label": "Instagram",
+        "href": "https://instagram.com/cezar"
+      },
+      {
+        "label": "E-mail",
+        "href": "mailto:cezar@soomei.com.br"
+      },
+      {
+        "label": "Pix (chave)",
+        "href": "pix:cezar@soomei.com.br"
+      }
+    ],
+    "phone": "+5534999999999",
+    "email": "cezar@soomei.com.br",
+    "slug": "ab12"
+  }
+}

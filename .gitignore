@@ -1,0 +1,42 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+venv/
+.venv/
+ENV/
+env/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+
+# Node/JS
+node_modules/
+.parcel-cache/
+
+# Cloudflare Workers
+.wrangler/
+cloudflare/dist/
+
+# Project-specific
+api/__pycache__/
+scripts/__pycache__/

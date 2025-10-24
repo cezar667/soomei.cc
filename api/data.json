@@ -1,0 +1,5 @@
+{
+  "users": {},
+  "cards": { "abc123": { "uid":"abc123", "status":"pending", "pin":"123456" } },
+  "profiles": {}
+}
