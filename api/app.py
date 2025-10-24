@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 import os, json, html, qrcode, io, hashlib, time, secrets, re
+import urllib.parse as urlparse
 
 app = FastAPI(title="Soomei Card API v2")
 
@@ -62,7 +63,7 @@ def slug_in_use(db, value: str) -> bool:
 
 # --- onboarding (primeiro acesso com PIN da carta) ---
 @app.get("/onboard/{uid}", response_class=HTMLResponse)
-def onboard(uid: str):
+def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
     return HTMLResponse(f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -70,12 +71,13 @@ def onboard(uid: str):
     <body><main class='wrap'>
       <h1>Ativar cartão</h1>
       <p>UID: <b>{html.escape(uid)}</b></p>
+      <p style='color:#f88'>{html.escape(error)}</p>
       <form method='post' action='/auth/register'>
         <input type='hidden' name='uid' value='{html.escape(uid)}'>
-        <label>Email</label><input name='email' type='email' required>
+        <label>Email</label><input name='email' type='email' required value='{html.escape(email)}'>
         <label>PIN da carta</label><input name='pin' type='password' required>
         <label>Nova senha</label><input name='password' type='password' required>
-        <label>Slug (opcional)</label><input name='vanity' placeholder='seu-nome'>
+        <label>Slug (opcional)</label><input name='vanity' placeholder='seu-nome' value='{html.escape(vanity)}'>
         <label><input type='checkbox' name='lgpd' required> Concordo com os Termos e LGPD</label>
         <button class='btn'>Criar conta</button>
       </form>
@@ -103,6 +105,9 @@ def login(uid: str = "", error: str = ""):
 @app.post("/auth/register")
 def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
             password: str = Form(...), vanity: str = Form(""), lgpd: str = Form(None)):
+    def back(err: str):
+        dest = f"/onboard/{uid}?error={urlparse.quote_plus(err)}&email={urlparse.quote_plus(email)}&vanity={urlparse.quote_plus(vanity or '')}"
+        return RedirectResponse(dest, status_code=303)
     if not lgpd: raise HTTPException(400, "É necessário aceitar os termos")
     db = db_defaults(load())
     # validação de slug (se informado) e disponibilidade
@@ -114,13 +119,15 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
             return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
     card = db["cards"].get(uid) or {"uid":uid, "status":"pending", "pin":"123456"}
     if pin != card.get("pin","123456"):
-        return RedirectResponse(f"/onboard/{uid}", status_code=303)
+        return back("PIN incorreto. Verifique e tente novamente.")
+    if len(password or "") < 8:
+        return back("Senha muito curta. Use no mínimo 8 caracteres.")
     if email in db["users"]:
         return RedirectResponse(f"/login?uid={uid}&error=Conta%20já%20existe", status_code=303)
     # cria user
     db["users"][email] = {"email":email, "pwd":h(password), "email_verified_at":None}
     # define vanity (se disponível)
-    if vanity and any(c.get("vanity")==vanity for c in db["cards"].values()):
+    if False and vanity and any(c.get("vanity")==vanity for c in db["cards"].values()):
         return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
     # ativa card
     card.update({"status":"active", "billing_status":"ok", "user":email})
