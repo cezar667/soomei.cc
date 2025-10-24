@@ -61,9 +61,22 @@ def slug_in_use(db, value: str) -> bool:
             return True
     return False
 
+def sanitize_phone(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    keep_plus = s.startswith("+")
+    import re as _re
+    digits = _re.sub(r"\D", "", s)
+    return ("+" + digits) if keep_plus else digits
+
 # --- onboarding (primeiro acesso com PIN da carta) ---
 @app.get("/onboard/{uid}", response_class=HTMLResponse)
 def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
+    db = db_defaults(load())
+    uid_exists = uid in db.get("cards", {})
+    if not uid_exists and not error:
+        error = "Cartão não encontrado para ativação."
     return HTMLResponse(f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -79,7 +92,7 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
         <label>Nova senha</label><input name='password' type='password' required>
         <label>Slug (opcional)</label><input name='vanity' placeholder='seu-nome' value='{html.escape(vanity)}'>
         <label><input type='checkbox' name='lgpd' required> Concordo com os Termos e LGPD</label>
-        <button class='btn'>Criar conta</button>
+        <button class='btn' {'disabled' if not uid_exists else ''}>Criar conta</button>
       </form>
       <p class='muted'>Já tem conta? <a href='/login?uid={html.escape(uid)}'>Entrar</a></p>
     </main></body></html>
@@ -108,16 +121,24 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     def back(err: str):
         dest = f"/onboard/{uid}?error={urlparse.quote_plus(err)}&email={urlparse.quote_plus(email)}&vanity={urlparse.quote_plus(vanity or '')}"
         return RedirectResponse(dest, status_code=303)
+    if not lgpd:
+        return back("É necessário aceitar os termos")
     if not lgpd: raise HTTPException(400, "É necessário aceitar os termos")
     db = db_defaults(load())
     # validação de slug (se informado) e disponibilidade
     vanity = (vanity or "").strip()
     if vanity:
         if not is_valid_slug(vanity):
+            return back("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.")
+        if slug_in_use(db, vanity):
+            return back("Slug indisponível, tente outro.")
+        if not is_valid_slug(vanity):
             return HTMLResponse("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
         if slug_in_use(db, vanity):
             return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
-    card = db["cards"].get(uid) or {"uid":uid, "status":"pending", "pin":"123456"}
+    card = db["cards"].get(uid)
+    if not card:
+        return back("Cartão não encontrado para ativação.")
     if pin != card.get("pin","123456"):
         return back("PIN incorreto. Verifique e tente novamente.")
     if len(password or "") < 8:
@@ -374,7 +395,7 @@ def edit_card(slug: str, request: Request):
       <form method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
         <label>Nome completo</label><input name='full_name' value='{html.escape(prof.get('full_name',''))}' required>
         <label>Cargo</label><input name='title' value='{html.escape(prof.get('title',''))}'>
-        <label>WhatsApp</label><input name='whatsapp' value='{html.escape(prof.get('whatsapp',''))}'>
+        <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='tel' placeholder='(00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}'>
         <label>Email público</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
         <label>Foto (jpg/png)</label><input type='file' name='photo'>
         <h3>Links</h3>
@@ -386,6 +407,25 @@ def edit_card(slug: str, request: Request):
         <label>URL 3</label><input name='href3' value='{html.escape(links[2].get('href',''))}'>
         <button class='btn'>Salvar</button>
       </form>
+      <script>
+        (function(){
+          const el = document.getElementById('whatsapp');
+          if (!el) return;
+          const digits = s => s.replace(/\D/g,'');
+          function mask(v){
+            const d = digits(v);
+            if (d.length <= 2) return d;
+            if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+            if (d.length <= 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+            return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;
+          }
+          el.addEventListener('input', () => {
+            const cur = el.selectionStart;
+            el.value = mask(el.value);
+          });
+          el.value = mask(el.value);
+        })();
+      </script>
       <p><a class='muted' href='/{html.escape(slug)}'>Voltar</a> · <a class='muted' href='/auth/logout'>Sair</a></p>
     </main></body></html>
     """
@@ -408,7 +448,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     prof.update({
         "full_name": full_name.strip(),
         "title": title.strip(),
-        "whatsapp": whatsapp.strip(),
+        "whatsapp": sanitize_phone(whatsapp),
         "email_public": email_public.strip(),
     })
     links = []
@@ -448,8 +488,10 @@ def root_slug(slug: str, request: Request):
     # redireciona para a URL canônica (vanity) se existir
     if card and card.get("vanity") and slug != card.get("vanity"):
         return RedirectResponse(f"/{html.escape(card.get('vanity'))}", status_code=302)
-    if not card or not card.get("status") or card.get("status") == "pending":
-        return RedirectResponse(f"/onboard/{html.escape(uid or slug)}", status_code=302)
+    if not card:
+        return HTMLResponse("<h1>Cartão não encontrado</h1>", status_code=404)
+    if not card.get("status") or card.get("status") == "pending":
+        return RedirectResponse(f"/onboard/{html.escape(uid)}", status_code=302)
     if card.get("status") == "blocked":
         return RedirectResponse("/blocked", status_code=302)
     owner = card.get("user", "")
