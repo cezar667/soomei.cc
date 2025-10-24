@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
+﻿from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 import os, json, html, qrcode, io, hashlib, time, secrets, re
@@ -11,10 +11,10 @@ DATA = os.path.join(BASE, "data.json")
 WEB  = os.path.join(BASE, "..", "web")
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 
-# Base pública para gerar URLs (QR/vCard). Defina PUBLIC_BASE_URL para ambiente.
+# Base pÃºblica para gerar URLs (QR/vCard). Defina PUBLIC_BASE_URL para ambiente.
 PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "https://soomei.cc").rstrip("/")
 
-# Diretório para uploads simples (servidos por /static)
+# DiretÃ³rio para uploads simples (servidos por /static)
 UPLOADS = os.path.join(WEB, "uploads")
 os.makedirs(UPLOADS, exist_ok=True)
 
@@ -76,13 +76,13 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
     db = db_defaults(load())
     uid_exists = uid in db.get("cards", {})
     if not uid_exists and not error:
-        error = "Cartão não encontrado para ativação."
+        error = "CartÃ£o nÃ£o encontrado para ativaÃ§Ã£o."
     return HTMLResponse(f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css'><title>Ativar cartão</title></head>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Ativar cartÃ£o</title></head>
     <body><main class='wrap'>
-      <h1>Ativar cartão</h1>
+      <h1>Ativar cartÃ£o</h1>
       <p>UID: <b>{html.escape(uid)}</b></p>
       <p style='color:#f88'>{html.escape(error)}</p>
       <form method='post' action='/auth/register'>
@@ -94,7 +94,7 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
         <label><input type='checkbox' name='lgpd' required> Concordo com os Termos e LGPD</label>
         <button class='btn' {'disabled' if not uid_exists else ''}>Criar conta</button>
       </form>
-      <p class='muted'>Já tem conta? <a href='/login?uid={html.escape(uid)}'>Entrar</a></p>
+      <p class='muted'>JÃ¡ tem conta? <a href='/login?uid={html.escape(uid)}'>Entrar</a></p>
     </main></body></html>
     """)
 
@@ -102,7 +102,7 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
 def login(uid: str = "", error: str = ""):
     return HTMLResponse(f"""
     <!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>
-    <link rel='stylesheet' href='/static/card.css'><title>Entrar</title></head>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Entrar</title></head>
     <body><main class='wrap'>
       <h1>Entrar</h1>
       <form method='post' action='/auth/login'>
@@ -122,41 +122,41 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
         dest = f"/onboard/{uid}?error={urlparse.quote_plus(err)}&email={urlparse.quote_plus(email)}&vanity={urlparse.quote_plus(vanity or '')}"
         return RedirectResponse(dest, status_code=303)
     if not lgpd:
-        return back("É necessário aceitar os termos")
-    if not lgpd: raise HTTPException(400, "É necessário aceitar os termos")
+        return back("Ã‰ necessÃ¡rio aceitar os termos")
+    if not lgpd: raise HTTPException(400, "Ã‰ necessÃ¡rio aceitar os termos")
     db = db_defaults(load())
-    # validação de slug (se informado) e disponibilidade
+    # validaÃ§Ã£o de slug (se informado) e disponibilidade
     vanity = (vanity or "").strip()
     if vanity:
         if not is_valid_slug(vanity):
-            return back("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.")
+            return back("Slug invÃ¡lido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.")
         if slug_in_use(db, vanity):
-            return back("Slug indisponível, tente outro.")
+            return back("Slug indisponÃ­vel, tente outro.")
         if not is_valid_slug(vanity):
-            return HTMLResponse("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
+            return HTMLResponse("Slug invÃ¡lido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
         if slug_in_use(db, vanity):
-            return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
+            return HTMLResponse("Slug indisponÃ­vel, tente outro.", status_code=400)
     card = db["cards"].get(uid)
     if not card:
-        return back("Cartão não encontrado para ativação.")
+        return back("CartÃ£o nÃ£o encontrado para ativaÃ§Ã£o.")
     if pin != card.get("pin","123456"):
         return back("PIN incorreto. Verifique e tente novamente.")
     if len(password or "") < 8:
-        return back("Senha muito curta. Use no mínimo 8 caracteres.")
+        return back("Senha muito curta. Use no mÃ­nimo 8 caracteres.")
     if email in db["users"]:
-        return RedirectResponse(f"/login?uid={uid}&error=Conta%20já%20existe", status_code=303)
+        return RedirectResponse(f"/login?uid={uid}&error=Conta%20jÃ¡%20existe", status_code=303)
     # cria user
     db["users"][email] = {"email":email, "pwd":h(password), "email_verified_at":None}
-    # define vanity (se disponível)
+    # define vanity (se disponÃ­vel)
     if False and vanity and any(c.get("vanity")==vanity for c in db["cards"].values()):
-        return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
+        return HTMLResponse("Slug indisponÃ­vel, tente outro.", status_code=400)
     # ativa card
     card.update({"status":"active", "billing_status":"ok", "user":email})
     if vanity: card["vanity"] = vanity
     db["cards"][uid] = card
-    # perfil básico
+    # perfil bÃ¡sico
     db["profiles"][email] = {"full_name":"Seu Nome", "title":"Cargo", "links":[], "whatsapp":"", "pix_key":"", "email_public":""}
-    # token de verificação de email
+    # token de verificaÃ§Ã£o de email
     token = secrets.token_urlsafe(24)
     db["verify_tokens"][token] = {"email": email, "created_at": int(time.time())}
     save(db)
@@ -165,13 +165,13 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     return HTMLResponse(f"""
     <!doctype html><html lang='pt-br'><head>
       <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-      <link rel='stylesheet' href='/static/card.css'><title>Confirme seu email</title>
+      <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Confirme seu email</title>
     </head><body><main class='wrap'>
       <h1>Confirme seu email</h1>
-      <p>Enviamos um link de verificação para <b>{html.escape(email)}</b>.</p>
-      <p class='muted'>Ambiente de desenvolvimento: você pode clicar aqui para confirmar agora:</p>
+      <p>Enviamos um link de verificaÃ§Ã£o para <b>{html.escape(email)}</b>.</p>
+      <p class='muted'>Ambiente de desenvolvimento: vocÃª pode clicar aqui para confirmar agora:</p>
       <p><a class='btn' href='{verify_url}'>Confirmar email</a></p>
-      <p>Depois de confirmar, você será direcionado ao cartão <code>/{html.escape(dest)}</code>.</p>
+      <p>Depois de confirmar, vocÃª serÃ¡ direcionado ao cartÃ£o <code>/{html.escape(dest)}</code>.</p>
     </main></body></html>
     """)
 
@@ -188,7 +188,7 @@ def do_login(uid: str = Form(""), email: str = Form(...), password: str = Form(.
                 token = t; break
         link = f"/auth/verify?token={token}" if token else f"/login?uid={uid}&error=Email%20n%C3%A3o%20verificado"
         return RedirectResponse(link, status_code=303)
-    # redireciona para o primeiro card do usuário ou o UID recebido
+    # redireciona para o primeiro card do usuÃ¡rio ou o UID recebido
     target = None
     if uid and uid in db["cards"]: target = db["cards"][uid].get("vanity", uid)
     else:
@@ -204,12 +204,12 @@ def verify_email(token: str):
     db = db_defaults(load())
     meta = db["verify_tokens"].pop(token, None)
     if not meta:
-        return HTMLResponse("Token inválido ou expirado.", status_code=400)
+        return HTMLResponse("Token invÃ¡lido ou expirado.", status_code=400)
     email = meta.get("email")
     if email in db["users"]:
         db["users"][email]["email_verified_at"] = int(time.time())
         save(db)
-        # encontra primeiro card do usuário
+        # encontra primeiro card do usuÃ¡rio
         dest = None
         for k,v in db["cards"].items():
             if v.get("user")==email:
@@ -218,7 +218,7 @@ def verify_email(token: str):
         resp = RedirectResponse(f"/{dest}", status_code=303)
         resp.set_cookie("session", token_sess, httponly=True, samesite="lax")
         return resp
-    return HTMLResponse("Usuário não encontrado para este token.", status_code=400)
+    return HTMLResponse("UsuÃ¡rio nÃ£o encontrado para este token.", status_code=400)
 
 @app.api_route("/auth/logout", methods=["GET", "POST"])
 def logout(request: Request):
@@ -247,18 +247,18 @@ def profile_complete(prof: dict) -> bool:
 @app.get("/u/{slug}", response_class=HTMLResponse)
 def public_card(slug: str, request: Request):
     db, uid, card = find_card_by_slug(slug)
-    if not card: raise HTTPException(404, "Cartão não encontrado")
+    if not card: raise HTTPException(404, "CartÃ£o nÃ£o encontrado")
     prof = db["profiles"].get(card.get("user",""), {})
     photo = html.escape(prof.get("photo_url","")) if prof else ""
     return visitor_public_card(prof, slug, False)
     links = "".join([f"<li><a href='{html.escape(l.get('href',''))}' target='_blank'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
     banner = ""
     if card.get("billing_status") == "late":
-        banner = "<div class='banner'>Sua associação está em atraso. Regularize para manter seu cartão ativo.</div>"
+        banner = "<div class='banner'>Sua associaÃ§Ã£o estÃ¡ em atraso. Regularize para manter seu cartÃ£o ativo.</div>"
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <title>{html.escape(prof.get('full_name','Card'))} — Soomei</title>
-    <link rel='stylesheet' href='/static/card.css'></head><body>
+    <title>{html.escape(prof.get('full_name','Card'))} â€” Soomei</title>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'></head><body>
     <main class='wrap'>
       {banner}
       <header>
@@ -268,11 +268,11 @@ def public_card(slug: str, request: Request):
       </header>
       <ul class='links'>{links}</ul>
       <div class='actions'><a class='btn' href='/v/{html.escape(slug)}.vcf'>Salvar na Agenda</a></div>
-      <footer><a href='/login' class='muted'>Entrar</a> · <a class='muted' href='/onboard/{html.escape(uid)}'>Criar Conta</a></footer>
+      <footer><a href='/login' class='muted'>Entrar</a> Â· <a class='muted' href='/onboard/{html.escape(uid)}'>Criar Conta</a></footer>
     </main></body></html>"""
     return HTMLResponse(html_doc)
 
-# --- Renderização pública (visitante) aprimorada ---
+# --- RenderizaÃ§Ã£o pÃºblica (visitante) aprimorada ---
 def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     photo = html.escape(prof.get("photo_url","")) if prof else ""
     wa_raw = (prof.get("whatsapp", "") or "").strip()
@@ -294,7 +294,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         if "dribbble" in s: return "dribbble"
         if (href or "").startswith("tel:"): return "phone"
         if (href or "").startswith("mailto:"): return "email"
-        if ("site" in s or "website" in s or "página" in s or "pagina" in s): return "site"
+        if ("site" in s or "website" in s or "pÃ¡gina" in s or "pagina" in s): return "site"
         return "site" if (href or "").startswith("http") else "link"
 
     site_link = None
@@ -312,25 +312,25 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             other_links.append((label, href, plat))
 
     share_url = f"{PUBLIC_BASE}/{slug}"
-    share_text = urlparse.quote_plus(f"Olá! Vim pelo seu cartão: {share_url}")
+    share_text = urlparse.quote_plus(f"OlÃ¡! Vim pelo seu cartÃ£o: {share_url}")
 
     actions = []
     if wa_digits:
-        actions.append(f"<a class='btn action whatsapp' target='_blank' rel='noopener' href='https://wa.me/{wa_digits}?text={share_text}'>💬 WhatsApp</a>")
+        actions.append(f"<a class='btn action whatsapp' target='_blank' rel='noopener' href='https://wa.me/{wa_digits}?text={share_text}'>ðŸ’¬ WhatsApp</a>")
     if site_link:
         _, href, _ = site_link
-        actions.append(f"<a class='btn action website' target='_blank' rel='noopener' href='{html.escape(href)}'>🌐 Site</a>")
+        actions.append(f"<a class='btn action website' target='_blank' rel='noopener' href='{html.escape(href)}'>ðŸŒ Site</a>")
     if insta_link:
         _, href, _ = insta_link
-        actions.append(f"<a class='btn action instagram' target='_blank' rel='noopener' href='{html.escape(href)}'>📸 Instagram</a>")
+        actions.append(f"<a class='btn action instagram' target='_blank' rel='noopener' href='{html.escape(href)}'>ðŸ“¸ Instagram</a>")
     if email_pub:
-        actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>✉️ E-mail</a>")
-    actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>📇 Salvar contato</a>")
-    actions.append("<a class='btn action share' id='shareBtn' href='#'>🔗 Compartilhar</a>")
+        actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>âœ‰ï¸ E-mail</a>")
+    actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>ðŸ“‡ Salvar contato</a>")
+    actions.append("<a class='btn action share' id='shareBtn' href='#'>ðŸ”— Compartilhar</a>")
     if pix_key:
-        actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>⚡ Copiar PIX</a>")
+        actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>âš¡ Copiar PIX</a>")
     if is_owner:
-        actions.append(f"<a class='btn action' href='/edit/{html.escape(slug)}'>✏️ Editar</a>")
+        actions.append(f"<a class='btn action' href='/edit/{html.escape(slug)}'>âœï¸ Editar</a>")
     actions_html = "".join(actions)
 
     # Links em grade
@@ -352,7 +352,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             navigator.share({title: document.title, url: url}).catch(function(){});
           } else if (navigator.clipboard) {
             navigator.clipboard.writeText(url);
-            s.textContent = 'Link copiado'; setTimeout(function(){ s.textContent = '🔗 Compartilhar'; }, 1500);
+            s.textContent = 'Link copiado'; setTimeout(function(){ s.textContent = 'ðŸ”— Compartilhar'; }, 1500);
           }
         });
       }
@@ -363,7 +363,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           var k = p.getAttribute('data-key') || '';
           if (navigator.clipboard) {
             navigator.clipboard.writeText(k);
-            p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = '⚡ Copiar PIX'; }, 1500);
+            p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'âš¡ Copiar PIX'; }, 1500);
           } else { alert('Chave PIX: '+k); }
         });
       }
@@ -373,7 +373,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
 
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css'><title>Cartão — {html.escape(prof.get('full_name',''))}</title></head><body>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>CartÃ£o â€” {html.escape(prof.get('full_name',''))}</title></head><body>
     <main class='wrap'>
       {f"<div class='hero'><img class='cover' src='{photo}' alt='foto de capa'></div>" if photo else ""}
       <section class='card card-public'>
@@ -383,14 +383,14 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         </header>
         <div class='actions-row'>{actions_html}</div>
         <ul class='contact'>
-          {f"<li><a class='contact-link' href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>📱 {wa_raw}</a></li>" if wa_digits else ""}
-          {f"<li><a class='contact-link' href='mailto:{html.escape(email_pub)}'>✉️ {html.escape(email_pub)}</a></li>" if email_pub else ""}
+          {f"<li><a class='contact-link' href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>ðŸ“± {wa_raw}</a></li>" if wa_digits else ""}
+          {f"<li><a class='contact-link' href='mailto:{html.escape(email_pub)}'>âœ‰ï¸ {html.escape(email_pub)}</a></li>" if email_pub else ""}
         </ul>
         {f"<h3 class='section'>Links</h3>" if links_grid_html else ""}
         <ul class='links links-grid'>{links_grid_html}</ul>
       </section>
       {scripts}
-      <footer>{"<a href='/auth/logout' class='muted'>Sair</a> · " if is_owner else ""}<a href='/login' class='muted'>{'Trocar' if is_owner else 'Entrar'}</a></footer>
+      <footer>{"<a href='/auth/logout' class='muted'>Sair</a> Â· " if is_owner else ""}<a href='/login' class='muted'>{'Trocar' if is_owner else 'Entrar'}</a></footer>
     </main></body></html>"""
     return HTMLResponse(html_doc)
 
@@ -403,7 +403,7 @@ def qr(slug: str):
 @app.get("/v/{slug}.vcf")
 def vcard(slug: str):
     db, uid, card = find_card_by_slug(slug)
-    if not card: raise HTTPException(404, "Cartão não encontrado")
+    if not card: raise HTTPException(404, "CartÃ£o nÃ£o encontrado")
     prof = db["profiles"].get(card.get("user",""), {})
     name = prof.get("full_name",""); tel = prof.get("whatsapp",""); email = prof.get("email_public","")
     url = f"{PUBLIC_BASE}/{slug}"
@@ -420,24 +420,24 @@ def slug_check(value: str = ""):
 @app.get("/slug/select/{id}", response_class=HTMLResponse)
 def slug_select(id: str, request: Request):
     db, uid, card = find_card_by_slug(id)
-    if not card: raise HTTPException(404, "Cartão não encontrado")
+    if not card: raise HTTPException(404, "CartÃ£o nÃ£o encontrado")
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:
-        # visitante não pode escolher slug
+        # visitante nÃ£o pode escolher slug
         return RedirectResponse(f"/{html.escape(card.get('vanity', uid))}", status_code=303)
     current = html.escape(card.get("vanity", ""))
     html_doc = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css'><title>Escolher slug</title>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Escolher slug</title>
     <style>
       .hint{{font-size:12px;color:#9aa0a6;margin-top:6px}}
       .ok{{color:#6ad47b}} .bad{{color:#f88}}
     </style>
     </head><body><main class='wrap'>
       <h1>Escolher seu slug</h1>
-      <p>Este será o seu endereço público: <code>/{'{'}slug{'}'}</code></p>
+      <p>Este serÃ¡ o seu endereÃ§o pÃºblico: <code>/{'{'}slug{'}'}</code></p>
       <form method='post' action='/slug/select/{html.escape(uid)}'>
         <label>Slug</label>
         <input name='value' id='slug' value='{current}' placeholder='seu-nome' pattern='[a-z0-9-]{{3,30}}' required>
@@ -454,8 +454,8 @@ def slug_select(id: str, request: Request):
         if(!v){{ msg.textContent=''; return; }}
         const r = await fetch('/slug/check?value='+encodeURIComponent(v));
         const j = await r.json();
-        if(j.available){{ msg.innerHTML = '<span class="ok">Disponível ✓</span>'; }}
-        else{{ msg.innerHTML = '<span class="bad">Indisponível ✗</span>'; }}
+        if(j.available){{ msg.innerHTML = '<span class="ok">DisponÃ­vel âœ“</span>'; }}
+        else{{ msg.innerHTML = '<span class="bad">IndisponÃ­vel âœ—</span>'; }}
       }}
       el.addEventListener('input', () => {{ clearTimeout(t); t=setTimeout(() => check(el.value.trim()), 200); }});
       check(el.value.trim());
@@ -467,16 +467,16 @@ def slug_select(id: str, request: Request):
 @app.post("/slug/select/{id}")
 def slug_select_post(id: str, request: Request, value: str = Form("")):
     db, uid, card = find_card_by_slug(id)
-    if not card: raise HTTPException(404, "Cartão não encontrado")
+    if not card: raise HTTPException(404, "CartÃ£o nÃ£o encontrado")
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:
         return RedirectResponse(f"/{html.escape(card.get('vanity', uid))}", status_code=303)
     value = (value or "").strip()
     if not is_valid_slug(value):
-        return HTMLResponse("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
+        return HTMLResponse("Slug invÃ¡lido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
     if slug_in_use(db_defaults(load()), value):
-        return HTMLResponse("Slug indisponível, tente outro.", status_code=409)
+        return HTMLResponse("Slug indisponÃ­vel, tente outro.", status_code=409)
     # define slug e salva
     db2 = db_defaults(load())
     c = db2["cards"].get(uid, card)
@@ -485,7 +485,7 @@ def slug_select_post(id: str, request: Request, value: str = Form("")):
     save(db2)
     return RedirectResponse(f"/{html.escape(value)}", status_code=303)
 
-# Webhook do TheMembers → governa billing/status
+# Webhook do TheMembers â†’ governa billing/status
 @app.post("/hooks/themembers")
 def hook(payload: dict):
     # payload: {"uid":"abc123","status":"ok|late|delinquent|blocked"}
@@ -499,11 +499,11 @@ def hook(payload: dict):
     db["cards"][uid] = c; save(db)
     return {"ok": True}
 
-# --- Edição do cartão (dono) ---
+# --- EdiÃ§Ã£o do cartÃ£o (dono) ---
 @app.get("/edit/{slug}", response_class=HTMLResponse)
 def edit_card(slug: str, request: Request):
     db, uid, card = find_card_by_slug(slug)
-    if not card: raise HTTPException(404, "Cartão não encontrado")
+    if not card: raise HTTPException(404, "CartÃ£o nÃ£o encontrado")
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner: return RedirectResponse(f"/{slug}", status_code=303)
@@ -513,21 +513,21 @@ def edit_card(slug: str, request: Request):
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css'><title>Editar cartão</title></head>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Editar cartÃ£o</title></head>
     <body><main class='wrap'>
-      <h1>Editar cartão</h1>
+      <h1>Editar cartÃ£o</h1>
       <form method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
         <label>Nome completo</label><input name='full_name' value='{html.escape(prof.get('full_name',''))}' required>
         <label>Cargo</label><input name='title' value='{html.escape(prof.get('title',''))}'>
         <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='tel' placeholder='(00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}'>
-        <label>Email público</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
+        <label>Email pÃºblico</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
         <label>Foto (jpg/png)</label><input type='file' name='photo'>
         <h3>Links</h3>
-        <label>Rótulo 1</label><input name='label1' value='{html.escape(links[0].get('label',''))}'>
+        <label>RÃ³tulo 1</label><input name='label1' value='{html.escape(links[0].get('label',''))}'>
         <label>URL 1</label><input name='href1' value='{html.escape(links[0].get('href',''))}'>
-        <label>Rótulo 2</label><input name='label2' value='{html.escape(links[1].get('label',''))}'>
+        <label>RÃ³tulo 2</label><input name='label2' value='{html.escape(links[1].get('label',''))}'>
         <label>URL 2</label><input name='href2' value='{html.escape(links[1].get('href',''))}'>
-        <label>Rótulo 3</label><input name='label3' value='{html.escape(links[2].get('label',''))}'>
+        <label>RÃ³tulo 3</label><input name='label3' value='{html.escape(links[2].get('label',''))}'>
         <label>URL 3</label><input name='href3' value='{html.escape(links[2].get('href',''))}'>
         <button class='btn'>Salvar</button>
       </form>
@@ -550,7 +550,7 @@ def edit_card(slug: str, request: Request):
           el.value = mask(el.value);
         }})();
       </script>
-      <p><a class='muted' href='/{html.escape(slug)}'>Voltar</a> · <a class='muted' href='/auth/logout'>Sair</a></p>
+      <p><a class='muted' href='/{html.escape(slug)}'>Voltar</a> Â· <a class='muted' href='/auth/logout'>Sair</a></p>
     </main></body></html>
     """
     return HTMLResponse(html_form)
@@ -563,7 +563,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                label3: str = Form(""), href3: str = Form(""),
                photo: UploadFile | None = File(None)):
     db, uid, card = find_card_by_slug(slug)
-    if not card: raise HTTPException(404, "Cartão não encontrado")
+    if not card: raise HTTPException(404, "CartÃ£o nÃ£o encontrado")
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner: return RedirectResponse(f"/{slug}", status_code=303)
@@ -582,7 +582,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     if photo and photo.filename:
         ct = (photo.content_type or "").lower()
         if ct not in ("image/jpeg", "image/png"):
-            return HTMLResponse("Formato de imagem não suportado (use JPEG ou PNG)", status_code=400)
+            return HTMLResponse("Formato de imagem nÃ£o suportado (use JPEG ou PNG)", status_code=400)
         ext = ".jpg" if ct == "image/jpeg" else ".png"
         filename = f"{uid}{ext}"
         dest_path = os.path.join(UPLOADS, filename)
@@ -599,21 +599,21 @@ def blocked():
     return HTMLResponse("""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css'><title>Cartão bloqueado</title></head>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>CartÃ£o bloqueado</title></head>
     <body><main class='wrap'>
-      <h1>Cartão bloqueado</h1>
-      <p>Entre em contato com o suporte para mais informações.</p>
+      <h1>CartÃ£o bloqueado</h1>
+      <p>Entre em contato com o suporte para mais informaÃ§Ãµes.</p>
     </main></body></html>
     """)
 
 @app.get("/{slug}", response_class=HTMLResponse)
 def root_slug(slug: str, request: Request):
     db, uid, card = find_card_by_slug(slug)
-    # redireciona para a URL canônica (vanity) se existir
+    # redireciona para a URL canÃ´nica (vanity) se existir
     if card and card.get("vanity") and slug != card.get("vanity"):
         return RedirectResponse(f"/{html.escape(card.get('vanity'))}", status_code=302)
     if not card:
-        return HTMLResponse("<h1>Cartão não encontrado</h1>", status_code=404)
+        return HTMLResponse("<h1>CartÃ£o nÃ£o encontrado</h1>", status_code=404)
     if not card.get("status") or card.get("status") == "pending":
         return RedirectResponse(f"/onboard/{html.escape(uid)}", status_code=302)
     if card.get("status") == "blocked":
@@ -621,7 +621,7 @@ def root_slug(slug: str, request: Request):
     owner = card.get("user", "")
     prof = load()["profiles"].get(owner, {})
     who = current_user_email(request)
-    # dono sem vanity ainda → página de escolha de slug
+    # dono sem vanity ainda â†’ pÃ¡gina de escolha de slug
     if who == owner and not card.get("vanity"):
         return RedirectResponse(f"/slug/select/{html.escape(uid)}", status_code=302)
     if who == owner and not profile_complete(prof):
@@ -631,10 +631,10 @@ def root_slug(slug: str, request: Request):
             return HTMLResponse("""
             <!doctype html><html lang='pt-br'><head>
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-            <link rel='stylesheet' href='/static/card.css'><title>Em construção</title></head>
+            <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Em construÃ§Ã£o</title></head>
             <body><main class='wrap'>
-              <h1>Cartão digital em construção</h1>
-              <p>O proprietário ainda não finalizou o preenchimento deste cartão.</p>
+              <h1>CartÃ£o digital em construÃ§Ã£o</h1>
+              <p>O proprietÃ¡rio ainda nÃ£o finalizou o preenchimento deste cartÃ£o.</p>
               <p class='muted'><a href='/login'>Sou o dono? Entrar</a></p>
             </main></body></html>
             """)
@@ -644,20 +644,21 @@ def root_slug(slug: str, request: Request):
     photo = html.escape(prof.get("photo_url","")) if prof else ""
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css'><title>Meu cartão</title></head><body>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Meu cartÃ£o</title></head><body>
     <main class='wrap'>
-      <h1>Seu cartão</h1>
+      <h1>Seu cartÃ£o</h1>
       {f"<img src='{photo}' alt='foto' style='width:96px;height:96px;border-radius:50%;object-fit:cover;margin-bottom:12px'>" if photo else ""}
       <p><b>Nome:</b> {html.escape(prof.get('full_name',''))}</p>
       <p><b>Cargo:</b> {html.escape(prof.get('title',''))}</p>
       <p><b>WhatsApp:</b> {html.escape(prof.get('whatsapp',''))}</p>
-      <p><b>Email público:</b> {html.escape(prof.get('email_public',''))}</p>
+      <p><b>Email pÃºblico:</b> {html.escape(prof.get('email_public',''))}</p>
       <h3>Links</h3>
       <ul class='links'>{links}</ul>
       <div class='actions'>
         <a class='btn' href='/edit/{html.escape(slug)}'>Editar</a>
         <a class='btn' href='/v/{html.escape(slug)}.vcf'>Baixar vCard</a>
       </div>
-      <p class='muted'><a href='/auth/logout'>Sair</a> · URL pública: <code>/{html.escape(slug)}</code></p>
+      <p class='muted'><a href='/auth/logout'>Sair</a> Â· URL pÃºblica: <code>/{html.escape(slug)}</code></p>
     </main></body></html>"""
     return HTMLResponse(html_doc)
+
