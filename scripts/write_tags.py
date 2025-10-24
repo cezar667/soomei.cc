@@ -2,7 +2,7 @@
 # pip install nfcpy
 import nfc, ndef, time, csv, sys
 def on_connect(tag, slug):
-    uri = f"https://smei.cc/{slug}"
+    uri = f"https://soomei.cc/{slug}"
     record = ndef.UriRecord(uri)
     message = ndef.Message(record)
     try:
