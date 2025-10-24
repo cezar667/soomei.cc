@@ -270,6 +270,79 @@ def public_card(slug: str, request: Request):
     </main></body></html>"""
     return HTMLResponse(html_doc)
 
+# --- Renderização pública (visitante) aprimorada ---
+def visitor_public_card(prof: dict, slug: str):
+    photo = html.escape(prof.get("photo_url","")) if prof else ""
+    wa_raw = (prof.get("whatsapp", "") or "").strip()
+    wa_digits = "".join([c for c in wa_raw if c.isdigit()])
+    email_pub = (prof.get("email_public", "") or "").strip()
+    pix_key = (prof.get("pix_key", "") or "").strip()
+    links_custom = "".join([f"<li><a class='link' href='{html.escape(l.get('href',''))}' target='_blank' rel='noopener'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
+    share_url = f"{PUBLIC_BASE}/{slug}"
+    share_text = urlparse.quote_plus(f"Olá! Vim pelo seu cartão: {share_url}")
+    actions = []
+    if wa_digits:
+        actions.append(f"<a class='btn action whatsapp' target='_blank' rel='noopener' href='https://wa.me/{wa_digits}?text={share_text}'>💬 WhatsApp</a>")
+    if email_pub:
+        actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>✉️ E-mail</a>")
+    actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>📇 Salvar contato</a>")
+    actions.append("<a class='btn action share' id='shareBtn' href='#'>🔗 Compartilhar</a>")
+    if pix_key:
+        actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>⚡ Copiar PIX</a>")
+    actions_html = "".join(actions)
+    scripts = """
+    <script>
+    (function(){
+      var s = document.getElementById('shareBtn');
+      if (s) {
+        s.addEventListener('click', function(e){
+          e.preventDefault();
+          var url = window.location.href;
+          if (navigator.share) {
+            navigator.share({title: document.title, url: url}).catch(function(){});
+          } else if (navigator.clipboard) {
+            navigator.clipboard.writeText(url);
+            s.textContent = 'Link copiado'; setTimeout(function(){ s.textContent = '🔗 Compartilhar'; }, 1500);
+          }
+        });
+      }
+      var p = document.getElementById('pixBtn');
+      if (p) {
+        p.addEventListener('click', function(e){
+          e.preventDefault();
+          var k = p.getAttribute('data-key') || '';
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(k);
+            p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = '⚡ Copiar PIX'; }, 1500);
+          } else { alert('Chave PIX: '+k); }
+        });
+      }
+    })();
+    </script>
+    """
+    html_doc = f"""<!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Cartão — {html.escape(prof.get('full_name',''))}</title></head><body>
+    <main class='wrap'>
+      <section class='card'>
+        <header class='card-header'>
+          {f"<img class='avatar' src='{photo}' alt='foto'>" if photo else ""}
+          <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
+          <p class='title'>{html.escape(prof.get('title',''))}</p>
+        </header>
+        <div class='actions-grid'>{actions_html}</div>
+        <ul class='info'>
+          {f"<li><span>📱</span><a href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>{wa_raw}</a></li>" if wa_digits else ""}
+          {f"<li><span>✉️</span><a href='mailto:{html.escape(email_pub)}'>{html.escape(email_pub)}</a></li>" if email_pub else ""}
+        </ul>
+        <h3 class='section'>Links</h3>
+        <ul class='links'>{links_custom}</ul>
+      </section>
+      {scripts}
+      <footer><a href='/login' class='muted'>Entrar</a></footer>
+    </main></body></html>"""
+    return HTMLResponse(html_doc)
+
 @app.get("/q/{slug}.png")
 def qr(slug: str):
     img = qrcode.make(f"{PUBLIC_BASE}/{slug}")
@@ -514,7 +587,7 @@ def root_slug(slug: str, request: Request):
               <p class='muted'><a href='/login'>Sou o dono? Entrar</a></p>
             </main></body></html>
             """)
-        return public_card(slug, request)
+        return visitor_public_card(prof, slug)
     links = "".join([f"<li><a href='{html.escape(l.get('href',''))}' target='_blank'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
     photo = html.escape(prof.get("photo_url","")) if prof else ""
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
