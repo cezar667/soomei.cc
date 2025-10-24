@@ -220,7 +220,7 @@ def verify_email(token: str):
         return resp
     return HTMLResponse("Usuário não encontrado para este token.", status_code=400)
 
-@app.post("/auth/logout")
+@app.api_route("/auth/logout", methods=["GET", "POST"])
 def logout(request: Request):
     db = db_defaults(load())
     token = request.cookies.get("session")
@@ -408,23 +408,23 @@ def edit_card(slug: str, request: Request):
         <button class='btn'>Salvar</button>
       </form>
       <script>
-        (function(){
+        (function(){{
           const el = document.getElementById('whatsapp');
           if (!el) return;
           const digits = s => s.replace(/\D/g,'');
-          function mask(v){
+          function mask(v){{
             const d = digits(v);
             if (d.length <= 2) return d;
-            if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`;
-            if (d.length <= 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
-            return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;
-          }
-          el.addEventListener('input', () => {
+            if (d.length <= 6) return `(${{d.slice(0,2)}}) ${{d.slice(2)}}`;
+            if (d.length <= 10) return `(${{d.slice(0,2)}}) ${{d.slice(2,6)}}-${{d.slice(6)}}`;
+            return `(${{d.slice(0,2)}}) ${{d.slice(2,7)}}-${{d.slice(7,11)}}`;
+          }}
+          el.addEventListener('input', () => {{
             const cur = el.selectionStart;
             el.value = mask(el.value);
-          });
+          }});
           el.value = mask(el.value);
-        })();
+        }})();
       </script>
       <p><a class='muted' href='/{html.escape(slug)}'>Voltar</a> · <a class='muted' href='/auth/logout'>Sair</a></p>
     </main></body></html>
