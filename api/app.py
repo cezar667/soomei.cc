@@ -271,7 +271,7 @@ def public_card(slug: str, request: Request):
     return HTMLResponse(html_doc)
 
 # --- Renderização pública (visitante) aprimorada ---
-def visitor_public_card(prof: dict, slug: str):
+def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     photo = html.escape(prof.get("photo_url","")) if prof else ""
     wa_raw = (prof.get("whatsapp", "") or "").strip()
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
@@ -327,6 +327,8 @@ def visitor_public_card(prof: dict, slug: str):
     actions.append("<a class='btn action share' id='shareBtn' href='#'>🔗 Compartilhar</a>")
     if pix_key:
         actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>⚡ Copiar PIX</a>")
+    if is_owner:
+        actions.append(f"<a class='btn action' href='/edit/{html.escape(slug)}'>✏️ Editar</a>")
     actions_html = "".join(actions)
 
     # Links em grade
@@ -386,7 +388,7 @@ def visitor_public_card(prof: dict, slug: str):
         <ul class='links links-grid'>{links_grid_html}</ul>
       </section>
       {scripts}
-      <footer><a href='/login' class='muted'>Entrar</a></footer>
+      <footer>{"<a href='/auth/logout' class='muted'>Sair</a> · " if is_owner else ""}<a href='/login' class='muted'>{'Trocar' if is_owner else 'Entrar'}</a></footer>
     </main></body></html>"""
     return HTMLResponse(html_doc)
 
