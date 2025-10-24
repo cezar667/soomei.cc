@@ -22,3 +22,33 @@ h1{margin:0 0 8px;font-size:28px}.bio{color:#9aa0a6;margin:0 0 16px}
 footer{margin-top:24px;color:#9aa0a6;font-size:12px}.muted{color:#9aa0a6}
 .banner{background:#2a2211;border:1px solid #4d3b12;padding:8px 12px;border-radius:10px;margin-bottom:12px;color:#e5c17a}
 form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea}
+
+/* ---- Public card enhanced styles (appended) ---- */
+.wrap{max-width:720px;margin:32px auto;padding:16px}
+.card-public{margin-top:12px}
+.hero{border-radius:16px;overflow:hidden;border:1px solid #242427}
+.cover{display:block;width:100%;height:auto;max-height:420px;object-fit:cover}
+.actions-row{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.actions-row .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid #2a2a2a;background:#eaeaea;color:#0b0b0c;padding:10px 12px;border-radius:999px}
+.actions-row .btn:active{transform:scale(.98)}
+.contact{list-style:none;padding:0;margin:10px 0}
+.contact li{margin:4px 0}
+.contact-link{color:#8ab4f8;text-decoration:none}
+.contact-link:hover{text-decoration:underline}
+.links-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.links-grid li{margin:0}
+.links-grid a{display:block;text-align:center;padding:12px 14px;border-radius:12px;border:1px solid #2a2a2a}
+.action.whatsapp{background:#25D366;color:#0b0b0c;border-color:#21bf5b}
+.action.instagram{background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border-color:#a61c6d}
+.action.website{background:#cfd8dc;color:#0b0b0c;border-color:#b0bec5}
+.action.email{background:#b39ddb;color:#0b0b0c;border-color:#9575cd}
+.action.vcard{background:#c8e6c9;color:#0b0b0c;border-color:#a5d6a7}
+.action.share{background:#90caf9;color:#0b0b0c;border-color:#64b5f6}
+.action.pix{background:#b2dfdb;color:#0b0b0c;border-color:#80cbc4}
+
+@media (max-width: 520px){
+  .wrap{padding:12px}
+  .cover{max-height:300px}
+  .name{font-size:24px}
+  .links-grid{grid-template-columns:1fr}
+}

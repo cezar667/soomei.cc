@@ -371,16 +371,16 @@ def visitor_public_card(prof: dict, slug: str):
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
     <link rel='stylesheet' href='/static/card.css'><title>Cartão — {html.escape(prof.get('full_name',''))}</title></head><body>
     <main class='wrap'>
-      <section class='card'>
+      {f"<div class='hero'><img class='cover' src='{photo}' alt='foto de capa'></div>" if photo else ""}
+      <section class='card card-public'>
         <header class='card-header'>
-          {f"<img class='avatar' src='{photo}' alt='foto'>" if photo else ""}
           <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
           <p class='title'>{html.escape(prof.get('title',''))}</p>
         </header>
-        <div class='actions-grid'>{actions_html}</div>
-        <ul class='info'>
-          {f"<li><span>📱</span><a href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>{wa_raw}</a></li>" if wa_digits else ""}
-          {f"<li><span>✉️</span><a href='mailto:{html.escape(email_pub)}'>{html.escape(email_pub)}</a></li>" if email_pub else ""}
+        <div class='actions-row'>{actions_html}</div>
+        <ul class='contact'>
+          {f"<li><a class='contact-link' href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>📱 {wa_raw}</a></li>" if wa_digits else ""}
+          {f"<li><a class='contact-link' href='mailto:{html.escape(email_pub)}'>✉️ {html.escape(email_pub)}</a></li>" if email_pub else ""}
         </ul>
         {f"<h3 class='section'>Links</h3>" if links_grid_html else ""}
         <ul class='links links-grid'>{links_grid_html}</ul>
