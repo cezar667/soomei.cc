@@ -35,7 +35,7 @@ export default {
       if (!card.status || card.status === "pending") {
         return Response.redirect(`${apiBase}/onboard/${uid}`, 302);
       }
-      const dest = card.vanity ? `/u/${card.vanity}` : `/u/${uid}`;
+      const dest = card.vanity ? `/${card.vanity}` : `/${uid}`;
       return Response.redirect(`${apiBase}${dest}`, 302);
     }
     return new Response("not found", { status: 404 });

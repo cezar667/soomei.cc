@@ -45,8 +45,8 @@ uvicorn api.app:app --reload --port 8000
 ```
 
 Depois, acesse:
+- `http://localhost:8000/abc123` (rota do cartão/NFC)
 - `http://localhost:8000/onboard/abc123`
-- `http://localhost:8000/u/abc123`
 - `http://localhost:8000/q/abc123.png`
 - `http://localhost:8000/v/abc123.vcf`
 
