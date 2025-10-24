@@ -277,12 +277,50 @@ def visitor_public_card(prof: dict, slug: str):
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
     email_pub = (prof.get("email_public", "") or "").strip()
     pix_key = (prof.get("pix_key", "") or "").strip()
-    links_custom = "".join([f"<li><a class='link' href='{html.escape(l.get('href',''))}' target='_blank' rel='noopener'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
+    links_list = prof.get("links", []) or []
+
+    def platform_for(label: str, href: str) -> str:
+        s = f"{(label or '').lower()} {(href or '').lower()}"
+        if "instagram" in s: return "instagram"
+        if "linkedin" in s: return "linkedin"
+        if "facebook" in s or "fb.com" in s: return "facebook"
+        if "youtube" in s or "youtu.be" in s: return "youtube"
+        if "tiktok" in s: return "tiktok"
+        if "twitter" in s or "x.com" in s: return "twitter"
+        if "github" in s: return "github"
+        if "behance" in s: return "behance"
+        if "dribbble" in s: return "dribbble"
+        if (href or "").startswith("tel:"): return "phone"
+        if (href or "").startswith("mailto:"): return "email"
+        if ("site" in s or "website" in s or "página" in s or "pagina" in s): return "site"
+        return "site" if (href or "").startswith("http") else "link"
+
+    site_link = None
+    insta_link = None
+    other_links = []
+    for item in links_list:
+        label = item.get("label", "")
+        href = item.get("href", "")
+        plat = platform_for(label, href)
+        if plat == "instagram" and insta_link is None:
+            insta_link = (label, href, plat)
+        elif plat == "site" and site_link is None:
+            site_link = (label, href, plat)
+        else:
+            other_links.append((label, href, plat))
+
     share_url = f"{PUBLIC_BASE}/{slug}"
     share_text = urlparse.quote_plus(f"Olá! Vim pelo seu cartão: {share_url}")
+
     actions = []
     if wa_digits:
         actions.append(f"<a class='btn action whatsapp' target='_blank' rel='noopener' href='https://wa.me/{wa_digits}?text={share_text}'>💬 WhatsApp</a>")
+    if site_link:
+        _, href, _ = site_link
+        actions.append(f"<a class='btn action website' target='_blank' rel='noopener' href='{html.escape(href)}'>🌐 Site</a>")
+    if insta_link:
+        _, href, _ = insta_link
+        actions.append(f"<a class='btn action instagram' target='_blank' rel='noopener' href='{html.escape(href)}'>📸 Instagram</a>")
     if email_pub:
         actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>✉️ E-mail</a>")
     actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>📇 Salvar contato</a>")
@@ -290,6 +328,14 @@ def visitor_public_card(prof: dict, slug: str):
     if pix_key:
         actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>⚡ Copiar PIX</a>")
     actions_html = "".join(actions)
+
+    # Links em grade
+    link_items = []
+    for label, href, plat in other_links:
+        cls = f"brand-{plat}"
+        link_items.append(f"<li><a class='link {cls}' href='{html.escape(href)}' target='_blank' rel='noopener'>{html.escape(label or plat.title())}</a></li>")
+    links_grid_html = "".join(link_items)
+
     scripts = """
     <script>
     (function(){
@@ -320,6 +366,7 @@ def visitor_public_card(prof: dict, slug: str):
     })();
     </script>
     """
+
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
     <link rel='stylesheet' href='/static/card.css'><title>Cartão — {html.escape(prof.get('full_name',''))}</title></head><body>
@@ -335,8 +382,8 @@ def visitor_public_card(prof: dict, slug: str):
           {f"<li><span>📱</span><a href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>{wa_raw}</a></li>" if wa_digits else ""}
           {f"<li><span>✉️</span><a href='mailto:{html.escape(email_pub)}'>{html.escape(email_pub)}</a></li>" if email_pub else ""}
         </ul>
-        <h3 class='section'>Links</h3>
-        <ul class='links'>{links_custom}</ul>
+        {f"<h3 class='section'>Links</h3>" if links_grid_html else ""}
+        <ul class='links links-grid'>{links_grid_html}</ul>
       </section>
       {scripts}
       <footer><a href='/login' class='muted'>Entrar</a></footer>
