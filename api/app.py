@@ -265,6 +265,74 @@ def slug_check(value: str = ""):
     available = is_valid_slug(value) and (not slug_in_use(db, value))
     return {"available": available}
 
+@app.get("/slug/select/{id}", response_class=HTMLResponse)
+def slug_select(id: str, request: Request):
+    db, uid, card = find_card_by_slug(id)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    owner = card.get("user", "")
+    who = current_user_email(request)
+    if who != owner:
+        # visitante não pode escolher slug
+        return RedirectResponse(f"/{html.escape(card.get('vanity', uid))}", status_code=303)
+    current = html.escape(card.get("vanity", ""))
+    html_doc = f"""
+    <!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Escolher slug</title>
+    <style>
+      .hint{{font-size:12px;color:#9aa0a6;margin-top:6px}}
+      .ok{{color:#6ad47b}} .bad{{color:#f88}}
+    </style>
+    </head><body><main class='wrap'>
+      <h1>Escolher seu slug</h1>
+      <p>Este será o seu endereço público: <code>/{'{'}slug{'}'}</code></p>
+      <form method='post' action='/slug/select/{html.escape(uid)}'>
+        <label>Slug</label>
+        <input name='value' id='slug' value='{current}' placeholder='seu-nome' pattern='[a-z0-9-]{{3,30}}' required>
+        <div id='msg' class='hint'></div>
+        <button class='btn'>Salvar slug</button>
+      </form>
+      <p class='muted'><a href='/{html.escape(card.get('vanity', uid))}'>Voltar</a></p>
+    </main>
+    <script>
+      const el = document.getElementById('slug');
+      const msg = document.getElementById('msg');
+      let t;
+      async function check(v){{
+        if(!v){{ msg.textContent=''; return; }}
+        const r = await fetch('/slug/check?value='+encodeURIComponent(v));
+        const j = await r.json();
+        if(j.available){{ msg.innerHTML = '<span class="ok">Disponível ✓</span>'; }}
+        else{{ msg.innerHTML = '<span class="bad">Indisponível ✗</span>'; }}
+      }}
+      el.addEventListener('input', () => {{ clearTimeout(t); t=setTimeout(() => check(el.value.trim()), 200); }});
+      check(el.value.trim());
+    </script>
+    </body></html>
+    """
+    return HTMLResponse(html_doc)
+
+@app.post("/slug/select/{id}")
+def slug_select_post(id: str, request: Request, value: str = Form("")):
+    db, uid, card = find_card_by_slug(id)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    owner = card.get("user", "")
+    who = current_user_email(request)
+    if who != owner:
+        return RedirectResponse(f"/{html.escape(card.get('vanity', uid))}", status_code=303)
+    value = (value or "").strip()
+    if not is_valid_slug(value):
+        return HTMLResponse("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
+    if slug_in_use(db_defaults(load()), value):
+        return HTMLResponse("Slug indisponível, tente outro.", status_code=409)
+    # define slug e salva
+    db2 = db_defaults(load())
+    c = db2["cards"].get(uid, card)
+    c["vanity"] = value
+    db2["cards"][uid] = c
+    save(db2)
+    return RedirectResponse(f"/{html.escape(value)}", status_code=303)
+
 # Webhook do TheMembers → governa billing/status
 @app.post("/hooks/themembers")
 def hook(payload: dict):
@@ -380,6 +448,9 @@ def root_slug(slug: str, request: Request):
     owner = card.get("user", "")
     prof = load()["profiles"].get(owner, {})
     who = current_user_email(request)
+    # dono sem vanity ainda → página de escolha de slug
+    if who == owner and not card.get("vanity"):
+        return RedirectResponse(f"/slug/select/{html.escape(uid)}", status_code=302)
     if who == owner and not profile_complete(prof):
         return RedirectResponse(f"/edit/{html.escape(slug)}", status_code=302)
     if who != owner:
