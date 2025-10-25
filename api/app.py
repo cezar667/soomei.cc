@@ -1,8 +1,8 @@
 ﻿from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import os, json, html, qrcode, io, hashlib, time, secrets, re
+import os, json, html, qrcode, io, hashlib, time, secrets, re, base64, unicodedata
 import urllib.parse as urlparse
 
 app = FastAPI(title="Soomei Card API v2")
@@ -71,6 +71,58 @@ def slug_in_use(db, value: str) -> bool:
         if c.get("vanity") == value:
             return True
     return False
+
+# --- PIX (BR Code) helpers ---
+def _tlv(_id: str, value: str) -> str:
+    l = f"{len(value):02d}"
+    return f"{_id}{l}{value}"
+
+
+def _crc16_ccitt(data: str) -> str:
+    # CRC16/CCITT-FALSE (poly 0x1021, init 0xFFFF)
+    crc = 0xFFFF
+    for ch in data:
+        crc ^= (ord(ch) << 8) & 0xFFFF
+        for _ in range(8):
+            if (crc & 0x8000):
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return f"{crc:04X}"
+
+
+def _norm_text(s: str, maxlen: int) -> str:
+    t = unicodedata.normalize("NFKD", (s or "")).encode("ascii", "ignore").decode("ascii")
+    t = re.sub(r"[^A-Za-z0-9 \-\.]+", "", t).strip() or "NA"
+    return t[:maxlen].upper()
+
+
+def build_pix_emv(pix_key: str, amount: float | None, merchant_name: str, merchant_city: str, txid: str = "***") -> str:
+    # Payload Format Indicator (01)
+    payload = _tlv("00", "01")
+    # Point of Initiation Method: 12 dinamico quando tem valor; 11 estatico sem valor
+    poi = "12" if (amount or 0) > 0 else "11"
+    payload += _tlv("01", poi)
+    # Merchant Account Information (26)
+    mai = _tlv("00", "br.gov.bcb.pix") + _tlv("01", (pix_key or "").strip())
+    payload += _tlv("26", mai)
+    # MCC (52), Moeda (53)
+    payload += _tlv("52", "0000")
+    payload += _tlv("53", "986")
+    # Valor (54) opcional
+    if (amount or 0) > 0:
+        payload += _tlv("54", f"{amount:.2f}")
+    # Pais (58), Nome (59), Cidade (60)
+    payload += _tlv("58", "BR")
+    payload += _tlv("59", _norm_text(merchant_name, 25))
+    payload += _tlv("60", _norm_text(merchant_city, 15))
+    # Dados adicionais (62): txid (05)
+    add = _tlv("05", (txid or "***")[:25])
+    payload += _tlv("62", add)
+    # CRC16 (63)
+    to_crc = payload + "6304"
+    crc = _crc16_ccitt(to_crc)
+    return to_crc + crc
 
 
 def sanitize_phone(raw: str) -> str:
@@ -166,7 +218,7 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
         <label>PIN da carta</label><input name='pin' type='password' required>
         <label>Nova senha</label><input name='password' type='password' required>
         <label>Slug (opcional)</label><input id='vanityInput' name='vanity' placeholder='seu-nome' pattern='[a-z0-9-]{3,30}' value='{html.escape(vanity)}'>
-        <div id='slugMsg' class='hint'></div>
+        <div id='slugMsg' class='hint'>Use 3-30 caracteres, todos minusculos, sem caracteres especiais</div>
         <div class='terms-row'>
           <label class='terms-label'>
             <input class='nice-check' type='checkbox' name='lgpd' required>
@@ -254,7 +306,7 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
             clearTimeout(t2);
             var v = (slugEl.value||'').trim();
             if (!v) {{ slugMsg.innerHTML=''; return; }}
-            if (!/^[a-z0-9-]{3,30}$/.test(v)) {{ setMsg(slugMsg, false, 'Use 3-30 caracteres [a-z0-9-]'); return; }}
+            if (!/^[a-z0-9-]{3,30}$/.test(v)) {{ setMsg(slugMsg, false, 'Use 3-30 caracteres, todos minusculos, sem caracteres especiais'); return; }}
             t2 = setTimeout(async function(){{
               try {{
                 var r = await fetch('/slug/check?value='+encodeURIComponent(v));
@@ -369,7 +421,7 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     if vanity:
         card["vanity"] = vanity
     db["cards"][uid] = card
-    db["profiles"][email] = {"full_name": "Seu Nome", "title": "Cargo | Empresa", "links": [], "whatsapp": "", "pix_key": "", "email_public": ""}
+    db["profiles"][email] = {"full_name": "Seu Nome", "title": "Cargo | Empresa", "links": [], "whatsapp": "", "pix_key": "", "email_public": "", "site_url": ""}
     token = secrets.token_urlsafe(24)
     db["verify_tokens"][token] = {"email": email, "created_at": int(time.time())}
     save(db)
@@ -388,6 +440,12 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     </main></body></html>
     """
     return HTMLResponse(_brand_footer_inject(html_doc))
+
+
+# Silencia requisições de debug do Chrome (evita 404 ruidoso em logs)
+@app.get("/.well-known/appspecific/com.chrome.devtools.json")
+def chrome_devtools_wellknown():
+    return PlainTextResponse("", status_code=204)
 
 
 @app.post("/auth/login")
@@ -458,6 +516,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     wa_raw = (prof.get("whatsapp", "") or "").strip()
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
     email_pub = (prof.get("email_public", "") or "").strip()
+    address_text = (prof.get("address", "") or "").strip() if prof else ""
     pix_key = (prof.get("pix_key", "") or "").strip()
     links_list = prof.get("links", []) or []
 
@@ -475,7 +534,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         if (href or "").startswith("tel:"): return "phone"
         if (href or "").startswith("mailto:"): return "email"
         if ("site" in s or "website" in s or "pagina" in s): return "site"
-        return "site" if (href or "").startswith("http") else "link"
+        return "link"
 
     site_link = None
     insta_link = None
@@ -484,6 +543,11 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         label = item.get("label", "")
         href = item.get("href", "")
         plat = platform(label, href)
+        # Avoid duplicate maps icon: if address in profile, skip map links in grid
+        if address_text and href:
+            _hl = (href or "").lower()
+            if ("maps.google" in _hl) or ("goo.gl/maps" in _hl) or ("maps.app.goo.gl" in _hl) or ("waze.com" in _hl) or ("maps.apple.com" in _hl):
+                continue
         if plat == "instagram" and insta_link is None:
             insta_link = (label, href)
         elif plat == "site" and site_link is None:
@@ -492,7 +556,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             other_links.append((label, href, plat))
 
     share_url = f"{PUBLIC_BASE}/{slug}"
-    share_text = urlparse.quote_plus(f"Ola! Vim pelo seu cartao: {share_url}")
+    share_text = urlparse.quote_plus(f"Ola! Vim pelo seu cartao da Soomei.")
 
     actions = []
     if wa_digits:
@@ -505,7 +569,6 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         actions.append(f"<a class='btn action instagram' target='_blank' rel='noopener' href='{html.escape(href)}'>Instagram</a>")
     if email_pub:
         actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>E-mail</a>")
-    actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>Salvar contato</a>")
     actions.append("<a class='btn action share' id='shareBtn' href='#'>Compartilhar</a>")
     if pix_key:
         actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>Copiar PIX</a>")
@@ -519,8 +582,47 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     link_items = []
     for label, href, plat in other_links:
         cls = f"brand-{plat}"
-        link_items.append(f"<li><a class='link {cls}' href='{html.escape(href)}' target='_blank' rel='noopener'>{html.escape(label or plat.title())}</a></li>")
+        icon = ""
+        if plat == "facebook":
+            icon = (
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
+                "<path fill='currentColor' d='M22 12A10 10 0 1 0 10.5 21.9v-6.9H7.9v-3h2.6V9.2c0-2.6 1.6-4 3.9-4 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 3h-2.4v6.9A10 10 0 0 0 22 12z'/>"
+                "</svg> "
+            )
+        elif plat == "linkedin":
+            icon = (
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
+                "<path fill='currentColor' d='M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z'/>"
+                "</svg> "
+            )
+        text = html.escape(label or plat.title())
+        link_items.append(
+            f"<li><a class='link {cls}' href='{html.escape(href)}' target='_blank' rel='noopener'>{icon}{text}</a></li>"
+        )
     links_grid_html = "".join(link_items)
+    # Quick Instagram action (if present)
+    insta_quick = ""
+    if insta_link:
+        lbl, ihref = insta_link
+        raw = (ihref or lbl or "").strip()
+        if raw:
+            url = raw
+            rlow = raw.lower()
+            if not (rlow.startswith("http://") or rlow.startswith("https://")):
+                if "instagram.com" in rlow:
+                    url = ("https://" + raw.lstrip("/")).replace("http://", "https://")
+                else:
+                    url = "https://instagram.com/" + raw.lstrip("@")
+            insta_quick = (
+                "<div class='qa-item'>"
+                + f"<a class='icon-btn brand-instagram' href='{html.escape(url)}' target='_blank' rel='noopener' title='Instagram' aria-label='Instagram'>"
+                + "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>"
+                + "<path fill='currentColor' d='M7 2C4.24 2 2 4.24 2 7v10c0 2.76 2.24 5 5 5h10c2.76 0 5-2.24 5-5V7c0-2.76-2.24-5-5-5H7zm0 2h10c1.66 0 3 1.34 3 3v10c0 1.66-1.34 3-3 3H7c-1.66 0-3-1.34-3-3V7c0-1.66 1.34-3 3-3zm11 1.5a1 1 0 100 2 1 1 0 000-2zM12 7a5 5 0 100 10 5 5 0 000-10z'/>"
+                + "</svg>"
+                + "</a>"
+                + "<div class='qa-label'>Instagram</div>"
+                + "</div>"
+            )
 
     scripts = """
     <script>
@@ -549,6 +651,17 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           } else { alert('Chave PIX: '+k); }
         });
       }
+      var p2 = document.getElementById('payPixBtn');
+      if (p2) {
+        p2.addEventListener('click', function(e){
+          e.preventDefault();
+          var k = p2.getAttribute('data-key') || '';
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(k);
+            p2.textContent = 'PIX copiado'; setTimeout(function(){ p2.textContent = 'Pagamento Pix'; }, 1500);
+          } else { alert('Chave PIX: '+k); }
+        });
+      }
     })();
     </script>
     """
@@ -558,6 +671,91 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
         theme_base = "#000000"
     bg_hex = theme_base + "30"
+    # vCard offline QR pré-gerado para subseção inline
+    try:
+        off_full_name = (prof.get("full_name", "") or slug) if prof else slug
+        off_title = prof.get("title", "") if prof else ""
+        off_email = (prof.get("email_public", "") or "") if prof else ""
+        off_wa_raw = (prof.get("whatsapp", "") or "") if prof else ""
+        off_wa_digits = "".join([c for c in off_wa_raw if c.isdigit()])
+        off_share_url = f"{PUBLIC_BASE}/{slug}"
+        # PHOTO inline (base64, downscaled for QR). Em offline, omite em caso de falha.
+        photo_line_off = ""
+        off_photo_url = (prof.get("photo_url", "") or "").strip() if prof else ""
+        if off_photo_url:
+            try:
+                fname = os.path.basename(off_photo_url.split("?", 1)[0])
+                local_path = os.path.join(UPLOADS, fname)
+                from PIL import Image  # type: ignore
+                im = Image.open(local_path).convert("RGB")
+                im.thumbnail((160,160))
+                _tmp = io.BytesIO(); im.save(_tmp, format='JPEG', quality=70); _tmp.seek(0)
+                raw = _tmp.read()
+                if raw:
+                    data_b64 = base64.b64encode(raw).decode('ascii')
+                    chunks = [data_b64[i:i+76] for i in range(0, len(data_b64), 76)]
+                    folded = "\r\n ".join(chunks)
+                    photo_line_off = f"PHOTO;ENCODING=b;TYPE=JPEG:{folded}"
+            except Exception:
+                photo_line_off = ""
+
+        def _build_vcard(include_photo: bool) -> str:
+            parts = [
+                "BEGIN:VCARD",
+                "VERSION:3.0",
+                f"FN:{off_full_name}",
+            ]
+            if include_photo and photo_line_off:
+                parts.append(photo_line_off)
+            if off_title:
+                parts.append(f"TITLE:{off_title}")
+            if off_wa_digits:
+                parts.append(f"TEL;TYPE=CELL:{off_wa_digits}")
+            if off_email:
+                parts.append(f"EMAIL:{off_email}")
+            parts.append(f"URL:{off_share_url}")
+            parts.append("END:VCARD")
+            return "\r\n".join(parts)
+
+        def _qr_data_url(payload: str) -> str:
+            buf = io.BytesIO()
+            qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=4)
+            qr.add_data(payload)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+            img.save(buf, format='PNG')
+            buf.seek(0)
+            return "data:image/png;base64," + base64.b64encode(buf.read()).decode('ascii')
+
+        # Tenta com foto; se falhar por tamanho, tenta sem foto; depois fallback para SVG do basico
+        try:
+            _vcard1 = _build_vcard(include_photo=True)
+            offline_data_url = _qr_data_url(_vcard1)
+        except Exception:
+            try:
+                _vcard2 = _build_vcard(include_photo=False)
+                offline_data_url = _qr_data_url(_vcard2)
+            except Exception:
+                try:
+                    import qrcode.image.svg as qsvg  # type: ignore
+                    _buf2 = io.BytesIO()
+                    qrcode.make(_build_vcard(include_photo=False), image_factory=qsvg.SvgImage).save(_buf2)
+                    offline_data_url = "data:image/svg+xml;base64," + base64.b64encode(_buf2.getvalue()).decode('ascii')
+                except Exception:
+                    offline_data_url = ""
+    except Exception:
+        offline_data_url = ""
+    # Normaliza URL do site para garantir esquema (https://) quando ausente
+    site_href = (prof.get("site_url", "") or "").strip()
+    if site_href and not (site_href.startswith("http://") or site_href.startswith("https://") or site_href.startswith("mailto:") or site_href.startswith("tel:")):
+        site_href = "https://" + site_href.lstrip("/")
+    # Endereço (opcional) para link do Maps
+    address_text = (prof.get("address", "") or "").strip() if prof else ""
+    if address_text:
+        maps_q = urlparse.quote(address_text, safe="")
+        maps_href = f"https://www.google.com/maps/search/?api=1&query={maps_q}"
+    else:
+        maps_href = ""
 
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -570,14 +768,122 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
           <p class='title'>{html.escape(prof.get('title',''))}</p>
         </header>
-        <div class='actions-row'>{actions_html}</div>
-        <ul class='contact'>
-          {f"<li><a class='contact-link' href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>{wa_raw}</a></li>" if wa_digits else ""}
-          {f"<li><a class='contact-link' href='mailto:{html.escape(email_pub)}'>{html.escape(email_pub)}</a></li>" if email_pub else ""}
-        </ul>
-        {f"<h3 class='section'>Links</h3>" if links_grid_html else ""}
-        <ul class='links links-grid'>{links_grid_html}
-        </ul>
+          <div class='section-divider'></div>
+          <div class='quick-actions{ ' qa4' if insta_quick else ''}'>
+          <div class='qa-item'>
+            {(
+              f"""
+              <a class='icon-btn brand-wa' href='https://wa.me/{wa_digits}?text={share_text}' target='_blank' rel='noopener' title='WhatsApp' aria-label='WhatsApp'>
+                <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>
+                  <path fill='currentColor' d='M20.52 3.48A11.86 11.86 0 0 0 12.02 0C5.39 0 .04 5.35.04 11.98c0 2.11.56 4.16 1.62 5.98L0 24l6.2-1.62a11.96 11.96 0 0 0 5.82 1.49h0c6.63 0 12.02-5.35 12.02-11.98 0-3.21-1.25-6.23-3.52-8.41ZM12.02 22.1h0c-1.9 0-3.76-.5-5.39-1.44l-.39-.23-3.68.96.98-3.59-.25-.37A9.77 9.77 0 0 1 2 11.98C2 6.48 6.52 2 12.02 2c2.62 0 5.08 1.02 6.93 2.86A9.71 9.71 0 0 1 22.06 12c0 5.5-4.52 10.1-10.04 10.1Zm5.53-7.49c-.3-.15-1.78-.88-2.05-.98-.27-.1-.47-.15-.68.15-.2.3-.78.98-.96 1.18-.18.2-.36.22-.66.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.13-.13.3-.34.45-.51.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.08-.15-.68-1.63-.93-2.23-.25-.6-.5-.52-.68-.53l-.58-.01c-.2 0-.52.08-.8.37-.27.3-1.05 1.03-1.05 2.5s1.07 2.9 1.23 3.1c.15.2 2.1 3.2 5.07 4.48.71.31 1.27.5 1.7.64.72.23 1.37.2 1.88.12.57-.08 1.78-.73 2.03-1.44.25-.7.25-1.3.18-1.43-.07-.13-.27-.2-.57-.35Z'/>
+                </svg>
+              </a>
+              <div class='qa-label'>WhatsApp</div>
+              """
+            ) if wa_digits else (
+              """
+              <div class='icon-btn disabled' title='WhatsApp indisponvel' aria-disabled='true'>
+                <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>
+                  <path fill='currentColor' d='M20.52 3.48A11.86 11.86 0 0 0 12.02 0C5.39 0 .04 5.35.04 11.98c0 2.11.56 4.16 1.62 5.98L0 24l6.2-1.62a11.96 11.96 0 0 0 5.82 1.49h0c6.63 0 12.02-5.35 12.02-11.98 0-3.21-1.25-6.23-3.52-8.41ZM12.02 22.1h0c-1.9 0-3.76-.5-5.39-1.44l-.39-.23-3.68.96.98-3.59-.25-.37A9.77 9.77 0 0 1 2 11.98C2 6.48 6.52 2 12.02 2c2.62 0 5.08 1.02 6.93 2.86A9.71 9.71 0 0 1 22.06 12c0 5.5-4.52 10.1-10.04 10.1Zm5.53-7.49c-.3-.15-1.78-.88-2.05-.98-.27-.1-.47-.15-.68.15-.2.3-.78.98-.96 1.18-.18.2-.36.22-.66.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.13-.13.3-.34.45-.51.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.08-.15-.68-1.63-.93-2.23-.25-.6-.5-.52-.68-.53l-.58-.01c-.2 0-.52.08-.8.37-.27.3-1.05 1.03-1.05 2.5s1.07 2.9 1.23 3.1c.15.2 2.1 3.2 5.07 4.48.71.31 1.27.5 1.7.64.72.23 1.37.2 1.88.12.57-.08 1.78-.73 2.03-1.44.25-.7.25-1.3.18-1.43-.07-.13-.27-.2-.57-.35Z'/>
+                </svg>
+              </div>
+              <div class='qa-label'>WhatsApp</div>
+              """
+            )}
+          </div>
+          <div class='qa-item'>
+            <a class='icon-btn elevated' href='/v/{html.escape(slug)}.vcf' title='Salvar contato' aria-label='Salvar contato'>
+              <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>
+                <rect x='3' y='4' width='18' height='16' rx='2' ry='2' fill='none' stroke='currentColor' stroke-width='2'/>
+                <circle cx='9' cy='10' r='2' fill='currentColor'/>
+                <path d='M3 16c2.5-2 5-3 6-3s3.5 1 6 3' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/>
+              </svg>
+            </a>
+            <div class='qa-label'>Salvar contato</div>
+          </div>
+          <div class='qa-item'>
+            <a class='icon-btn' id='offlineBtn' href='javascript:void(0)' title='Modo Offline' aria-label='Modo Offline' onclick="(function(){{ var sec=document.getElementById('offlineSection'); if(!sec) return false; var s=sec.style.display; sec.style.display=(s==='none'||!s)?'block':'none'; try{{ sec.scrollIntoView(); }}catch(_e){{}} return false; }})();">
+              <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>
+                <rect x='3' y='3' width='6' height='6' fill='none' stroke='currentColor' stroke-width='2'/>
+                <rect x='15' y='3' width='6' height='6' fill='none' stroke='currentColor' stroke-width='2'/>
+                <rect x='3' y='15' width='6' height='6' fill='none' stroke='currentColor' stroke-width='2'/>
+                <path d='M15 11h2v2h2v2h-4v-4zm-2 6h2v2h-2v-2zm6-6h2v2h-2v-2z' fill='currentColor'/>
+              </svg>
+            </a>
+            <div class='qa-label'>Modo Offline</div>
+          </div>
+          {insta_quick}
+        </div>
+        <div id='offlineSection' style='display:none;margin:12px 0 0'>
+          <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;text-align:center'>
+            <h3 class='page-title' style='margin:0 0 8px'>Modo Offline</h3>
+            <p>Modo Offline permite salvar o seu contato diretamente na agenda do cliente, sem utilizar a internet. Basta acessar o QR Code com a camera do celular:</p>
+            <div style='margin:12px 0'>
+              <img src='{offline_data_url}' alt='QR Offline' style='width:220px;height:220px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:8px'>
+            </div>
+            <p class='muted' style='font-size:11px'>Dica: Tire um print dessa tela e marque-a como favorita em sua galeria de fotos, para facilitar o acesso em caso de falta de internet.</p>
+            <p class='muted' style='font-size:11px'>Atencao: Nao e recomendado imprimir este codigo em placas ou cartao, pois ele nao sera atualizado online. Utilize o codigo QRCode Online para impressao.</p>
+          </div>
+        </div><div class='section-divider'></div>
+        {(
+          "<div class='quick-actions'>" +
+          "".join([
+            (
+              f"<div class='qa-item'>"
+              f"<a class='icon-btn brand-{plat}' href='{html.escape(href)}' {'target=\'_blank\' rel=\'noopener\'' if (href.startswith('http')) else ''} title='{html.escape(label or plat.title())}' aria-label='{html.escape(label or plat.title())}'>"
+              f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>"
+              f"{(
+                  '<path fill=\"currentColor\" d=\"M22 12A10 10 0 1 0 10.5 21.9v-6.9H7.9v-3h2.6V9.2c0-2.6 1.6-4 3.9-4 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 3h-2.4v6.9A10 10 0 0 0 22 12z\"/>'
+                  if plat == 'facebook' else (
+                    '<path fill=\"currentColor\" d=\"M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z\"/>'
+                    if plat == 'linkedin' else
+                    '<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>'
+                  )
+                )}"
+              f"</svg>"
+              f"</a>"
+              f"<div class='qa-label'>{html.escape(label or plat.title())}</div>"
+              f"</div>"
+            ) for (label, href, plat) in other_links[:3]
+          ]) +
+          "</div>"
+        ) if (len(other_links) > 0) else ""}
+        <div class='fixed-actions'>
+          {(
+            f"<a class='btn fixed website' target='_blank' rel='noopener' href='{html.escape(site_href)}'>"
+            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
+            f"<circle cx='12' cy='12' r='10' stroke='currentColor' stroke-width='2' fill='none'/><path d='M2 12h20M12 2c3 3 3 19 0 20M12 2c-3 3-3 19 0 20' stroke='currentColor' stroke-width='2' fill='none'/></svg> "
+            f"Site</a>"
+          ) if site_href else (
+            "<a class='btn fixed website disabled' href='#' aria-disabled='true'>"
+            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><circle cx='12' cy='12' r='10' stroke='currentColor' stroke-width='2' fill='none'/><path d='M2 12h20M12 2c3 3 3 19 0 20M12 2c-3 3-3 19 0 20' stroke='currentColor' stroke-width='2' fill='none'/></svg> Site</a>"
+          )}
+          {(
+            f"<a class='btn fixed email' href='mailto:{html.escape(email_pub)}'>"
+            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm8 6 9-6H3l9 6zm0 2L3 8v9h18V8l-9 6z'/></svg> "
+            f"E-mail</a>"
+          ) if email_pub else (
+            "<a class='btn fixed email disabled' href='#' aria-disabled='true'>"
+            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm8 6 9-6H3l9 6zm0 2L3 8v9h18V8l-9 6z'/></svg> E-mail</a>"
+          )}
+          {(
+            f"<a class='btn fixed maps' id='mapsBtn' target='_blank' rel='noopener' href='{html.escape(maps_href)}'>"
+            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
+            f"<path fill='currentColor' d='M12 2C8.69 2 6 4.69 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.31-2.69-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z'/>"
+            f"</svg> "
+            f"Endere\u00e7o</a>"
+          ) if maps_href else ('')}
+          {(
+            f"<a class='btn fixed pix' id='payPixBtn' href='/{html.escape(slug)}?pix=amount'>"
+            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
+            f"<path fill='currentColor' d='M3 3h6v6H3V3zm2 2v2h2V5H5zm10-2h6v6h-6V3zm2 2v2h2V5h-2zM3 15h6v6H3v-6zm2 2v2h2v-2H5zm10 0h2v2h2v2h-4v-4zm0-4h2v2h-2v-2zm4 0h2v2h-2v-2z'/></svg> "
+            f"Pagamento Pix</a>"
+          ) if pix_key else (
+            "<a class='btn fixed pix disabled' href='#' aria-disabled='true'>"
+            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M3 3h6v6H3V3zm2 2v2h2V5H5zm10-2h6v6h-6V3zm2 2v2h2V5h-2zM3 15h6v6H3v-6zm2 2v2h2v-2H5zm10 0h2v2h2v2h-4v-4zm0-4h2v2h-2v-2zm4 0h2v2h-2v-2z'/></svg> Pagamento Pix</a>"
+          )}
+        </div>
+        
       </section>
       {scripts}
       <script>
@@ -586,8 +892,107 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         var slugId = "{html.escape(slug)}";
         var ft = document.querySelector('footer');
         if (ft) {{
-          ft.innerHTML = isOwner ? ("<a href='/auth/logout?next=/" + slugId + "' class='muted'>Sair</a>") : "<a href='/login' class='muted'>Entrar</a>";
+          ft.innerHTML = isOwner ? ("<a href='/auth/logout?next=/" + slugId + "' class='muted'>Sair</a>") : "<a href='/login' class='muted'>Entrar</a>";        // Ajusta link do Maps conforme dispositivo
+        (function(){{
+          var mapsBtn = document.getElementById('mapsBtn');
+          var mapsAddr = "{html.escape(address_text)}";
+          if (mapsBtn && mapsAddr){{
+            mapsBtn.addEventListener('click', function(e){{
+              try {{
+                var ua = navigator.userAgent || '';
+                var href = '';
+                if (/iPhone|iPad|iPod/i.test(ua)){{
+                  href = 'http://maps.apple.com/?q=' + encodeURIComponent(mapsAddr);
+                }} else if (/Android/i.test(ua)){{
+                  href = 'geo:0,0?q=' + encodeURIComponent(mapsAddr);
+                }} else {{
+                  href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(mapsAddr);
+                }}
+                mapsBtn.setAttribute('href', href);
+              }} catch(_e){{}}
+            }}, {{ passive: true }});
+          }}
+        }})();
         }}
+        // Função global para abrir/fechar seção offline via inline onclick
+        window.__ofl = function(evt){{
+          try {{ if (evt && evt.preventDefault) evt.preventDefault(); }} catch(_e) {{}}
+          var sec = document.getElementById('offlineSection');
+          if (!sec) return false;
+          if (sec.style.display === 'none' || !sec.style.display) {{
+            sec.style.display = 'block';
+            try {{ sec.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }} catch(_e) {{}}
+          }} else {{
+            sec.style.display = 'none';
+          }}
+          return false;
+        }};
+        // Toggle subseção Modo Offline sem navegar
+        (function(){{
+          var off = document.getElementById('offlineBtn');
+          var sec = document.getElementById('offlineSection');
+          if (off && sec) {{
+            off.addEventListener('click', function(e){{
+              e.preventDefault();
+              if (sec.style.display === 'none' || !sec.style.display) {{
+                sec.style.display = '';
+                try {{ sec.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }} catch(_e) {{}}
+              }} else {{
+                sec.style.display = 'none';
+              }}
+            }});
+          }}
+        }})();
+        // Modo de pagamento Pix: abre modal para valor e redireciona para QR
+        (function(){{
+          var pay = document.getElementById('payPixBtn');
+          if (!pay) return;
+          // injeta estilos do modal se necessários
+          if (!document.getElementById('modalStyles')) {{
+            var st = document.createElement('style'); st.id='modalStyles';
+            st.textContent = ".modal-backdrop{{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000}}.modal-backdrop.show{{display:flex}}.modal{{background:#111114;border:1px solid #242427;border-radius:12px;max-width:480px;width:92%;padding:12px}}.modal header{{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}}.modal header h2{{margin:0;font-size:18px;color:#eaeaea}}.modal .close{{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}}";
+            document.head.appendChild(st);
+          }}
+          var modal = document.createElement('div');
+          modal.className = 'modal-backdrop';
+          modal.setAttribute('role','dialog'); modal.setAttribute('aria-modal','true'); modal.setAttribute('aria-hidden','true');
+          // Fallback estilos inline (caso CSS injetado falhe)
+          modal.style.position = 'fixed';
+          modal.style.top = '0'; modal.style.left = '0'; modal.style.right = '0'; modal.style.bottom = '0';
+          modal.style.background = 'rgba(0,0,0,.6)';
+          modal.style.display = 'none';
+          modal.style.alignItems = 'center';
+          modal.style.justifyContent = 'center';
+          modal.style.zIndex = '1000';
+          modal.innerHTML = "\n          <div class='modal'>\n            <header>\n              <h2>Pagamento Pix</h2>\n              <button class='close' id='payClose' aria-label='Fechar' title='Fechar'>&#10005;</button>\n            </header>\n            <div>\n              <label>Valor do Pix</label>\n              <input id='pixAmount' placeholder='0,00' inputmode='numeric' pattern='[0-9,]*' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>\n              <div style='text-align:right'><a href='#' id='payGo' class='btn'>Gerar Pix</a></div>\n            </div>\n          </div>\n          ";
+          document.body.appendChild(modal);
+          function showM(){{ modal.classList.add('show'); modal.style.display='flex'; modal.setAttribute('aria-hidden','false'); }}
+          function hideM(){{ modal.classList.remove('show'); modal.style.display='none'; modal.setAttribute('aria-hidden','true'); }}
+          function maskMoney(inp){{
+            if (!inp) return;
+            var s = (inp.value||'').replace(/\D/g,'');
+            if (s.length === 0) {{ inp.value = ''; return; }}
+            while (s.length < 3) s = '0' + s;
+            var intp = s.slice(0,-2).replace(/^0+/, '') || '0';
+            var decp = s.slice(-2);
+            inp.value = intp + ',' + decp;
+          }}
+          var amount = modal.querySelector('#pixAmount');
+          amount.addEventListener('input', function(){{ maskMoney(amount); }});
+          amount.addEventListener('blur', function(){{ maskMoney(amount); }});
+          pay.addEventListener('click', function(e){{ e.preventDefault(); showM(); setTimeout(function(){{ amount.focus(); }}, 50); }});
+          modal.addEventListener('click', function(e){{ if (e.target===modal) hideM(); }});
+          var close = modal.querySelector('#payClose'); if (close) close.addEventListener('click', function(){{ hideM(); }});
+          var go = modal.querySelector('#payGo');
+          if (go) {{
+            go.addEventListener('click', function(e){{
+              e.preventDefault();
+              var s = (amount.value||'').replace(/\D/g,''); if (!s) s='0';
+              var cents = parseInt(s, 10) || 0; var v = (cents/100).toFixed(2).replace('.', ',');
+              window.location.href = '/'+slugId+'?pix=qr&v='+encodeURIComponent(v);
+            }});
+          }}
+        }})();
       }})();
       </script>
       <footer>{("<a href='/auth/logout?next=/" + html.escape(slug) + "' class='muted'>Sair</a>") if is_owner else ("<a href='/login' class='muted'>Entrar</a>")}</footer>
@@ -619,19 +1024,50 @@ def vcard(slug: str):
     prof = db["profiles"].get(card.get("user", ""), {})
     name = prof.get("full_name", ""); tel = prof.get("whatsapp", ""); email = prof.get("email_public", "")
     url = f"{PUBLIC_BASE}/{slug}"
-    vcf = (
-        "BEGIN:VCARD\n" +
-        "VERSION:3.0\n" +
-        f"N:{name};;;;\n" +
-        f"FN:{name}\n" +
-        "ORG:Soomei\n" +
-        f"TITLE:{prof.get('title','')}\n" +
-        f"TEL;TYPE=CELL:{tel}\n" +
-        f"EMAIL;TYPE=INTERNET:{email}\n" +
-        f"URL:{url}\n" +
-        "END:VCARD\n"
-    )
-    return PlainTextResponse(vcf, media_type="text/vcard")
+    # Photo handling: embed as base64 (preferred), fallback to URI, with line folding
+    photo_line = None
+    photo_url = (prof.get("photo_url", "") or "").strip()
+    if photo_url:
+        try:
+            fname = os.path.basename(photo_url.split("?", 1)[0])
+            local_path = os.path.join(UPLOADS, fname)
+            with open(local_path, "rb") as fh:
+                data = fh.read()
+            if data:
+                ext = (os.path.splitext(fname)[1] or "").lower()
+                typ = "JPEG" if ext in (".jpg", ".jpeg") else ("PNG" if ext == ".png" else "JPEG")
+                b64 = base64.b64encode(data).decode("ascii")
+                # fold base64 to 76 chars per line with CRLF + space continuation
+                chunks = [b64[i:i+76] for i in range(0, len(b64), 76)]
+                folded = "\r\n ".join(chunks)
+                photo_line = f"PHOTO;ENCODING=b;TYPE={typ}:{folded}"
+        except Exception:
+            # fallback to absolute URL
+            abs_url = photo_url
+            if abs_url.startswith("/"):
+                abs_url = f"{PUBLIC_BASE}{photo_url}"
+            photo_line = f"PHOTO;VALUE=URI:{abs_url}"
+
+    lines = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        f"N:{name};;;;",
+        f"FN:{name}",
+    ]
+    if photo_line:
+        lines.append(photo_line)
+    lines.extend([
+        "ORG:Soomei",
+        f"TITLE:{prof.get('title','')}",
+        f"TEL;TYPE=CELL:{tel}",
+        f"EMAIL;TYPE=INTERNET:{email}",
+        f"URL:{url}",
+        "END:VCARD",
+    ])
+    vcf = "\r\n".join(lines) + "\r\n"
+    return Response(vcf, media_type="text/vcard; charset=utf-8", headers={
+        "Content-Disposition": f"attachment; filename=\"{slug}.vcf\""
+    })
 
 
 @app.get("/slug/check")
@@ -729,7 +1165,17 @@ def edit_card(slug: str, request: Request):
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Soomei - Editar</title></head>
+    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Soomei - Editar</title>
+    <style>
+      .modal-backdrop{{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000}}
+      .modal-backdrop.show{{display:flex}}
+      .modal{{background:#111114;border:1px solid #242427;border-radius:12px;max-width:840px;width:92%;max-height:85vh;overflow:auto;padding:12px}}
+      .modal header{{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}}
+      .modal header h2{{margin:0;font-size:18px;color:#eaeaea}}
+      .modal .close{{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}}
+      .modal iframe{{width:100%;height:70vh;border:0;background:#0b0b0c}}
+    </style>
+    </head>
     <body><main class='wrap'>
       <form id='editForm' method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
         <div class='topbar'>
@@ -759,6 +1205,13 @@ def edit_card(slug: str, request: Request):
         <label>Cargo | Empresa</label><input name='title' value='{html.escape(prof.get('title',''))}'>
         <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='tel' placeholder='(00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}'>
         <label>Email publico</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
+        <label>Site</label><input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}'>
+        <label>Endereco</label><input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, numero - Cidade/UF'>
+        <div style='margin:10px 0'>
+          <input type='hidden' id='pixKey' name='pix_key' value='{html.escape(prof.get('pix_key',''))}'>
+          <a href='#' id='addPix' class='btn'>Adicionar chave Pix</a>
+          <span id='pixInfo' class='muted' style='font-size:12px;margin-left:8px'>{("Chave atual: " + html.escape(prof.get('pix_key','')) + " <a href='#' id='pixDel' class='muted' title='Remover' aria-label='Remover' style='margin-left:6px'>&#10005;</a>") if prof.get('pix_key') else ''}</span>
+        </div>
         <h3>Links</h3>
         <label>Rotulo 1</label><input name='label1' value='{html.escape(links[0].get('label',''))}'>
         <label>URL 1</label><input name='href1' value='{html.escape(links[0].get('href',''))}'>
@@ -808,6 +1261,65 @@ def edit_card(slug: str, request: Request):
           // Inicializa preview na primeira carga
           updateColor();
         }}
+       }})();
+       // Modal para escolher tipo e valor da chave Pix
+      (function(){{
+        var ap = document.getElementById('addPix');
+        if (!ap) return;
+        var modal = document.createElement('div');
+        modal.className = 'modal-backdrop';
+        modal.setAttribute('role','dialog');
+        modal.setAttribute('aria-modal','true');
+        modal.setAttribute('aria-hidden','true');
+        modal.innerHTML = `
+        <div class='modal'>
+          <header>
+            <h2>Adicionar chave Pix</h2>
+            <button class='close' id='pixClose' aria-label='Fechar' title='Fechar'>&#10005;</button>
+          </header>
+          <div>
+            <label>Tipo da chave</label>
+            <select id='pixType' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
+              <option value='aleatoria'>Aleatória</option>
+              <option value='email'>E-mail</option>
+              <option value='telefone'>Telefone</option>
+              <option value='cpf'>CPF</option>
+              <option value='cnpj'>CNPJ</option>
+              <option value='copiacola'>Chave Copia e Cola</option>
+            </select>
+            <label>Valor da chave</label>
+            <input id='pixValue' placeholder='sua-chave' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
+            <div style='text-align:right'><a href='#' id='pixSave' class='btn'>Salvar</a></div>
+          </div>
+        </div>
+        `;
+        document.body.appendChild(modal);
+        function showM(){{ modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); }}
+        function hideM(){{ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); }}
+        ap.addEventListener('click', function(e){{ e.preventDefault(); showM(); }});
+        modal.addEventListener('click', function(e){{ if(e.target===modal) hideM(); }});
+        var close = modal.querySelector('#pixClose'); if (close) close.addEventListener('click', function(){{ hideM(); }});
+        var save = modal.querySelector('#pixSave');
+        var val = modal.querySelector('#pixValue');
+        var type = modal.querySelector('#pixType');
+        var hidden = document.getElementById('pixKey');
+        if (save && val && hidden){{
+          save.addEventListener('click', function(e){{ e.preventDefault();
+            var v = (val.value||'').trim(); if (!v) return;
+            hidden.value = v; hideM();
+            ap.textContent = 'Chave Pix definida';
+          }});
+        }}
+        // Remover chave Pix existente
+        var del = document.getElementById('pixDel');
+        var info = document.getElementById('pixInfo');
+        if (del && info && hidden){{
+          del.addEventListener('click', function(e){{
+            e.preventDefault();
+            hidden.value = '';
+            info.textContent = 'Chave Pix removida';
+          }});
+        }}
       }})();
       </script>
       <p><a class='muted' href='/auth/logout?next=/{html.escape(slug)}'>Sair</a></p>
@@ -818,11 +1330,12 @@ def edit_card(slug: str, request: Request):
 
 @app.post("/edit/{slug}")
 async def save_edit(slug: str, request: Request, full_name: str = Form(""), title: str = Form(""),
-               whatsapp: str = Form(""), email_public: str = Form(""),
+               whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
                label1: str = Form(""), href1: str = Form(""),
                label2: str = Form(""), href2: str = Form(""),
                label3: str = Form(""), href3: str = Form(""),
                theme_color: str = Form(""),
+               pix_key: str = Form(""),
                photo: UploadFile | None = File(None)):
     db, uid, card = find_card_by_slug(slug)
     if not card:
@@ -838,7 +1351,11 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         "title": title.strip(),
         "whatsapp": sanitize_phone(whatsapp),
         "email_public": email_public.strip(),
+        "site_url": (site_url or "").strip(),
+        "address": (address or "").strip(),
     })
+    # Atualiza chave Pix (pode ser vazia para limpar)
+    prof["pix_key"] = (pix_key or "").strip()
     # Salva cor do tema (hex #RRGGBB)
     tc = (theme_color or "").strip()
     if not re.fullmatch(r"#([0-9a-fA-F]{6})", tc or ""):
@@ -887,7 +1404,7 @@ def root_slug(slug: str, request: Request):
     if card and card.get("vanity") and slug != card.get("vanity"):
         return RedirectResponse(f"/{html.escape(card.get('vanity'))}", status_code=302)
     if not card:
-        return HTMLResponse("<h1>Cartao nao encontrado</h1>", status_code=404)
+        return RedirectResponse("/invalid", status_code=302)
     if not card.get("status") or card.get("status") == "pending":
         return RedirectResponse(f"/onboard/{html.escape(uid)}", status_code=302)
     if card.get("status") == "blocked":
@@ -895,10 +1412,283 @@ def root_slug(slug: str, request: Request):
     owner = card.get("user", "")
     prof = load()["profiles"].get(owner, {})
     who = current_user_email(request)
+    # Offline flow (vCard QR) — handled early so it is not bypassed by other returns
+    offline = request.query_params.get("offline", "")
+    if offline:
+        full_name = (prof.get("full_name", "") or slug) if prof else slug
+        title = prof.get("title", "") if prof else ""
+        email_pub = (prof.get("email_public", "") or "") if prof else ""
+        wa_raw = (prof.get("whatsapp", "") or "") if prof else ""
+        wa_digits = "".join([c for c in wa_raw if c.isdigit()])
+        share_url = f"{PUBLIC_BASE}/{slug}"
+        # PHOTO inline for offline QR (downscaled) or URI fallback
+        photo_line = None
+        photo_url = (prof.get("photo_url", "") or "").strip() if prof else ""
+        if photo_url:
+            try:
+                fname = os.path.basename(photo_url.split("?", 1)[0])
+                local_path = os.path.join(UPLOADS, fname)
+                data_b64 = None
+                try:
+                    from PIL import Image  # type: ignore
+                    im = Image.open(local_path).convert("RGB")
+                    im.thumbnail((160,160))
+                    _tmp = io.BytesIO(); im.save(_tmp, format='JPEG', quality=70); _tmp.seek(0)
+                    raw = _tmp.read()
+                    data_b64 = base64.b64encode(raw).decode('ascii') if raw else None
+                    typ = 'JPEG'
+                except Exception:
+                    with open(local_path, 'rb') as fh:
+                        raw = fh.read()
+                    if raw:
+                        ext = (os.path.splitext(fname)[1] or '').lower()
+                        typ = 'JPEG' if ext in ('.jpg','.jpeg') else ('PNG' if ext == '.png' else 'JPEG')
+                        data_b64 = base64.b64encode(raw).decode('ascii')
+                if data_b64:
+                    chunks = [data_b64[i:i+76] for i in range(0, len(data_b64), 76)]
+                    folded = "\r\n ".join(chunks)
+                    photo_line = f"PHOTO;ENCODING=b;TYPE={typ}:{folded}"
+            except Exception:
+                abs_url = photo_url
+                if abs_url.startswith('/'):
+                    abs_url = f"{PUBLIC_BASE}{photo_url}"
+                photo_line = f"PHOTO;VALUE=URI:{abs_url}"
+
+        def _build_off(include_photo: bool) -> str:
+            parts = [
+                "BEGIN:VCARD",
+                "VERSION:3.0",
+                f"FN:{full_name}",
+            ]
+            if include_photo and photo_line:
+                parts.append(photo_line)
+            if title:
+                parts.append(f"TITLE:{title}")
+            if wa_digits:
+                parts.append(f"TEL;TYPE=CELL:{wa_digits}")
+            if email_pub:
+                parts.append(f"EMAIL:{email_pub}")
+            parts.append(f"URL:{share_url}")
+            parts.append("END:VCARD")
+            return "\r\n".join(parts)
+        def _qr_png(payload: str) -> str:
+            qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=4)
+            qr.add_data(payload)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+            buf = io.BytesIO(); img.save(buf, format='PNG'); buf.seek(0)
+            return "data:image/png;base64," + base64.b64encode(buf.read()).decode('ascii')
+        data_url = ""
+        try:
+            data_url = _qr_png(_build_off(True))
+        except Exception:
+            try:
+                data_url = _qr_png(_build_off(False))
+            except Exception:
+                try:
+                    import qrcode.image.svg as qsvg  # type: ignore
+                    buf2 = io.BytesIO(); qrcode.make(_build_off(False), image_factory=qsvg.SvgImage).save(buf2)
+                    data_url = "data:image/svg+xml;base64," + base64.b64encode(buf2.getvalue()).decode('ascii')
+                except Exception:
+                    return HTMLResponse("<h1>Falha ao gerar QR Offline</h1>", status_code=500)
+        theme_base = (prof.get("theme_color", "#000000") or "#000000") if prof else "#000000"
+        if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
+            theme_base = "#000000"
+        bg_hex = theme_base + "30"
+        photo = html.escape(prof.get("photo_url", "")) if prof else ""
+        off_page = f"""
+        <!doctype html><html lang='pt-br'><head>
+        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Modo Offline</title></head><body>
+        <main class='wrap'>
+          <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
+            <div class='topbar'>
+              <a class='icon-btn top-left' href='/{html.escape(slug)}' aria-label='Voltar' title='Voltar'>&larr;</a>
+              <h1 class='page-title'>Modo Offline</h1>
+            </div>
+            {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
+            <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
+              <p>Modo Offline permite salvar o seu contato diretamente na agenda do cliente, sem utilizar a internet. Basta acessar o QR Code com a camera do celular:</p>
+              <div style='margin:12px 0'>
+                <img src='{data_url}' alt='QR Offline' style='width:220px;height:220px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:8px'>
+              </div>
+              <p class='muted' style='font-size:11px'>Dica: Tire um print dessa tela e marque-a como favorita em sua galeria de fotos, para facilitar o acesso em caso de falta de internet.</p>
+              <p class='muted' style='font-size:11px'>Atencao: Nao e recomendado imprimir este codigo em placas ou cartao, pois ele nao sera atualizado online. Utilize o codigo QRCode Online para impressao.</p>
+            </div>
+          </section>
+        </main>
+        </body></html>
+        """
+        return HTMLResponse(_brand_footer_inject(off_page))
     if who == owner and not card.get("vanity"):
         return RedirectResponse(f"/slug/select/{html.escape(uid)}", status_code=302)
     if who == owner and not profile_complete(prof):
         return RedirectResponse(f"/edit/{html.escape(slug)}", status_code=302)
+    # Pix flow handling
+    pix_mode = request.query_params.get("pix", "")
+    if pix_mode:
+        pix_key = (prof.get("pix_key", "") or "").strip()
+        if not pix_key:
+            return RedirectResponse(f"/{html.escape(slug)}", status_code=302)
+        if pix_mode in ("amount", "1"):
+            photo = html.escape(prof.get("photo_url", "")) if prof else ""
+            # Cor do tema para o card do fluxo Pix (usa mesma lógica do card público)
+            theme_base = (prof.get("theme_color", "#000000") or "#000000") if prof else "#000000"
+            if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
+                theme_base = "#000000"
+            bg_hex = theme_base + "30"
+            amt_page = f"""
+            <!doctype html><html lang='pt-br'><head>
+            <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+            <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Pagamento Pix</title></head><body>
+            <main class='wrap'>
+              <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
+                <div class='topbar'>
+                  <a class='icon-btn top-left' href='/{html.escape(slug)}' aria-label='Voltar' title='Voltar'>&larr;</a>
+                  <h1 class='page-title'>Pagamento Pix</h1>
+                </div>
+                {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
+                <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
+                  <h3 style='margin:0 0 8px'>Digite o valor do seu Pix</h3>
+                  <p class='muted' style='margin:0 0 12px;font-size:12px'>Deixe 0,00 para gerar um QRCode com valor em aberto</p>
+                  <div style='display:flex;gap:8px;justify-content:center'>
+                    <input id='pixAmount' type='tel' inputmode='numeric' pattern='[0-9,]*' placeholder='0,00' autocomplete='off' style='max-width:160px'>
+                    <a id='genPix' class='btn' href='#'>Gerar Pix <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='14' height='14'><path d='M9 18l6-6-6-6' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg></a>
+                  </div>
+                </div>
+              </section>
+            </main>
+            <script>
+            (function(){{
+              var btn = document.getElementById('genPix');
+              var amt = document.getElementById('pixAmount');
+              function maskMoney(){{
+                if (!amt) return;
+                var s = (amt.value||'').replace(/\\D/g,'');
+                if (s.length === 0) {{ amt.value = ''; return; }}
+                while (s.length < 3) s = '0' + s;
+                var intp = s.slice(0, -2).replace(/^0+/, '') || '0';
+                var decp = s.slice(-2);
+                amt.value = intp + ',' + decp;
+              }}
+              if (amt) {{
+                amt.addEventListener('input', maskMoney);
+                amt.addEventListener('blur', maskMoney);
+              }}
+              if (btn && amt){{
+                btn.addEventListener('click', function(e){{
+                  e.preventDefault();
+                  var s = (amt.value||'').replace(/\\D/g,'');
+                  if (!s) s = '0';
+                  var cents = parseInt(s, 10) || 0;
+                  var v = (cents/100).toFixed(2).replace('.', ',');
+                  window.location.href = '/{html.escape(slug)}?pix=qr&v=' + encodeURIComponent(v);
+                }});
+              }}
+            }})();
+            </script>
+            """
+            return HTMLResponse(_brand_footer_inject(amt_page))
+        elif pix_mode == "qr":
+            raw_v = (request.query_params.get("v", "0") or "0").replace(",", ".")
+            try:
+                amount = max(0.0, float(raw_v))
+            except Exception:
+                amount = 0.0
+            name = (prof.get("full_name", "") if prof else "") or slug
+            city = (prof.get("city", "") if prof else "") or "BRASILIA"
+            payload = build_pix_emv(pix_key, amount if amount > 0 else None, name, city, txid="***")
+            # Gera imagem do QR com fundo branco e margem adequada; fallback para SVG
+            data_url = ""
+            try:
+                qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=4)
+                qr.add_data(payload)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                buf.seek(0)
+                data_url = "data:image/png;base64," + base64.b64encode(buf.read()).decode('ascii')
+            except Exception:
+                try:
+                    import qrcode.image.svg as qsvg  # type: ignore
+                    buf2 = io.BytesIO()
+                    qrcode.make(payload, image_factory=qsvg.SvgImage).save(buf2)
+                    data_url = "data:image/svg+xml;base64," + base64.b64encode(buf2.getvalue()).decode('ascii')
+                except Exception:
+                    return HTMLResponse("<h1>Falha ao gerar QR Pix</h1><p>Dependencia ausente para gerar imagens. Instale Pillow (PNG) ou tente novamente.</p>", status_code=500)
+            photo = html.escape(prof.get("photo_url", "")) if prof else ""
+            # Cor do tema aplicada ao card do QR
+            theme_base = (prof.get("theme_color", "#000000") or "#000000") if prof else "#000000"
+            if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
+                theme_base = "#000000"
+            bg_hex = theme_base + "30"
+            qr_page = f"""
+            <!doctype html><html lang='pt-br'><head>
+            <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+            <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Pix para {html.escape(prof.get('full_name',''))}</title></head><body>
+            <main class='wrap'>
+              <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
+                <div class='topbar'>
+                  <a class='icon-btn top-left' href='/{html.escape(slug)}' aria-label='Voltar' title='Voltar'>&larr;</a>
+                  <h1 class='page-title'>Pix para {html.escape(prof.get('full_name',''))}</h1>
+                </div>
+                {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
+                <div>
+                  <a id='copyPixCode' class='btn' href='#'>Copiar Codigo Pix</a>
+                </div>
+                <p class='muted' style='font-size:12px;margin:8px 0 4px'>Abra o App do seu banco e pague atraves do QRCode ou Pix Copia e Cola</p>
+                <div style='margin:12px 0'>
+                  <img src='{data_url}' alt='QR Pix' style='width:220px;height:220px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:8px'>
+                </div>
+              </section>
+            </main>
+            <script>
+            (function(){{
+              var code = {json.dumps(payload)};
+              var b = document.getElementById('copyPixCode');
+              function legacyCopy(t){{
+                try {{
+                  var ta = document.createElement('textarea');
+                  ta.value = t;
+                  ta.setAttribute('readonly','');
+                  ta.style.position='fixed'; ta.style.top='0'; ta.style.left='0'; ta.style.opacity='0';
+                  document.body.appendChild(ta);
+                  ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+                  var ok = document.execCommand('copy');
+                  document.body.removeChild(ta);
+                  return ok;
+                }} catch(_e) {{ return false; }}
+              }}
+              function copyViaEvent(t){{
+                var ok = false;
+                function oncopy(e){{ try {{ e.clipboardData.setData('text/plain', t); e.preventDefault(); ok = true; }} catch(_e) {{ ok = false; }} }}
+                document.addEventListener('copy', oncopy);
+                try {{ ok = document.execCommand('copy'); }} catch(_e) {{ ok = false; }}
+                document.removeEventListener('copy', oncopy);
+                return ok;
+              }}
+              function handler(e){{
+                e.preventDefault();
+                if (navigator.clipboard && window.isSecureContext){{
+                  navigator.clipboard.writeText(code).then(function(){{
+                    b.textContent='Copiado'; setTimeout(function(){{ b.textContent='Copiar Codigo Pix'; }},1500);
+                  }}).catch(function(){{
+                    if (legacyCopy(code) || copyViaEvent(code)){{ b.textContent='Copiado'; setTimeout(function(){{ b.textContent='Copiar Codigo Pix'; }},1500); }}
+                  }});
+                }} else {{
+                  if (legacyCopy(code) || copyViaEvent(code)){{ b.textContent='Copiado'; setTimeout(function(){{ b.textContent='Copiar Codigo Pix'; }},1500); }}
+                }}
+              }}
+              if (b){{
+                b.addEventListener('click', handler, {{ passive: false }});
+                b.addEventListener('touchend', handler, {{ passive: false }});
+              }}
+            }})();
+            </script>
+            </body></html>
+            """
+            return HTMLResponse(_brand_footer_inject(qr_page))
     if who != owner:
         if not profile_complete(prof):
             return HTMLResponse(_brand_footer_inject("""
@@ -913,5 +1703,8 @@ def root_slug(slug: str, request: Request):
             """))
         return visitor_public_card(prof, slug, False)
     return visitor_public_card(prof, slug, True)
+
+
+
 
 

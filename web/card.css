@@ -12,6 +12,10 @@ h1{margin:0 0 8px;font-size:28px}.bio{color:#9aa0a6;margin:0 0 16px}
 .edit-gear{position:absolute;top:10px;right:10px;z-index:2;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;border:1px solid #e5e7eb;background:#ffffff;color:#0b0b0c;text-decoration:none;opacity:.9;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:opacity .2s ease,transform .1s ease,box-shadow .2s ease;font-size:16px;line-height:1;cursor:pointer}
 .edit-gear:hover{opacity:1;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 .edit-gear:active{transform:scale(.96)}
+/* Owner-only wallet button (top-left) */
+.wallet-btn{position:absolute;top:10px;left:10px;z-index:2;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;border:1px solid #e5e7eb;background:#ffffff;color:#0b0b0c;text-decoration:none;opacity:.95;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:opacity .2s ease,transform .1s ease,box-shadow .2s ease;font-size:16px;line-height:1;cursor:pointer}
+.wallet-btn:hover{opacity:1;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+.wallet-btn:active{transform:scale(.96)}
 .card-header{text-align:center;margin-bottom:16px}
 .avatar{width:200px;height:200px;border-radius:50%;object-fit:cover;display:block;margin:0 auto 12px;border:2px solid #2a2a2a}
 .name{font-size:26px;margin:0}
@@ -28,25 +32,42 @@ footer{margin-top:24px;color:#9aa0a6;font-size:12px}.muted{color:#9aa0a6}
 form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea}
 
 /* ---- Public card enhanced styles (appended) ---- */
-.wrap{max-width:720px;margin:32px auto;padding:16px}
+.wrap{max-width:720px;margin:32px auto;padding:16px;margin-top:0}
 .card-public{margin-top:12px}
 .hero{border-radius:16px;overflow:hidden;border:1px solid #242427}
 .cover{display:block;width:100%;height:auto;max-height:420px;object-fit:cover}
 .actions-row{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
 .actions-row .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid #2a2a2a;background:#eaeaea;color:#0b0b0c;padding:10px 12px;border-radius:999px}
 .actions-row .btn:active{transform:scale(.98)}
+.fixed-actions{display:flex;flex-direction:column;gap:10px;margin:14px 0}
+/* Unified style for all fixed action buttons */
+.fixed-actions .btn{display:block;text-align:center;border:1px solid #2a2a2a;background:#eaeaea;color:#0b0b0c;padding:12px 14px;border-radius:12px}
+.btn.disabled{opacity:.5;pointer-events:none;border-color:#2a2a2a;background:#1a1a1b;color:#777}
 .contact{list-style:none;padding:0;margin:10px 0}
 .contact li{margin:4px 0}
 .contact-link{color:#8ab4f8;text-decoration:none}
 .contact-link:hover{text-decoration:underline}
 .links-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .links-grid li{margin:0}
-.links-grid a{display:block;text-align:center;padding:12px 14px;border-radius:12px;border:1px solid #2a2a2a}
+.links-grid a{display:flex;align-items:center;justify-content:center;gap:8px;text-align:center;padding:12px 14px;border-radius:12px;border:1px solid #2a2a2a}
 .photo-change{color:#0061ff;text-decoration:none;font-weight:600}
 .photo-change:hover{text-decoration:none;opacity:.9}
 .icon-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;border:1px solid #e5e7eb;background:#ffffff;color:#0b0b0c;text-decoration:none;opacity:.95;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:opacity .2s ease,transform .1s ease,box-shadow .2s ease;font-size:18px;line-height:1;cursor:pointer}
 .icon-btn:hover{opacity:1;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 .icon-btn:active{transform:scale(.96)}
+.icon-btn.elevated{box-shadow:0 3px 10px rgba(0,0,0,.55);border-color:#e9edf0}
+.icon-btn.disabled{opacity:.45;cursor:default;pointer-events:none}
+.icon-btn.brand-wa{color:#25D366;border-color:#21bf5b}
+.icon-btn.brand-instagram{color:#E1306C;border-color:#d62463}
+.icon-btn.brand-linkedin{color:#0A66C2;border-color:#0a5cb0}
+.icon-btn.brand-facebook{color:#1877F2;border-color:#166fe0}
+.icon-btn.brand-youtube{color:#FF0000;border-color:#e60000}
+.icon-btn.brand-twitter{color:#1D9BF0;border-color:#1a8cd8}
+.icon-btn.brand-github{color:#eaeaea;border-color:#c9c9c9}
+.icon-btn.brand-site{color:#8ab4f8;border-color:#6f9fe8}
+.icon-btn.brand-email{color:#b39ddb;border-color:#9a7bd6}
+.icon-btn.brand-phone{color:#25D366;border-color:#21bf5b}
+.icon-btn.elevated{box-shadow:0 3px 10px rgba(0,0,0,.55);border-color:#e9edf0}
 .topbar{position:relative;display:flex;align-items:center;justify-content:center;margin:0 0 12px}
 .page-title{margin:0;font-size:20px}
 .topbar .top-left{position:absolute;left:0;top:50%;transform:translateY(-50%)}
@@ -74,3 +95,18 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .preview-carbon{background-image:linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent),linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent);background-size:12px 12px;background-position:0 0,6px 6px;border:1px solid #242427;border-radius:16px;width:clamp(240px,66%,420px);height:100px;margin:24px auto;transition:background-color .15s ease}
 .avatar-preview-wrap .preview-carbon{position:absolute;top:-15px;left:50%;transform:translateX(-50%);margin:0;z-index:0}
 .avatar-preview-wrap .avatar{position:relative;z-index:1}
+
+/* Quick actions under avatar */
+.quick-actions{display:grid;grid-template-columns:repeat(3,minmax(0,70px));justify-content:center;gap:8px;margin:10px 0}
+.quick-actions.qa4{grid-template-columns:repeat(4,minmax(0,70px))}
+.qa-item{display:flex;flex-direction:column;align-items:center;gap:6px}
+.qa-item .icon-btn{width:40px;height:40px}
+.qa-label{font-size:12px;color:#9aa0a6}
+.section-divider{height:1px;border:0;background:linear-gradient(90deg,transparent,#2a2a2a,transparent);width:clamp(240px,80%,560px);margin:14px auto}
+/* Generic modal (used for wallet dialog) */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000}
+.modal-backdrop.show{display:flex}
+.modal{background:#111114;border:1px solid #242427;border-radius:12px;max-width:480px;width:92%;padding:12px}
+.modal header{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}
+.modal header h2{margin:0;font-size:18px;color:#eaeaea}
+.modal .close{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}

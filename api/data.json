@@ -5,11 +5,6 @@
       "pwd": "b98d3f7448b642b4b78b3a4308ff3ef16f85e857c3091510a3c9070bfaccb032db13d032e9bbe53e8dc58a46542d4cf7558acd53719e19daae4015eb7a9b2129",
       "email_verified_at": 1761340108
     },
-    "cezar@soomei.com": {
-      "email": "cezar@soomei.com",
-      "pwd": "b98d3f7448b642b4b78b3a4308ff3ef16f85e857c3091510a3c9070bfaccb032db13d032e9bbe53e8dc58a46542d4cf7558acd53719e19daae4015eb7a9b2129",
-      "email_verified_at": 1761346504
-    },
     "joaosuisso@soomei.com.br": {
       "email": "joaosuisso@soomei.com.br",
       "pwd": "b7514700a46e9c6941e1f7fe7b15914b40962fbc8902221d4049faddddb687e3a6d3122b30f3dc7b885bfdded39b36a281824ca6107b34b6d908271753ba4e7e",
@@ -19,13 +14,26 @@
       "email": "matheusmarsi@soomei.com.br",
       "pwd": "d5f1cb7317be28a2ec3d8bac613d31b5b31e98aa08adcba7b3c0409cc980aa3185eb70309b01d111c03ca0f754b4d861fb259489f461cd90f1c344ba51346e8d",
       "email_verified_at": 1761352623
+    },
+    "contato@soomei.com.br": {
+      "email": "contato@soomei.com.br",
+      "pwd": "17910175a69ae202240dddf20b6d871c4be75e2d1136fce071f82068f09bd35ac71474ceed34c432c2fa8d8613351fd79ab79744f0e66289fbab4ca53fbd14a6",
+      "email_verified_at": 1761368582
+    },
+    "isabella@gmail.com": {
+      "email": "isabella@gmail.com",
+      "pwd": "f5ad9247a13be399cfd23ea96099743ab54c3c88945fb08558066673e08f1eb2bf205313c8a131f8ff4a01aa718a48baabde29acaab7179ceeffc8835e0df277",
+      "email_verified_at": 1761411839
     }
   },
   "cards": {
     "abc124": {
       "uid": "abc124",
-      "status": "pending",
-      "pin": "123454"
+      "status": "active",
+      "pin": "123454",
+      "billing_status": "ok",
+      "user": "isabella@gmail.com",
+      "vanity": "isabella"
     },
     "tksc4o": {
       "uid": "tksc4o",
@@ -34,14 +42,6 @@
       "billing_status": "ok",
       "user": "cezar@soomei.com.br",
       "vanity": "cezar"
-    },
-    "ttt": {
-      "uid": "ttt",
-      "status": "active",
-      "pin": "123987",
-      "billing_status": "ok",
-      "user": "cezar@soomei.com",
-      "vanity": "isabella"
     },
     "abc123": {
       "uid": "abc123",
@@ -58,46 +58,91 @@
       "billing_status": "ok",
       "user": "matheusmarsi@soomei.com.br",
       "vanity": "matheusmarsi"
+    },
+    "ttt": {
+      "uid": "ttt",
+      "status": "active",
+      "pin": "817572",
+      "billing_status": "ok",
+      "user": "contato@soomei.com.br",
+      "vanity": "soomei"
     }
   },
   "profiles": {
     "cezar@soomei.com.br": {
       "full_name": "Cezar Damasceno",
       "title": "Diretor Administrativo | Soomei",
-      "links": [],
-      "whatsapp": "+5531999951415",
-      "pix_key": "",
+      "links": [
+        {
+          "label": "Facebook",
+          "href": "https://www.facebook.com/share/17pmLXuKvS/?mibextid=wwXIfr"
+        },
+        {
+          "label": "LinkedIn",
+          "href": "https://www.linkedin.com/in/cezar667"
+        }
+      ],
+      "whatsapp": "+5531999951416",
+      "pix_key": "09084582667",
       "email_public": "cezar@soomei.com.br",
       "photo_url": "/static/uploads/tksc4o.jpg",
-      "theme_color": "#3d455e"
-    },
-    "cezar@soomei.com": {
-      "full_name": "Isabella Damasceno",
-      "title": "Arquiteta | M. Moraes",
-      "links": [],
-      "whatsapp": "31999951416",
-      "pix_key": "",
-      "email_public": "isabella@soomei.com",
-      "photo_url": "/static/uploads/ttt.jpg",
-      "theme_color": "#050004"
+      "theme_color": "#000000",
+      "address": "Av. Rio Branco, 931, Uberlandia-MG",
+      "site_url": "https://soomei.com.br"
     },
     "joaosuisso@soomei.com.br": {
       "full_name": "João Suisso",
       "title": "Presidente | Soomei",
       "links": [],
       "whatsapp": "+553498112212",
-      "pix_key": "",
+      "pix_key": "123",
       "email_public": "joaosuisso@soomei.com.br",
       "theme_color": "#000000",
       "photo_url": "/static/uploads/abc123.jpg"
     },
     "matheusmarsi@soomei.com.br": {
-      "full_name": "Seu Nome",
-      "title": "Cargo | Empresa",
+      "full_name": "Matheus Marsi",
+      "title": "Vice-Presidente | Soomei",
       "links": [],
-      "whatsapp": "",
+      "whatsapp": "+553498006200",
       "pix_key": "",
-      "email_public": ""
+      "email_public": "matheusmarsi@soomei.com.br",
+      "theme_color": "#55523d",
+      "photo_url": "/static/uploads/mt123.jpg"
+    },
+    "contato@soomei.com.br": {
+      "full_name": "Soomei",
+      "title": "O poder de crescer juntos",
+      "links": [
+        {
+          "label": "Instagram",
+          "href": "Associacaosoomei"
+        }
+      ],
+      "whatsapp": "31999951418",
+      "pix_key": "",
+      "email_public": "contato@soomei.com.br",
+      "theme_color": "#826a52",
+      "photo_url": "/static/uploads/ttt.png",
+      "address": "Av Rio Branco 931 Uberlândia Mg",
+      "site_url": "https://www.soomei.com.br"
+    },
+    "isabella@gmail.com": {
+      "full_name": "Isabella Damasceno",
+      "title": "Arquiteta | Soomei",
+      "links": [
+        {
+          "label": "Instagram",
+          "href": "Bellapcabreu"
+        }
+      ],
+      "whatsapp": "+5534984261748",
+      "pix_key": "09084582667",
+      "email_public": "isabellapcabreu@gmail.com",
+      "site_url": "https://www.soomei.com.br",
+      "address": "Av. Rio Branco 931 Uberlândia",
+      "theme_color": "#000000",
+      "photo_url": "/static/uploads/abc124.jpg"
     }
   },
   "sessions": {
@@ -105,29 +150,45 @@
       "email": "cezar@soomei.com.br",
       "ts": 1761341068
     },
-    "z9hSmAwfrebOPRZXuOce8lolGRaHvLz0UgXDXbN38w4": {
-      "email": "cezar@soomei.com.br",
-      "ts": 1761341092
-    },
-    "o78mKizpmf037UW_Tid042Tg01cFKxlaFsp4vVk_igw": {
-      "email": "cezar@soomei.com",
-      "ts": 1761346504
-    },
-    "RoMAmB5SIqkYEigd9f9EJlFVeAQeBZAaNGbcQUTczw0": {
-      "email": "cezar@soomei.com",
-      "ts": 1761347626
-    },
-    "S436zhhAariHmpany0Rvl2DZcQjxnXWpmefIqOBGJmU": {
-      "email": "cezar@soomei.com",
-      "ts": 1761351239
-    },
-    "hPLSvlnmrDZ8mIRAXmRP2UuPiF-eOpkPUm-vrr3bIwc": {
-      "email": "cezar@soomei.com.br",
-      "ts": 1761352368
-    },
     "2Y7QWNXJFdOfkf-0QmQA29Djfsla5YgBZHOVxUu41SM": {
       "email": "matheusmarsi@soomei.com.br",
       "ts": 1761352623
+    },
+    "4BxYeQL8E0MN1hdTAhPW_m8LKVT9HI7E_SSmuLywWng": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761355477
+    },
+    "b6aFcBFb5Za_spG8qRmnkashJqRxQM0yXvq4m8RdCLE": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761357412
+    },
+    "aj3UWQaCz5hyRfXmMclaD-21Z6c_TwiwZBhdgcmYxag": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761365857
+    },
+    "dCqCf5dW1J6gN6oYRtl_7jjm9k4tZk3Gtd_IPAxQ1zM": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761370231
+    },
+    "-BV3d0hHYOABBzqcHWY__O72cJD8j3K0Si-kTAXBDXI": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761400330
+    },
+    "kGm04V11Nd6OTZ12zf-TfRDVhltdifnO8yA6C2xttPM": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761401703
+    },
+    "ReisoYyIeJ_xpZ-w8QHWKFFwz91suw9LZ6K-nXCPq-Q": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761405503
+    },
+    "W56a5O90Qfgld8rnpEGq8VtLX1NFCAxSVEY6kIPBOjY": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761408088
+    },
+    "-9ND8lNYQWYC0MPG1albRZM0zHKojv7pWVRKyNKDy-Q": {
+      "email": "isabella@gmail.com",
+      "ts": 1761411839
     }
   },
   "verify_tokens": {}
