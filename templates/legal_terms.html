@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Termos de Uso e Privacidade{% endblock %}
+{% block content %}
+  <style>
+    .legal{white-space:pre-wrap;line-height:1.5}
+    .legal h1,.legal h2,.legal h3{margin:10px 0}
+  </style>
+  <div class="legal">{{ safe|safe }}</div>
+{% endblock %}
+

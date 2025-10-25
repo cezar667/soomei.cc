@@ -213,14 +213,14 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
     <body><main class='wrap'>
       <h1>Ativar cartao</h1>
       <p>UID: <b>{html.escape(uid)}</b></p>
-      <p style='color:#f88'>{html.escape(error)}</p>
+      <div id='formAlert' class='banner' role='alert' aria-live='polite' style='display:{'block' if (error or '').strip() else 'none'}'>{html.escape(error)}</div>
       <form id='onbForm' method='post' action='/auth/register'>
         <input type='hidden' name='uid' value='{html.escape(uid)}'>
-        <label>Email</label><input id='emailInput' name='email' type='email' required value='{html.escape(email)}'>
+        <label>Email</label><input id='emailInput' name='email' type='email' required value='{html.escape(email)}' autocapitalize='none' autocomplete='email' autocorrect='off'>
         <div id='emailMsg' class='hint'></div>
-        <label>PIN da carta</label><input name='pin' type='password' required>
-        <label>Nova senha</label><input name='password' type='password' required>
-        <label>Slug (opcional)</label><input id='vanityInput' name='vanity' placeholder='seu-nome' pattern='[a-z0-9-]{3,30}' value='{html.escape(vanity)}'>
+        <label>PIN da carta</label><input name='pin' type='password' required inputmode='numeric' pattern='[0-9]*' autocomplete='one-time-code' placeholder='Somente números'>\n        <div class='hint'>Dica: PIN possui apenas números.</div>
+        <label>Nova senha</label><input name='password' type='password' required minlength='8' autocomplete='new-password' placeholder='Mínimo de 8 caracteres'>
+        <label>Slug (opcional)</label><input id='vanityInput' name='vanity' placeholder='seu-nome' pattern='[a-z0-9-]{3,30}' value='{html.escape(vanity)}' autocapitalize='none' autocorrect='off' inputmode='url' style='text-transform:lowercase'>
         <div id='slugMsg' class='hint'>Use 3-30 caracteres, todos minusculos, sem caracteres especiais</div>
         <div class='terms-row'>
           <label class='terms-label'>
@@ -285,6 +285,33 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
         var slugEl = document.getElementById('vanityInput');
         var slugMsg = document.getElementById('slugMsg');
         var t1, t2;
+        // Submissão com validações amigáveis (fase de captura) para evitar página em branco
+        (function(){{
+          var form = document.getElementById('onbForm');
+          if (!(form && emailEl && emailMsg)) return;
+          form.addEventListener('submit', function(e){{
+            var alertBox = document.getElementById('formAlert');
+            function fail(msg, focusEl){{ try{{ e.preventDefault(); e.stopImmediatePropagation(); }}catch(_e){{}} if(alertBox){{ alertBox.textContent=msg; alertBox.style.display='block'; }} if(focusEl){{ try{{ focusEl.focus(); }}catch(_e){{}} }} }}
+            var vEmail = (emailEl.value||'').trim();
+            if (!vEmail) return; // HTML required trata
+            var pinEl = form.querySelector('input[name="pin"]');
+            var pwdEl = form.querySelector('input[name="password"]');
+            var lgpdEl = form.querySelector('input[name="lgpd"]');
+            var vPin = (pinEl && pinEl.value||'').trim();
+            var vPwd = (pwdEl && pwdEl.value||'').trim();
+            if (lgpdEl && !lgpdEl.checked){{ return fail('É necessário aceitar os termos para continuar.', lgpdEl); }}
+            if (vPwd && vPwd.length < 8){{ return fail('Senha muito curta. Use no mínimo 8 caracteres.', pwdEl); }}
+            if (vPin && /[^0-9]/.test(vPin)){{ return fail('PIN deve conter apenas números.', pinEl); }}
+            if (slugEl){{ slugEl.value = (slugEl.value||'').toLowerCase(); }}
+            try{{ e.preventDefault(); e.stopImmediatePropagation(); }}catch(_e){{}}
+            emailMsg.innerHTML = '';
+            var btn = form.querySelector('button'); if (btn) btn.disabled = true;
+            fetch('/auth/check_email?value='+encodeURIComponent(vEmail))
+              .then(function(r){{ return r.json(); }})
+              .then(function(j){{ if (j && j.available){{ form.submit(); }} else {{ setMsg(emailMsg, false, 'E-mail ja cadastrado'); if (btn) btn.disabled = false; emailEl.focus(); }} }})
+              .catch(function(){{ if (btn) btn.disabled = false; form.submit(); }});
+          }}, true);
+        }})();
         // Validação de e-mail somente no envio do formulário
         var form = document.getElementById('onbForm');
         if (form && emailEl && emailMsg){{
@@ -309,6 +336,8 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
             clearTimeout(t2);
             var v = (slugEl.value||'').trim();
             if (!v) {{ slugMsg.innerHTML=''; return; }}
+            // força minúsculas
+            var lower = v.toLowerCase(); if (v !== lower){{ slugEl.value = lower; v = lower; }}
             if (!/^[a-z0-9-]{3,30}$/.test(v)) {{ setMsg(slugMsg, false, 'Use 3-30 caracteres, todos minusculos, sem caracteres especiais'); return; }}
             t2 = setTimeout(async function(){{
               try {{
@@ -318,6 +347,8 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
               }} catch(_e) {{ slugMsg.innerHTML=''; }}
             }}, 250);
           }});
+          // listener simples para forçar minúsculas
+          slugEl.addEventListener('input', function(){{ var vv = slugEl.value||''; var ll = vv.toLowerCase(); if (vv!==ll) slugEl.value=ll; }});
         }}
         // Preview de cor do cartão
         var colorEl = document.getElementById('themeColor');
@@ -336,65 +367,27 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login(uid: str = "", error: str = ""):
-    html_doc = f"""
-    <!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Entrar</title></head>
-    <body><main class='wrap'>
-      <h1>Entrar</h1>
-      <form method='post' action='/auth/login'>
-        <input type='hidden' name='uid' value='{html.escape(uid)}'>
-        <label>Email</label><input name='email' type='email' required>
-        <label>Senha</label><input name='password' type='password' required>
-        <button class='btn'>Entrar</button>
-      </form>
-      <p style='color:#f88'>{html.escape(error)}</p>
-    </main></body></html>
-    """
-    return HTMLResponse(_brand_footer_inject(html_doc))
+def login(request: Request, uid: str = "", error: str = ""):
+    return templates.TemplateResponse(
+        "login.html", {"request": request, "uid": uid, "error": error}
+    )
 
 
 @app.get("/invalid", response_class=HTMLResponse)
-def invalid():
-    html_doc = """
-    <!doctype html><html lang='pt-br'><head>
-    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Cartão não encontrado</title></head>
-    <body><main class='wrap'>
-      <section class='card card-public carbon card-center'>
-        <h1>Ops!</h1>
-        <p>Não foi possível encontrar esse cartão em nossa base.</p>
-        <p class='muted'>Procure um de nossos especialistas.</p>
-        <p class='muted'>Equipe Soomei</p>
-      </section>
-    </main></body></html>
-    """
-    return HTMLResponse(_brand_footer_inject(html_doc))
+def invalid(request: Request):
+    return templates.TemplateResponse("invalid.html", {"request": request})
 
 @app.get("/legal/terms", response_class=HTMLResponse)
-def legal_terms():
+def legal_terms(request: Request):
     path = os.path.join(BASE, "..", "legal", "terms_v1.md")
     if not os.path.exists(path):
         return HTMLResponse("<h1>Termos indisponiveis</h1>", status_code=404)
     with open(path, "r", encoding="utf-8") as f:
         txt = f.read()
     safe = html.escape(txt).replace("\n", "<br>")
-    page = f"""
-    <!doctype html><html lang='pt-br'><head>
-    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'>
-    <title>Termos de Uso e Privacidade</title>
-    <style>
-      body{{background:#0b0b0c;color:#eaeaea}}
-      .wrap{{max-width:860px;margin:16px auto;padding:12px}}
-      .legal{{white-space:pre-wrap;line-height:1.5}}
-      .legal h1,.legal h2,.legal h3{{margin:10px 0}}
-    </style>
-    </head><body>
-    <main class='wrap'><div class='legal'>{safe}</div></main>
-    </body></html>
-    """
-    return HTMLResponse(page)
+    return templates.TemplateResponse(
+        "legal_terms.html", {"request": request, "safe": safe}
+    )
 
 @app.post("/auth/register")
 def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...), password: str = Form(...), vanity: str = Form(""), lgpd: str = Form(None)):
@@ -576,8 +569,15 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>Copiar PIX</a>")
     # Engrenagem de edição discreta no canto superior direito (somente dono)
     owner_gear = (
-        f"<a class='edit-gear' href='/edit/{html.escape(slug)}' title='Editar' aria-label='Editar'>?</a>"
-        if is_owner else ""
+        "<a class='edit-gear' href='/edit/"
+        + html.escape(slug)
+        + "' title='Editar' aria-label='Editar'>"
+        + "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>"
+        + "<path fill='currentColor' d='M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96c-.5-.4-1.05-.73-1.63-.95l-.36-2.5A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.5.42l-.36 2.5c-.58.22-1.12.55-1.63.95l-2.39-.96a.5.5 0 0 0-.6.22L.7 7.84a.5.5 0 0 0 .12.64L2.85 10.06c-.04.31-.06.63-.06.94s.02.63.06.94L.82 13.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.73 1.63.95l.36 2.5a.5.5 0 0 0 .5.42h3.8a.5.5 0 0 0 .5-.42l.36-2.5c.58-.22 1.12-.55 1.63-.95l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z'/>"
+        + "</svg>"
+        + "</a>"
+        if is_owner
+        else ""
     )
     actions_html = "".join(actions)
 
@@ -647,23 +647,32 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         p.addEventListener('click', function(e){
           e.preventDefault();
           var k = p.getAttribute('data-key') || '';
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(k);
-            p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500);
-          } else { alert('Chave PIX: '+k); }
+          if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(k).then(function(){
+              p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500);
+            }).catch(function(){ /* fallback abaixo */
+              try {
+                var ta = document.createElement('textarea');
+                ta.value = k; ta.setAttribute('readonly','');
+                ta.style.position='fixed'; ta.style.top='0'; ta.style.left='0'; ta.style.opacity='0';
+                document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+                var ok = document.execCommand('copy'); document.body.removeChild(ta);
+                if (ok) { p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500); }
+              } catch(_e) { /* silencia */ }
+            });
+          } else {
+            try {
+              var ta = document.createElement('textarea');
+              ta.value = k; ta.setAttribute('readonly','');
+              ta.style.position='fixed'; ta.style.top='0'; ta.style.left='0'; ta.style.opacity='0';
+              document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+              var ok = document.execCommand('copy'); document.body.removeChild(ta);
+              if (ok) { p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500); }
+            } catch(_e) { /* sem alert */ }
+          }
         });
       }
-      var p2 = document.getElementById('payPixBtn');
-      if (p2) {
-        p2.addEventListener('click', function(e){
-          e.preventDefault();
-          var k = p2.getAttribute('data-key') || '';
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(k);
-            p2.textContent = 'PIX copiado'; setTimeout(function(){ p2.textContent = 'Pagamento Pix'; }, 1500);
-          } else { alert('Chave PIX: '+k); }
-        });
-      }
+      // Removido handler antigo de copia para o botao de pagamento Pix (conflitava com o modal)
     })();
     </script>
     """
@@ -1147,7 +1156,7 @@ def hook(payload: dict):
 
 
 @app.get("/edit/{slug}", response_class=HTMLResponse)
-def edit_card(slug: str, request: Request):
+def edit_card(slug: str, request: Request, saved: str = ""):
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
@@ -1164,6 +1173,7 @@ def edit_card(slug: str, request: Request):
     links = prof.get("links", [])
     while len(links) < 3:
         links.append({"label": "", "href": ""})
+    notice = ("<div class='banner'>Alteracoes salvas. Para publicar seu cartao, adicione ao menos um meio de contato (WhatsApp, e-mail publico ou um link).</div>" if (str(saved) == "1" and not profile_complete(prof)) else ("<div class='banner ok'>Alteracoes salvas.</div>" if str(saved) == "1" else ""))
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -1179,6 +1189,7 @@ def edit_card(slug: str, request: Request):
     </style>
     </head>
     <body><main class='wrap'>
+      {notice}
       <form id='editForm' method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
         <div class='topbar'>
           <button class='icon-btn top-left' type='button' aria-label='Voltar' title='Voltar' onclick="location.href='/{html.escape(slug)}'">
@@ -1383,21 +1394,15 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         prof["photo_url"] = f"/static/uploads/{filename}"
     db2["profiles"][owner] = prof
     save(db2)
-    return RedirectResponse(f"/{slug}", status_code=303)
+    # Se perfil ainda estiver incompleto, mantem usuario na edicao com aviso
+    if not profile_complete(prof):
+        return RedirectResponse(f"/edit/{slug}?saved=1", status_code=303)
+    return RedirectResponse(f"/{slug}?saved=1", status_code=303)
 
 
 @app.get("/blocked", response_class=HTMLResponse)
-def blocked():
-    html_doc = """
-    <!doctype html><html lang='pt-br'><head>
-    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Cartao bloqueado</title></head>
-    <body><main class='wrap'>
-      <h1>Cartao bloqueado</h1>
-      <p>Entre em contato com o suporte para mais informacoes.</p>
-    </main></body></html>
-    """
-    return HTMLResponse(_brand_footer_inject(html_doc))
+def blocked(request: Request):
+    return templates.TemplateResponse("blocked.html", {"request": request})
 
 
 @app.get("/{slug}", response_class=HTMLResponse)

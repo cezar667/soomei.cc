@@ -44,6 +44,27 @@ Este documento orienta agentes e contribuidores em todo o repositório. Foca em 
 
 Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, `/q/*`, `/v/*`, `/{slug}`, `/slug/*`, `/blocked`.
 
+## Admin (Subdomínio)
+- App dedicado em `api/admin_app.py`; recomendado expor em `adm.seu-dominio` (ex.: `adm.soomei.cc`).
+- Sessão separada: cookie `admin_session` (não reutilizar `session` do público).
+- Requisitos de acesso (MVP):
+  - E‑mail verificado obrigatório (`email_verified_at` presente).
+  - Allowlist por variável `ADMIN_EMAILS` (lista de e‑mails, separada por vírgula). Fallback de dev: `@soomei.com.br`.
+- CSRF/Origem (MVP):
+  - Token CSRF por sessão incluído em todos os formulários (`csrf_token` oculto) e validado em cada POST state‑changing.
+  - Verificação de `Origin/Referer` contra `ADMIN_HOST` (aceita múltiplos, separados por vírgula). Em dev, `localhost:8001` e `127.0.0.1:8001` já são permitidos.
+- Funcionalidades (MVP):
+  - Dashboard: contagem de cartões por status.
+  - Cartões: listar/filtrar; criar (`uid`, `pin`, `user?`, `vanity?`), bloquear, ativar, resetar (apaga dados relacionados e volta `pending` com novo PIN).
+  - Usuários: listar; indica se é admin (pela allowlist) e status de verificação de e‑mail.
+- UI: Pico.css via CDN para rapidez; pode evoluir para Tailwind + DaisyUI.
+- Execução Local (Admin):
+  - `uvicorn api.admin_app:app --reload --port 8001`
+- Produção (Admin):
+  - Variáveis: `ADMIN_HOST=adm.seu-dominio`, `ADMIN_EMAILS=email1,email2`.
+  - Cookies: ativar `Secure` atrás de HTTPS/reverse‑proxy.
+  - Preferencialmente atrás de WAF/Access (Cloudflare) e com rate limit de `/login`.
+
 ## Worker Cloudflare
 - `GET /r/{uid}` lê KV `CARDS` e roteia para `API_BASE`:
   - `pending` → `/onboard/{uid}`; `blocked` → `/blocked`; `active` → `/{vanity|uid}`
@@ -103,6 +124,10 @@ pip install -r api\requirements.txt
 set PUBLIC_BASE_URL=http://localhost:8000
 uvicorn api.app:app --reload --port 8000
 ```
+2.1) Admin:
+```
+uvicorn api.admin_app:app --reload --port 8001
+```
 3) Worker (opcional):
 ```
 cd cloudflare
@@ -128,6 +153,13 @@ python scripts\reset_card.py --uid abc123
   - Rodar migrations
   - Criar usuário admin inicial (script)
   - Verificar métricas/erros
+
+Notas de Segurança do Admin
+- [x] Sessão e cookie dedicados (`admin_session`).
+- [x] E‑mail verificado requerido no login do admin.
+- [x] CSRF obrigatório em POSTs do admin + validação de origem via `ADMIN_HOST`.
+- [ ] Cookie `Secure` e `SameSite=Strict` (ativar em ambiente HTTPS/proxy).
+- [ ] 2FA (TOTP) para contas admin (futuro).
 
 Checklist de Segurança em Produção
 - [ ] HTTPS forçado (HSTS via proxy)
@@ -155,4 +187,3 @@ Checklist de Segurança em Produção
 - Commits: `tipo(escopo): resumo` (ex.: `feat(api): valida slug no cadastro`).
 - Abrir PRs com descrição clara e impacto em rotas/segurança.
 - Respeitar rotas estáveis; se quebrar, documentar migração.
-

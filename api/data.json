@@ -24,6 +24,16 @@
       "email": "isabella@gmail.com",
       "pwd": "f5ad9247a13be399cfd23ea96099743ab54c3c88945fb08558066673e08f1eb2bf205313c8a131f8ff4a01aa718a48baabde29acaab7179ceeffc8835e0df277",
       "email_verified_at": 1761411839
+    },
+    "bella@gmail.com": {
+      "email": "bella@gmail.com",
+      "pwd": "f5ad9247a13be399cfd23ea96099743ab54c3c88945fb08558066673e08f1eb2bf205313c8a131f8ff4a01aa718a48baabde29acaab7179ceeffc8835e0df277",
+      "email_verified_at": 1761430802
+    },
+    "cz@cz.com": {
+      "email": "cz@cz.com",
+      "pwd": "1a43975facf2a17ab45527d159e729742af1b95894be705acc909ebda8f6183149ce646228a28dc1f3313e7a9f6dcc54bce4abc7d9e0f330c35ae653adeef763",
+      "email_verified_at": 1761432700
     }
   },
   "cards": {
@@ -66,6 +76,22 @@
       "billing_status": "ok",
       "user": "contato@soomei.com.br",
       "vanity": "soomei"
+    },
+    "bella": {
+      "uid": "bella",
+      "status": "active",
+      "pin": "123456",
+      "billing_status": "ok",
+      "user": "bella@gmail.com",
+      "vanity": "isa"
+    },
+    "bbb": {
+      "uid": "bbb",
+      "status": "active",
+      "pin": "220120",
+      "billing_status": "ok",
+      "user": "cz@cz.com",
+      "vanity": "bebe"
     }
   },
   "profiles": {
@@ -80,13 +106,17 @@
         {
           "label": "LinkedIn",
           "href": "https://www.linkedin.com/in/cezar667"
+        },
+        {
+          "label": "Instagram",
+          "href": "Prcezardamasceno"
         }
       ],
       "whatsapp": "+5531999951416",
       "pix_key": "09084582667",
       "email_public": "cezar@soomei.com.br",
       "photo_url": "/static/uploads/tksc4o.jpg",
-      "theme_color": "#000000",
+      "theme_color": "#000034",
       "address": "Av. Rio Branco, 931, Uberlandia-MG",
       "site_url": "https://soomei.com.br"
     },
@@ -134,6 +164,10 @@
         {
           "label": "Instagram",
           "href": "Bellapcabreu"
+        },
+        {
+          "label": "Facebook",
+          "href": "Bellapcabreu"
         }
       ],
       "whatsapp": "+5534984261748",
@@ -141,8 +175,31 @@
       "email_public": "isabellapcabreu@gmail.com",
       "site_url": "https://www.soomei.com.br",
       "address": "Av. Rio Branco 931 Uberlândia",
-      "theme_color": "#000000",
+      "theme_color": "#be38f3",
       "photo_url": "/static/uploads/abc124.jpg"
+    },
+    "bella@gmail.com": {
+      "full_name": "Isabella",
+      "title": "Cargo | Empresa",
+      "links": [],
+      "whatsapp": "34984261748",
+      "pix_key": "11452036632",
+      "email_public": "",
+      "site_url": "",
+      "address": "",
+      "theme_color": "#000000",
+      "photo_url": "/static/uploads/bella.jpg"
+    },
+    "cz@cz.com": {
+      "full_name": "Cuz tech",
+      "title": "Cargo | Empresa",
+      "links": [],
+      "whatsapp": "31999951414",
+      "pix_key": "",
+      "email_public": "cz@cz.com",
+      "site_url": "",
+      "address": "",
+      "theme_color": "#000000"
     }
   },
   "sessions": {
@@ -189,7 +246,51 @@
     "-9ND8lNYQWYC0MPG1albRZM0zHKojv7pWVRKyNKDy-Q": {
       "email": "isabella@gmail.com",
       "ts": 1761411839
+    },
+    "Th83wizNh5rHahBTL9HMM-iOjIKS_PpSibdkf6EzNqI": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761418617
+    },
+    "aNJSBLoypCbSFm2gf95MSk67LNf5OlB1P-idLJZsbuI": {
+      "email": "isabella@gmail.com",
+      "ts": 1761430330
+    },
+    "NCtMEM4ORV8tzue_4pF86Op9h_tiHykYayst0Ixwxm8": {
+      "email": "bella@gmail.com",
+      "ts": 1761430802
+    },
+    "f995BOCc_qMakuRzpgWkwOy0R_8wUW9vx-haOnO-JDE": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761431200
+    },
+    "6Iv9DpTQ1NMACQVG9QHpVzSlEkz06_8mD0_cnvHR_5M": {
+      "email": "cz@cz.com",
+      "ts": 1761432700
+    },
+    "81HkhVJpIpkqy9JSgk_l_pJulMU14y6QWFwm-J9-w94": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761433901
+    },
+    "tSfegpoktYvNZbFEATzc8WGt_OtDaShVGCJ6cshow6Y": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761434540
     }
   },
-  "verify_tokens": {}
+  "verify_tokens": {},
+  "sessions_admin": {
+    "23zYObdYarqBMcQ_VRTDPGbBY6A8AY-hkFQzafjCGOo": {
+      "email": "admin@soomei.com.br",
+      "ts": 1761415025
+    },
+    "6myLqJyyvSUB8Q8XQOsUJUt1_FOXcljHLuUK3Y2Vxb0": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761417174,
+      "csrf": "j6pol12ZF466ttr7_HsFi0cTvWdoYSGI69PcLeQ7698"
+    },
+    "menWUaZ3prB9kkbyAcOmRuO59A93OJEX-0tBIEdgk9A": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761430616,
+      "csrf": "K4mTKiNOJ4jLlV2GPVjXrpEG7qGGSJl1cIOwLsx-hEs"
+    }
+  }
 }

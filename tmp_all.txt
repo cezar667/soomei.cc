@@ -1,0 +1,612 @@
+from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse, Response
+from fastapi.staticfiles import StaticFiles
+import os, json, html, qrcode, io, hashlib, time, secrets, re
+import urllib.parse as urlparse
+
+app = FastAPI(title="Soomei Card API v2")
+
+BASE = os.path.dirname(__file__)
+DATA = os.path.join(BASE, "data.json")
+WEB  = os.path.join(BASE, "..", "web")
+app.mount("/static", StaticFiles(directory=WEB), name="static")
+
+# Base pública para gerar URLs (QR/vCard). Defina PUBLIC_BASE_URL para ambiente.
+PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "https://soomei.cc").rstrip("/")
+
+# Diretório para uploads simples (servidos por /static)
+UPLOADS = os.path.join(WEB, "uploads")
+os.makedirs(UPLOADS, exist_ok=True)
+
+# --- util json "db" (MVP: troque por Postgres depois) ---
+def load():
+    if os.path.exists(DATA):
+        with open(DATA,"r",encoding="utf-8") as f: return json.load(f)
+    return {"users":{}, "cards":{}, "profiles":{}, "sessions":{}, "verify_tokens":{}}
+
+def save(db):
+    with open(DATA,"w",encoding="utf-8") as f: json.dump(db, f, ensure_ascii=False, indent=2)
+
+def h(p): return hashlib.scrypt(p.encode(), salt=b"soomei", n=2**14, r=8, p=1).hex()
+
+def db_defaults(db):
+    db.setdefault("users", {})
+    db.setdefault("cards", {})
+    db.setdefault("profiles", {})
+    db.setdefault("sessions", {})
+    db.setdefault("verify_tokens", {})
+    return db
+
+def issue_session(db, email: str):
+    token = secrets.token_urlsafe(32)
+    db["sessions"][token] = {"email": email, "ts": int(time.time())}
+    save(db)
+    return token
+
+def current_user_email(request: Request):
+    token = request.cookies.get("session")
+    if not token: return None
+    db = load(); db_defaults(db)
+    s = db["sessions"].get(token)
+    return s.get("email") if s else None
+
+RESERVED_SLUGS = {"onboard","login","auth","q","v","u","static","blocked","edit","hooks","slug"}
+
+def is_valid_slug(value: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9-]{3,30}", value or "")) and value not in RESERVED_SLUGS
+
+def slug_in_use(db, value: str) -> bool:
+    for _uid, c in db.get("cards", {}).items():
+        if c.get("vanity") == value:
+            return True
+    return False
+
+def sanitize_phone(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    keep_plus = s.startswith("+")
+    import re as _re
+    digits = _re.sub(r"\D", "", s)
+    return ("+" + digits) if keep_plus else digits
+
+# --- onboarding (primeiro acesso com PIN da carta) ---
+@app.get("/onboard/{uid}", response_class=HTMLResponse)
+def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
+    db = db_defaults(load())
+    uid_exists = uid in db.get("cards", {})
+    if not uid_exists and not error:
+        error = "Cartão não encontrado para ativação."
+    return HTMLResponse(f"""
+    <!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Ativar cartão</title></head>
+    <body><main class='wrap'>
+      <h1>Ativar cartão</h1>
+      <p>UID: <b>{html.escape(uid)}</b></p>
+      <p style='color:#f88'>{html.escape(error)}</p>
+      <form method='post' action='/auth/register'>
+        <input type='hidden' name='uid' value='{html.escape(uid)}'>
+        <label>Email</label><input name='email' type='email' required value='{html.escape(email)}'>
+        <label>PIN da carta</label><input name='pin' type='password' required>
+        <label>Nova senha</label><input name='password' type='password' required>
+        <label>Slug (opcional)</label><input name='vanity' placeholder='seu-nome' value='{html.escape(vanity)}'>
+        <label><input type='checkbox' name='lgpd' required> Concordo com os Termos e LGPD</label>
+        <button class='btn' {'disabled' if not uid_exists else ''}>Criar conta</button>
+      </form>
+      <p class='muted'>Já tem conta? <a href='/login?uid={html.escape(uid)}'>Entrar</a></p>
+    </main></body></html>
+    """)
+
+@app.get("/login", response_class=HTMLResponse)
+def login(uid: str = "", error: str = ""):
+    return HTMLResponse(f"""
+    <!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>
+    <link rel='stylesheet' href='/static/card.css'><title>Entrar</title></head>
+    <body><main class='wrap'>
+      <h1>Entrar</h1>
+      <form method='post' action='/auth/login'>
+        <input type='hidden' name='uid' value='{html.escape(uid)}'>
+        <label>Email</label><input name='email' type='email' required>
+        <label>Senha</label><input name='password' type='password' required>
+        <button class='btn'>Entrar</button>
+      </form>
+      <p style='color:#f88'>{html.escape(error)}</p>
+    </main></body></html>
+    """)
+
+@app.post("/auth/register")
+def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
+            password: str = Form(...), vanity: str = Form(""), lgpd: str = Form(None)):
+    def back(err: str):
+        dest = f"/onboard/{uid}?error={urlparse.quote_plus(err)}&email={urlparse.quote_plus(email)}&vanity={urlparse.quote_plus(vanity or '')}"
+        return RedirectResponse(dest, status_code=303)
+    if not lgpd:
+        return back("É necessário aceitar os termos")
+    if not lgpd: raise HTTPException(400, "É necessário aceitar os termos")
+    db = db_defaults(load())
+    # validação de slug (se informado) e disponibilidade
+    vanity = (vanity or "").strip()
+    if vanity:
+        if not is_valid_slug(vanity):
+            return back("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.")
+        if slug_in_use(db, vanity):
+            return back("Slug indisponível, tente outro.")
+        if not is_valid_slug(vanity):
+            return HTMLResponse("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
+        if slug_in_use(db, vanity):
+            return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
+    card = db["cards"].get(uid)
+    if not card:
+        return back("Cartão não encontrado para ativação.")
+    if pin != card.get("pin","123456"):
+        return back("PIN incorreto. Verifique e tente novamente.")
+    if len(password or "") < 8:
+        return back("Senha muito curta. Use no mínimo 8 caracteres.")
+    if email in db["users"]:
+        return RedirectResponse(f"/login?uid={uid}&error=Conta%20já%20existe", status_code=303)
+    # cria user
+    db["users"][email] = {"email":email, "pwd":h(password), "email_verified_at":None}
+    # define vanity (se disponível)
+    if False and vanity and any(c.get("vanity")==vanity for c in db["cards"].values()):
+        return HTMLResponse("Slug indisponível, tente outro.", status_code=400)
+    # ativa card
+    card.update({"status":"active", "billing_status":"ok", "user":email})
+    if vanity: card["vanity"] = vanity
+    db["cards"][uid] = card
+    # perfil básico
+    db["profiles"][email] = {"full_name":"Seu Nome", "title":"Cargo", "links":[], "whatsapp":"", "pix_key":"", "email_public":""}
+    # token de verificação de email
+    token = secrets.token_urlsafe(24)
+    db["verify_tokens"][token] = {"email": email, "created_at": int(time.time())}
+    save(db)
+    verify_url = f"/auth/verify?token={html.escape(token)}"
+    dest = card.get("vanity", uid)
+    return HTMLResponse(f"""
+    <!doctype html><html lang='pt-br'><head>
+      <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+      <link rel='stylesheet' href='/static/card.css'><title>Confirme seu email</title>
+    </head><body><main class='wrap'>
+      <h1>Confirme seu email</h1>
+      <p>Enviamos um link de verificação para <b>{html.escape(email)}</b>.</p>
+      <p class='muted'>Ambiente de desenvolvimento: você pode clicar aqui para confirmar agora:</p>
+      <p><a class='btn' href='{verify_url}'>Confirmar email</a></p>
+      <p>Depois de confirmar, você será direcionado ao cartão <code>/{html.escape(dest)}</code>.</p>
+    </main></body></html>
+    """)
+
+@app.post("/auth/login")
+def do_login(uid: str = Form(""), email: str = Form(...), password: str = Form(...)):
+    db = db_defaults(load())
+    u = db["users"].get(email)
+    if not u or u["pwd"] != h(password):
+        return RedirectResponse(f"/login?uid={uid}&error=Credenciais%20inv%C3%A1lidas", status_code=303)
+    if not u.get("email_verified_at"):
+        token = None
+        for t, meta in db.get("verify_tokens", {}).items():
+            if meta.get("email") == email:
+                token = t; break
+        link = f"/auth/verify?token={token}" if token else f"/login?uid={uid}&error=Email%20n%C3%A3o%20verificado"
+        return RedirectResponse(link, status_code=303)
+    # redireciona para o primeiro card do usuário ou o UID recebido
+    target = None
+    if uid and uid in db["cards"]: target = db["cards"][uid].get("vanity", uid)
+    else:
+        for k,v in db["cards"].items():
+            if v.get("user")==email: target = v.get("vanity", k); break
+    token = issue_session(db, email)
+    resp = RedirectResponse(f"/{target}", status_code=303)
+    resp.set_cookie("session", token, httponly=True, samesite="lax")
+    return resp
+
+@app.get("/auth/verify")
+def verify_email(token: str):
+    db = db_defaults(load())
+    meta = db["verify_tokens"].pop(token, None)
+    if not meta:
+        return HTMLResponse("Token inválido ou expirado.", status_code=400)
+    email = meta.get("email")
+    if email in db["users"]:
+        db["users"][email]["email_verified_at"] = int(time.time())
+        save(db)
+        # encontra primeiro card do usuário
+        dest = None
+        for k,v in db["cards"].items():
+            if v.get("user")==email:
+                dest = v.get("vanity", k); break
+        token_sess = issue_session(db, email)
+        resp = RedirectResponse(f"/{dest}", status_code=303)
+        resp.set_cookie("session", token_sess, httponly=True, samesite="lax")
+        return resp
+    return HTMLResponse("Usuário não encontrado para este token.", status_code=400)
+
+@app.api_route("/auth/logout", methods=["GET", "POST"])
+def logout(request: Request):
+    db = db_defaults(load())
+    token = request.cookies.get("session")
+    if token and token in db["sessions"]:
+        db["sessions"].pop(token, None); save(db)
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("session")
+    return resp
+
+def find_card_by_slug(slug: str):
+    db = load()
+    for uid, c in db["cards"].items():
+        if c.get("vanity")==slug: return db, uid, c
+    if slug in db["cards"]: return db, slug, db["cards"][slug]
+    return db, None, None
+
+@app.get("/u/{slug}", response_class=HTMLResponse)
+def profile_complete(prof: dict) -> bool:
+    if not prof: return False
+    has_name = bool(prof.get("full_name") and prof.get("full_name") != "Seu Nome")
+    has_contact = bool(prof.get("whatsapp") or prof.get("email_public") or (prof.get("links") and len(prof.get("links"))>0))
+    return has_name and has_contact
+
+def public_card(slug: str, request: Request):
+    db, uid, card = find_card_by_slug(slug)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    prof = db["profiles"].get(card.get("user",""), {})
+    photo = html.escape(prof.get("photo_url","")) if prof else ""
+    links = "".join([f"<li><a href='{html.escape(l.get('href',''))}' target='_blank'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
+    banner = ""
+    if card.get("billing_status") == "late":
+        banner = "<div class='banner'>Sua associação está em atraso. Regularize para manter seu cartão ativo.</div>"
+    html_doc = f"""<!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>{html.escape(prof.get('full_name','Card'))} — Soomei</title>
+    <link rel='stylesheet' href='/static/card.css'></head><body>
+    <main class='wrap'>
+      {banner}
+      <header>
+        {f"<img src='{photo}' alt='foto' style='width:96px;height:96px;border-radius:50%;object-fit:cover;margin-bottom:12px'>" if photo else ""}
+        <h1>{html.escape(prof.get('full_name',''))}</h1>
+        <p class='bio'>{html.escape(prof.get('title',''))}</p>
+      </header>
+      <ul class='links'>{links}</ul>
+      <div class='actions'><a class='btn' href='/v/{html.escape(slug)}.vcf'>Salvar na Agenda</a></div>
+      <footer><a href='/login' class='muted'>Entrar</a> · <a class='muted' href='/onboard/{html.escape(uid)}'>Criar Conta</a></footer>
+    </main></body></html>"""
+    return HTMLResponse(html_doc)
+
+# --- Renderização pública (visitante) aprimorada ---
+def visitor_public_card(prof: dict, slug: str):
+    photo = html.escape(prof.get("photo_url","")) if prof else ""
+    wa_raw = (prof.get("whatsapp", "") or "").strip()
+    wa_digits = "".join([c for c in wa_raw if c.isdigit()])
+    email_pub = (prof.get("email_public", "") or "").strip()
+    pix_key = (prof.get("pix_key", "") or "").strip()
+    links_custom = "".join([f"<li><a class='link' href='{html.escape(l.get('href',''))}' target='_blank' rel='noopener'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
+    share_url = f"{PUBLIC_BASE}/{slug}"
+    share_text = urlparse.quote_plus(f"Olá! Vim pelo seu cartão: {share_url}")
+    actions = []
+    if wa_digits:
+        actions.append(f"<a class='btn action whatsapp' target='_blank' rel='noopener' href='https://wa.me/{wa_digits}?text={share_text}'>💬 WhatsApp</a>")
+    if email_pub:
+        actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>✉️ E-mail</a>")
+    actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>📇 Salvar contato</a>")
+    actions.append("<a class='btn action share' id='shareBtn' href='#'>🔗 Compartilhar</a>")
+    if pix_key:
+        actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>⚡ Copiar PIX</a>")
+    actions_html = "".join(actions)
+    scripts = """
+    <script>
+    (function(){
+      var s = document.getElementById('shareBtn');
+      if (s) {
+        s.addEventListener('click', function(e){
+          e.preventDefault();
+          var url = window.location.href;
+          if (navigator.share) {
+            navigator.share({title: document.title, url: url}).catch(function(){});
+          } else if (navigator.clipboard) {
+            navigator.clipboard.writeText(url);
+            s.textContent = 'Link copiado'; setTimeout(function(){ s.textContent = '🔗 Compartilhar'; }, 1500);
+          }
+        });
+      }
+      var p = document.getElementById('pixBtn');
+      if (p) {
+        p.addEventListener('click', function(e){
+          e.preventDefault();
+          var k = p.getAttribute('data-key') || '';
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(k);
+            p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = '⚡ Copiar PIX'; }, 1500);
+          } else { alert('Chave PIX: '+k); }
+        });
+      }
+    })();
+    </script>
+    """
+    html_doc = f"""<!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Cartão — {html.escape(prof.get('full_name',''))}</title></head><body>
+    <main class='wrap'>
+      <section class='card'>
+        <header class='card-header'>
+          {f"<img class='avatar' src='{photo}' alt='foto'>" if photo else ""}
+          <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
+          <p class='title'>{html.escape(prof.get('title',''))}</p>
+        </header>
+        <div class='actions-grid'>{actions_html}</div>
+        <ul class='info'>
+          {f"<li><span>📱</span><a href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>{wa_raw}</a></li>" if wa_digits else ""}
+          {f"<li><span>✉️</span><a href='mailto:{html.escape(email_pub)}'>{html.escape(email_pub)}</a></li>" if email_pub else ""}
+        </ul>
+        <h3 class='section'>Links</h3>
+        <ul class='links'>{links_custom}</ul>
+      </section>
+      {scripts}
+      <footer><a href='/login' class='muted'>Entrar</a></footer>
+    </main></body></html>"""
+    return HTMLResponse(html_doc)
+
+@app.get("/q/{slug}.png")
+def qr(slug: str):
+    img = qrcode.make(f"{PUBLIC_BASE}/{slug}")
+    buf = io.BytesIO(); img.save(buf, format="PNG"); buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")
+
+@app.get("/v/{slug}.vcf")
+def vcard(slug: str):
+    db, uid, card = find_card_by_slug(slug)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    prof = db["profiles"].get(card.get("user",""), {})
+    name = prof.get("full_name",""); tel = prof.get("whatsapp",""); email = prof.get("email_public","")
+    url = f"{PUBLIC_BASE}/{slug}"
+    vcf = f"BEGIN:VCARD\nVERSION:3.0\nN:{name};;;;\nFN:{name}\nORG:Soomei\nTITLE:{prof.get('title','')}\nTEL;TYPE=CELL:{tel}\nEMAIL;TYPE=INTERNET:{email}\nURL:{url}\nEND:VCARD\n"
+    return PlainTextResponse(vcf, media_type="text/vcard")
+
+@app.get("/slug/check")
+def slug_check(value: str = ""):
+    db = db_defaults(load())
+    value = (value or "").strip()
+    available = is_valid_slug(value) and (not slug_in_use(db, value))
+    return {"available": available}
+
+@app.get("/slug/select/{id}", response_class=HTMLResponse)
+def slug_select(id: str, request: Request):
+    db, uid, card = find_card_by_slug(id)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    owner = card.get("user", "")
+    who = current_user_email(request)
+    if who != owner:
+        # visitante não pode escolher slug
+        return RedirectResponse(f"/{html.escape(card.get('vanity', uid))}", status_code=303)
+    current = html.escape(card.get("vanity", ""))
+    html_doc = f"""
+    <!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Escolher slug</title>
+    <style>
+      .hint{{font-size:12px;color:#9aa0a6;margin-top:6px}}
+      .ok{{color:#6ad47b}} .bad{{color:#f88}}
+    </style>
+    </head><body><main class='wrap'>
+      <h1>Escolher seu slug</h1>
+      <p>Este será o seu endereço público: <code>/{'{'}slug{'}'}</code></p>
+      <form method='post' action='/slug/select/{html.escape(uid)}'>
+        <label>Slug</label>
+        <input name='value' id='slug' value='{current}' placeholder='seu-nome' pattern='[a-z0-9-]{{3,30}}' required>
+        <div id='msg' class='hint'></div>
+        <button class='btn'>Salvar slug</button>
+      </form>
+      <p class='muted'><a href='/{html.escape(card.get('vanity', uid))}'>Voltar</a></p>
+    </main>
+    <script>
+      const el = document.getElementById('slug');
+      const msg = document.getElementById('msg');
+      let t;
+      async function check(v){{
+        if(!v){{ msg.textContent=''; return; }}
+        const r = await fetch('/slug/check?value='+encodeURIComponent(v));
+        const j = await r.json();
+        if(j.available){{ msg.innerHTML = '<span class="ok">Disponível ✓</span>'; }}
+        else{{ msg.innerHTML = '<span class="bad">Indisponível ✗</span>'; }}
+      }}
+      el.addEventListener('input', () => {{ clearTimeout(t); t=setTimeout(() => check(el.value.trim()), 200); }});
+      check(el.value.trim());
+    </script>
+    </body></html>
+    """
+    return HTMLResponse(html_doc)
+
+@app.post("/slug/select/{id}")
+def slug_select_post(id: str, request: Request, value: str = Form("")):
+    db, uid, card = find_card_by_slug(id)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    owner = card.get("user", "")
+    who = current_user_email(request)
+    if who != owner:
+        return RedirectResponse(f"/{html.escape(card.get('vanity', uid))}", status_code=303)
+    value = (value or "").strip()
+    if not is_valid_slug(value):
+        return HTMLResponse("Slug inválido. Use 3-30 caracteres [a-z0-9-] e evite palavras reservadas.", status_code=400)
+    if slug_in_use(db_defaults(load()), value):
+        return HTMLResponse("Slug indisponível, tente outro.", status_code=409)
+    # define slug e salva
+    db2 = db_defaults(load())
+    c = db2["cards"].get(uid, card)
+    c["vanity"] = value
+    db2["cards"][uid] = c
+    save(db2)
+    return RedirectResponse(f"/{html.escape(value)}", status_code=303)
+
+# Webhook do TheMembers → governa billing/status
+@app.post("/hooks/themembers")
+def hook(payload: dict):
+    # payload: {"uid":"abc123","status":"ok|late|delinquent|blocked"}
+    db = load()
+    uid = payload.get("uid")
+    if not uid or uid not in db["cards"]: return {"ok": True}
+    st = payload.get("status","ok")
+    c = db["cards"][uid]; c["billing_status"] = st
+    if st in ("blocked","delinquent"): c["status"]="blocked"
+    elif st=="ok": c["status"]="active"
+    db["cards"][uid] = c; save(db)
+    return {"ok": True}
+
+# --- Edição do cartão (dono) ---
+@app.get("/edit/{slug}", response_class=HTMLResponse)
+def edit_card(slug: str, request: Request):
+    db, uid, card = find_card_by_slug(slug)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    owner = card.get("user", "")
+    who = current_user_email(request)
+    if who != owner: return RedirectResponse(f"/{slug}", status_code=303)
+    prof = load()["profiles"].get(owner, {})
+    links = prof.get("links", [])
+    while len(links) < 3: links.append({"label":"","href":""})
+    html_form = f"""
+    <!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Editar cartão</title></head>
+    <body><main class='wrap'>
+      <h1>Editar cartão</h1>
+      <form method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
+        <label>Nome completo</label><input name='full_name' value='{html.escape(prof.get('full_name',''))}' required>
+        <label>Cargo</label><input name='title' value='{html.escape(prof.get('title',''))}'>
+        <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='tel' placeholder='(00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}'>
+        <label>Email público</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
+        <label>Foto (jpg/png)</label><input type='file' name='photo'>
+        <h3>Links</h3>
+        <label>Rótulo 1</label><input name='label1' value='{html.escape(links[0].get('label',''))}'>
+        <label>URL 1</label><input name='href1' value='{html.escape(links[0].get('href',''))}'>
+        <label>Rótulo 2</label><input name='label2' value='{html.escape(links[1].get('label',''))}'>
+        <label>URL 2</label><input name='href2' value='{html.escape(links[1].get('href',''))}'>
+        <label>Rótulo 3</label><input name='label3' value='{html.escape(links[2].get('label',''))}'>
+        <label>URL 3</label><input name='href3' value='{html.escape(links[2].get('href',''))}'>
+        <button class='btn'>Salvar</button>
+      </form>
+      <script>
+        (function(){{
+          const el = document.getElementById('whatsapp');
+          if (!el) return;
+          const digits = s => s.replace(/\D/g,'');
+          function mask(v){{
+            const d = digits(v);
+            if (d.length <= 2) return d;
+            if (d.length <= 6) return `(${{d.slice(0,2)}}) ${{d.slice(2)}}`;
+            if (d.length <= 10) return `(${{d.slice(0,2)}}) ${{d.slice(2,6)}}-${{d.slice(6)}}`;
+            return `(${{d.slice(0,2)}}) ${{d.slice(2,7)}}-${{d.slice(7,11)}}`;
+          }}
+          el.addEventListener('input', () => {{
+            const cur = el.selectionStart;
+            el.value = mask(el.value);
+          }});
+          el.value = mask(el.value);
+        }})();
+      </script>
+      <p><a class='muted' href='/{html.escape(slug)}'>Voltar</a> · <a class='muted' href='/auth/logout'>Sair</a></p>
+    </main></body></html>
+    """
+    return HTMLResponse(html_form)
+
+@app.post("/edit/{slug}")
+async def save_edit(slug: str, request: Request, full_name: str = Form(""), title: str = Form(""),
+               whatsapp: str = Form(""), email_public: str = Form(""),
+               label1: str = Form(""), href1: str = Form(""),
+               label2: str = Form(""), href2: str = Form(""),
+               label3: str = Form(""), href3: str = Form(""),
+               photo: UploadFile | None = File(None)):
+    db, uid, card = find_card_by_slug(slug)
+    if not card: raise HTTPException(404, "Cartão não encontrado")
+    owner = card.get("user", "")
+    who = current_user_email(request)
+    if who != owner: return RedirectResponse(f"/{slug}", status_code=303)
+    db2 = db_defaults(load())
+    prof = db2["profiles"].get(owner, {})
+    prof.update({
+        "full_name": full_name.strip(),
+        "title": title.strip(),
+        "whatsapp": sanitize_phone(whatsapp),
+        "email_public": email_public.strip(),
+    })
+    links = []
+    for (lbl, href) in [(label1, href1), (label2, href2), (label3, href3)]:
+        if lbl.strip() and href.strip(): links.append({"label": lbl.strip(), "href": href.strip()})
+    prof["links"] = links
+    if photo and photo.filename:
+        ct = (photo.content_type or "").lower()
+        if ct not in ("image/jpeg", "image/png"):
+            return HTMLResponse("Formato de imagem não suportado (use JPEG ou PNG)", status_code=400)
+        ext = ".jpg" if ct == "image/jpeg" else ".png"
+        filename = f"{uid}{ext}"
+        dest_path = os.path.join(UPLOADS, filename)
+        data = await photo.read()
+        with open(dest_path, "wb") as f:
+            f.write(data)
+        prof["photo_url"] = f"/static/uploads/{filename}"
+    db2["profiles"][owner] = prof
+    save(db2)
+    return RedirectResponse(f"/{slug}", status_code=303)
+
+@app.get("/blocked", response_class=HTMLResponse)
+def blocked():
+    return HTMLResponse("""
+    <!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Cartão bloqueado</title></head>
+    <body><main class='wrap'>
+      <h1>Cartão bloqueado</h1>
+      <p>Entre em contato com o suporte para mais informações.</p>
+    </main></body></html>
+    """)
+
+@app.get("/{slug}", response_class=HTMLResponse)
+def root_slug(slug: str, request: Request):
+    db, uid, card = find_card_by_slug(slug)
+    # redireciona para a URL canônica (vanity) se existir
+    if card and card.get("vanity") and slug != card.get("vanity"):
+        return RedirectResponse(f"/{html.escape(card.get('vanity'))}", status_code=302)
+    if not card:
+        return HTMLResponse("<h1>Cartão não encontrado</h1>", status_code=404)
+    if not card.get("status") or card.get("status") == "pending":
+        return RedirectResponse(f"/onboard/{html.escape(uid)}", status_code=302)
+    if card.get("status") == "blocked":
+        return RedirectResponse("/blocked", status_code=302)
+    owner = card.get("user", "")
+    prof = load()["profiles"].get(owner, {})
+    who = current_user_email(request)
+    # dono sem vanity ainda → página de escolha de slug
+    if who == owner and not card.get("vanity"):
+        return RedirectResponse(f"/slug/select/{html.escape(uid)}", status_code=302)
+    if who == owner and not profile_complete(prof):
+        return RedirectResponse(f"/edit/{html.escape(slug)}", status_code=302)
+    if who != owner:
+        if not profile_complete(prof):
+            return HTMLResponse("""
+            <!doctype html><html lang='pt-br'><head>
+            <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+            <link rel='stylesheet' href='/static/card.css'><title>Em construção</title></head>
+            <body><main class='wrap'>
+              <h1>Cartão digital em construção</h1>
+              <p>O proprietário ainda não finalizou o preenchimento deste cartão.</p>
+              <p class='muted'><a href='/login'>Sou o dono? Entrar</a></p>
+            </main></body></html>
+            """)
+        return public_card(slug, request)
+    links = "".join([f"<li><a href='{html.escape(l.get('href',''))}' target='_blank'>{html.escape(l.get('label',''))}</a></li>" for l in prof.get("links",[])])
+    photo = html.escape(prof.get("photo_url","")) if prof else ""
+    html_doc = f"""<!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='/static/card.css'><title>Meu cartão</title></head><body>
+    <main class='wrap'>
+      <h1>Seu cartão</h1>
+      {f"<img src='{photo}' alt='foto' style='width:96px;height:96px;border-radius:50%;object-fit:cover;margin-bottom:12px'>" if photo else ""}
+      <p><b>Nome:</b> {html.escape(prof.get('full_name',''))}</p>
+      <p><b>Cargo:</b> {html.escape(prof.get('title',''))}</p>
+      <p><b>WhatsApp:</b> {html.escape(prof.get('whatsapp',''))}</p>
+      <p><b>Email público:</b> {html.escape(prof.get('email_public',''))}</p>
+      <h3>Links</h3>
+      <ul class='links'>{links}</ul>
+      <div class='actions'>
+        <a class='btn' href='/edit/{html.escape(slug)}'>Editar</a>
+        <a class='btn' href='/v/{html.escape(slug)}.vcf'>Baixar vCard</a>
+      </div>
+      <p class='muted'><a href='/auth/logout'>Sair</a> · URL pública: <code>/{html.escape(slug)}</code></p>
+    </main></body></html>"""
+    return HTMLResponse(html_doc)
+

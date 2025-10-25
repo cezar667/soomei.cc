@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Entrar{% endblock %}
+{% block content %}
+  <h1>Entrar</h1>
+  <form method="post" action="/auth/login">
+    <input type="hidden" name="uid" value="{{ uid }}">
+    <label>Email</label>
+    <input name="email" type="email" required>
+    <label>Senha</label>
+    <input name="password" type="password" required>
+    <button class="btn">Entrar</button>
+  </form>
+  <div id="formAlert" class="banner" role="alert" aria-live="polite" style="display:{% if error and error|trim %}block{% else %}none{% endif %}">{{ error }}</div>
+{% endblock %}
+
