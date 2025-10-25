@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Escolher slug{% endblock %}
+{% block content %}
+  <h1>Escolher seu slug</h1>
+  <p>Este sera o seu endereco publico: <code>/slug</code></p>
+  <form method="post" action="/slug/select/{{ uid }}">
+    <label>Slug</label>
+    <input name="value" id="slug" value="{{ current }}" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" required>
+    <div id="msg" class="hint"></div>
+    <button class="btn">Salvar slug</button>
+  </form>
+  <p class="muted"><a href="/{{ back_slug }}">Voltar</a></p>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const el = document.getElementById('slug');
+    const msg = document.getElementById('msg');
+    let t;
+    async function check(v){
+      if (!v) { msg.textContent=''; return; }
+      const r = await fetch('/slug/check?value='+encodeURIComponent(v));
+      const j = await r.json();
+      msg.innerHTML = j.available ? '<span class="ok">Disponivel</span>' : '<span class="bad">Indisponivel</span>';
+    }
+    el.addEventListener('input', () => { clearTimeout(t); t=setTimeout(() => check(el.value.trim()), 200); });
+    check(el.value.trim());
+  </script>
+{% endblock %}
+

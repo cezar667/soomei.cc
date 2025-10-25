@@ -280,8 +280,9 @@ def public_card(slug: str, request: Request):
     return HTMLResponse(fix_text(html_doc))
 
 # --- Renderização pública (visitante) aprimorada ---
+# --- Card renderer (visitor/owner) ---
 def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
-    photo = html.escape(prof.get("photo_url","")) if prof else ""
+    photo = html.escape(prof.get("photo_url", "")) if prof else ""
     wa_raw = (prof.get("whatsapp", "") or "").strip()
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
     email_pub = (prof.get("email_public", "") or "").strip()
@@ -301,12 +302,12 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         if "dribbble" in s: return "dribbble"
         if (href or "").startswith("tel:"): return "phone"
         if (href or "").startswith("mailto:"): return "email"
-        if ("site" in s or "website" in s or "página" in s or "pagina" in s): return "site"
+        if ("site" in s or "website" in s or "pagina" in s): return "site"
         return "site" if (href or "").startswith("http") else "link"
 
     site_link = None
     insta_link = None
-    other_links = []
+    other_links: list[tuple[str, str, str]] = []
     for item in links_list:
         label = item.get("label", "")
         href = item.get("href", "")
@@ -319,29 +320,28 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             other_links.append((label, href, plat))
 
     share_url = f"{PUBLIC_BASE}/{slug}"
-    share_text = urlparse.quote_plus(f"Olá! Vim pelo seu cartão: {share_url}")
+    share_text = urlparse.quote_plus(f"Ola! Vim pelo seu cartao: {share_url}")
 
-    actions = []
+    actions: list[str] = []
     if wa_digits:
-        actions.append(f"<a class='btn action whatsapp' target='_blank' rel='noopener' href='https://wa.me/{wa_digits}?text={share_text}'>�Y'� WhatsApp</a>")
+        actions.append(f"<a class='btn action whatsapp' target='_blank' rel='noopener' href='https://wa.me/{wa_digits}?text={share_text}'>WhatsApp</a>")
     if site_link:
         _, href, _ = site_link
-        actions.append(f"<a class='btn action website' target='_blank' rel='noopener' href='{html.escape(href)}'>�YO� Site</a>")
+        actions.append(f"<a class='btn action website' target='_blank' rel='noopener' href='{html.escape(href)}'>Site</a>")
     if insta_link:
         _, href, _ = insta_link
-        actions.append(f"<a class='btn action instagram' target='_blank' rel='noopener' href='{html.escape(href)}'>�Y"� Instagram</a>")
+        actions.append(f"<a class='btn action instagram' target='_blank' rel='noopener' href='{html.escape(href)}'>Instagram</a>")
     if email_pub:
-        actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>�o?️ E-mail</a>")
-    actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>�Y"? Salvar contato</a>")
-    actions.append("<a class='btn action share' id='shareBtn' href='#'>�Y"- Compartilhar</a>")
+        actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>E-mail</a>")
+    actions.append(f"<a class='btn action vcard' href='/v/{html.escape(slug)}.vcf'>Salvar contato</a>")
+    actions.append("<a class='btn action share' id='shareBtn' href='#'>Compartilhar</a>")
     if pix_key:
-        actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>�s� Copiar PIX</a>")
+        actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>Copiar PIX</a>")
     if is_owner:
-        actions.append(f"<a class='btn action' href='/edit/{html.escape(slug)}'>�o�️ Editar</a>")
+        actions.append(f"<a class='btn action' href='/edit/{html.escape(slug)}'>Editar</a>")
     actions_html = "".join(actions)
 
-    # Links em grade
-    link_items = []
+    link_items: list[str] = []
     for label, href, plat in other_links:
         cls = f"brand-{plat}"
         link_items.append(f"<li><a class='link {cls}' href='{html.escape(href)}' target='_blank' rel='noopener'>{html.escape(label or plat.title())}</a></li>")
@@ -359,7 +359,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             navigator.share({title: document.title, url: url}).catch(function(){});
           } else if (navigator.clipboard) {
             navigator.clipboard.writeText(url);
-            s.textContent = 'Link copiado'; setTimeout(function(){ s.textContent = '�Y"- Compartilhar'; }, 1500);
+            s.textContent = 'Link copiado'; setTimeout(function(){ s.textContent = 'Compartilhar'; }, 1500);
           }
         });
       }
@@ -370,7 +370,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           var k = p.getAttribute('data-key') || '';
           if (navigator.clipboard) {
             navigator.clipboard.writeText(k);
-            p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = '�s� Copiar PIX'; }, 1500);
+            p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500);
           } else { alert('Chave PIX: '+k); }
         });
       }
@@ -380,18 +380,18 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
 
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Cartão �?" {html.escape(prof.get('full_name',''))}</title></head><body>
+    <link rel='stylesheet' href='/static/card.css?v=20251024'><title>Cartao — {html.escape(prof.get('full_name',''))}</title></head><body>
     <main class='wrap'>
-      {f"<div class='hero'><img class='cover' src='{photo}' alt='foto de capa'></div>" if photo else ""}
-      <section class='card card-public'>
+      <section class='card card-public carbon card-center'>
         <header class='card-header'>
+          {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
           <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
           <p class='title'>{html.escape(prof.get('title',''))}</p>
         </header>
         <div class='actions-row'>{actions_html}</div>
         <ul class='contact'>
-          {f"<li><a class='contact-link' href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>�Y"� {wa_raw}</a></li>" if wa_digits else ""}
-          {f"<li><a class='contact-link' href='mailto:{html.escape(email_pub)}'>�o?️ {html.escape(email_pub)}</a></li>" if email_pub else ""}
+          {f"<li><a class='contact-link' href='https://wa.me/{wa_digits}' target='_blank' rel='noopener'>{wa_raw}</a></li>" if wa_digits else ""}
+          {f"<li><a class='contact-link' href='mailto:{html.escape(email_pub)}'>{html.escape(email_pub)}</a></li>" if email_pub else ""}
         </ul>
         {f"<h3 class='section'>Links</h3>" if links_grid_html else ""}
         <ul class='links links-grid'>{links_grid_html}</ul>
@@ -668,6 +668,7 @@ def root_slug(slug: str, request: Request):
       <p class='muted'><a href='/auth/logout'>Sair</a> · URL pública: <code>/{html.escape(slug)}</code></p>
     </main></body></html>"""
     return HTMLResponse(fix_text(html_doc))
+
 
 
 
