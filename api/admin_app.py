@@ -95,6 +95,11 @@ def _current_admin_session(request: Request):
         return None, None
     db = load_db()
     meta = db.get("sessions_admin", {}).get(tok)
+    # Auto-seed CSRF for legacy sessions (created antes da proteção CSRF)
+    if isinstance(meta, dict) and not meta.get("csrf"):
+        meta["csrf"] = secrets.token_urlsafe(32)
+        db["sessions_admin"][tok] = meta
+        save_db(db)
     return tok, meta
 
 
