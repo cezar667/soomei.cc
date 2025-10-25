@@ -92,4 +92,17 @@ Contribui��es s�o bem-vindas. Abra issues e PRs no GitHub.
 
 
 
+## Versionamento e Releases
+
+- Adotamos SemVer: `vMAJOR.MINOR.PATCH`.
+- Fluxo sugerido:
+  - Features/ajustes: incremente `MINOR` (ex.: `v0.2.0`).
+  - Hotfixes: incremente `PATCH` (ex.: `v0.1.1`).
+- Como cortar uma release:
+  1. Garanta que `main` está atualizado e verde.
+  2. Crie uma tag anotada: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
+  3. Publique: `git push origin main --follow-tags`
+  4. O GitHub Actions cria o Release automaticamente (workflow `release.yml`).
+
+- Histórico de mudanças: consulte `CHANGELOG.md`.
 
