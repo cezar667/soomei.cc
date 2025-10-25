@@ -4,6 +4,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os, json, html, qrcode, io, hashlib, time, secrets, re, base64, unicodedata
 import urllib.parse as urlparse
+import smtplib, ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = FastAPI(title="Soomei Card API v2")
 
@@ -434,8 +437,7 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     </head><body><main class='wrap'>
       <h1>Confirme seu email</h1>
       <p>Enviamos um link de verificacao para <b>{html.escape(email)}</b>.</p>
-      <p class='muted'>Ambiente de desenvolvimento: voce pode clicar aqui para confirmar agora:</p>
-      <p><a class='btn' href='{verify_url}'>Confirmar email</a></p>
+      {("<p class='muted'>Ambiente de desenvolvimento: voce pode clicar aqui para confirmar agora:</p><p><a class='btn' href='" + verify_url + "'>Confirmar email</a></p>") if os.getenv('APP_ENV','dev').lower().strip() != 'prod' else ("<p class='muted'>Verifique sua caixa de entrada para concluir a confirmacao.</p>")}
       <p>Depois de confirmar, voce sera direcionado ao cartao <code>/{html.escape(dest)}</code>.</p>
     </main></body></html>
     """
@@ -574,7 +576,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         actions.append(f"<a class='btn action pix' id='pixBtn' data-key='{html.escape(pix_key)}' href='#'>Copiar PIX</a>")
     # Engrenagem de edição discreta no canto superior direito (somente dono)
     owner_gear = (
-        f"<a class='edit-gear' href='/edit/{html.escape(slug)}' title='Editar' aria-label='Editar'>⚙</a>"
+        f"<a class='edit-gear' href='/edit/{html.escape(slug)}' title='Editar' aria-label='Editar'>?</a>"
         if is_owner else ""
     )
     actions_html = "".join(actions)
