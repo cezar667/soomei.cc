@@ -118,17 +118,21 @@ def _allowed_hosts() -> set[str]:
 
 def _check_origin(request: Request) -> bool:
     allowed = _allowed_hosts()
+    host_hdr = (request.headers.get("host") or "").strip()
+    # Sempre aceite o host atual se estiver explicitamente na allowlist
+    if host_hdr:
+        allowed.add(host_hdr)
     origin = request.headers.get("origin") or ""
     referer = request.headers.get("referer") or ""
     src = origin or referer
     if not src:
-        # If no origin/referer, be conservative: deny
-        return False
+        # Sem Origin/Referer: permita se o Host atual estiver permitido (uso comum em dev/LAN)
+        return bool(host_hdr and (host_hdr in allowed))
     try:
         netloc = urlparse(src).netloc
     except Exception:
         return False
-    return netloc in allowed
+    return (netloc in allowed)
 
 
 def _csrf_protect(request: Request, form_token: str) -> None:
