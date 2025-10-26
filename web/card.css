@@ -110,3 +110,48 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .modal header{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}
 .modal header h2{margin:0;font-size:18px;color:#eaeaea}
 .modal .close{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+
+.google-review {
+  text-align: center;
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+
+.btn-google-review {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  font-size: 14px;
+  color: #fff;
+  background: #ffffff10;
+  border: 1px solid #ffffff20;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.25s ease;
+}
+
+.btn-google-review:hover {
+  background: #ffffff25;
+  border-color: #ffffff40;
+}
+
+.btn-google-review .g-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.9;
+  transition: opacity 0.2s;
+}
+
+.btn-google-review:hover .g-icon {
+  opacity: 1;
+}
+.link-google-review {
+    color: #77abff;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 11px;
+}

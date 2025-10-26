@@ -23,6 +23,7 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE, "..", "templates"))
 
 PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "https://soomei.cc").rstrip("/")
+PUBLIC_VERSION = os.getenv("PUBLIC_VERSION")
 UPLOADS = os.path.join(WEB, "uploads")
 os.makedirs(UPLOADS, exist_ok=True)
 
@@ -245,7 +246,7 @@ def profile_complete(prof: dict) -> bool:
 
 
 def _brand_footer_inject(html_doc: str) -> str:
-    snippet = "\n    <footer class='muted' style='text-align:center'>&copy; 2025 Soomei</footer>\n  "
+    snippet = "\n    <footer class='muted' style='text-align:center'>&copy; 2025 Soomei"+ ((" - " + PUBLIC_VERSION) if PUBLIC_VERSION else "") + "</footer>\n  "
     return html_doc.replace("</body>", snippet + "</body>", 1) if "</body>" in html_doc else (html_doc + snippet)
 
 
@@ -597,6 +598,9 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     email_pub = (prof.get("email_public", "") or "").strip()
     address_text = (prof.get("address", "") or "").strip() if prof else ""
     pix_key = (prof.get("pix_key", "") or "").strip()
+    google_review_url = (prof.get("google_review_url", "") or "").strip()
+    google_review_show = bool(prof.get("google_review_show", True))
+
     links_list = prof.get("links", []) or []
 
     def platform(label: str, href: str) -> str:
@@ -863,6 +867,20 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
           <p class='title'>{html.escape(prof.get('title',''))}</p>
         </header>
+          {f"""
+            <div class='google-review'>
+              <a href='{html.escape(google_review_url)}' target='_blank' rel='noopener' class='btn-google-review'>
+                <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='18' height='18' class='g-icon'>
+                  <path fill='#fff' d='M24 9.5c3.94 0 7.06 1.7 9.18 3.12l6.77-6.77C36.26 2.52 30.62 0 24 0 14.5 0 6.36 5.4 2.4 13.22l7.9 6.14C12.12 13.32 17.63 9.5 24 9.5z'/>
+                  <path fill='#fff' d='M46.5 24.5c0-1.6-.14-3.1-.4-4.5H24v9h12.7c-.6 3.2-2.4 5.9-5.1 7.7l7.9 6.1C43.8 38.8 46.5 32.1 46.5 24.5z'/>
+                  <path fill='#fff' d='M10.3 28.36A14.5 14.5 0 0 1 9.5 24c0-1.53.26-3.02.74-4.36l-7.9-6.14A23.74 23.74 0 0 0 0 24c0 3.83.93 7.46 2.54 10.64l7.76-6.28z'/>
+                  <path fill='#fff' d='M24 48c6.48 0 11.92-2.13 15.89-5.8l-7.9-6.14C29.8 37.75 27.06 38.5 24 38.5c-6.37 0-11.88-3.82-14.7-9.86l-7.9 6.14C6.36 42.6 14.5 48 24 48z'/>
+                </svg>
+                ★★★★★ Avaliar no Google
+              </a>
+            </div>
+          """ if google_review_url and google_review_show else ""}
+
           <div class='section-divider'></div>
           <div class='quick-actions{ ' qa4' if insta_quick else ''}'>
           <div class='qa-item'>
@@ -1249,6 +1267,7 @@ def edit_card(slug: str, request: Request, saved: str = ""):
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
     prof = load()["profiles"].get(owner, {})
+    show_grev = bool(prof.get("google_review_show", True))
     # Cor do tema do cartão (hex #RRGGBB)
     theme_base = prof.get("theme_color", "#000000") or "#000000"
     if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
@@ -1316,7 +1335,60 @@ def edit_card(slug: str, request: Request, saved: str = ""):
         <label>URL 2</label><input name='href2' value='{html.escape(links[1].get('href',''))}'>
         <label>Rotulo 3</label><input name='label3' value='{html.escape(links[2].get('label',''))}'>
         <label>URL 3</label><input name='href3' value='{html.escape(links[2].get('href',''))}'>
-        
+        <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
+          <div style='display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px'>
+            <label style='display:flex;align-items:center;gap:8px;margin:0'>
+              <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='18' height='18' class='g-icon'>
+                <path fill='#fff' d='M24 9.5c3.94 0 7.06 1.7 9.18 3.12l6.77-6.77C36.26 2.52 30.62 0 24 0 14.5 0 6.36 5.4 2.4 13.22l7.9 6.14C12.12 13.32 17.63 9.5 24 9.5z'/>
+                <path fill='#fff' d='M46.5 24.5c0-1.6-.14-3.1-.4-4.5H24v9h12.7c-.6 3.2-2.4 5.9-5.1 7.7l7.9 6.1C43.8 38.8 46.5 32.1 46.5 24.5z'/>
+                <path fill='#fff' d='M10.3 28.36A14.5 14.5 0 0 1 9.5 24c0-1.53.26-3.02.74-4.36l-7.9-6.14A23.74 23.74 0 0 0 0 24c0 3.83.93 7.46 2.54 10.64l7.76-6.28z'/>
+                <path fill='#fff' d='M24 48c6.48 0 11.92-2.13 15.89-5.8l-7.9-6.14C29.8 37.75 27.06 38.5 24 38.5c-6.37 0-11.88-3.82-14.7-9.86l-7.9 6.14C6.36 42.6 14.5 48 24 48z'/>
+              </svg>
+              <span>Link de avaliação do Google</span>
+            </label>
+
+            <!-- TOGGLE ON/OFF -->
+            <label class='switch' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+              <input type='checkbox' name='google_review_show' value='1' {'checked' if show_grev else ''} style='display:none'>
+              <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
+                <span class='knob' style='position:absolute;top:3px;left:{'22px' if show_grev else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
+              </span>
+              <span class='muted' style='font-size:12px'>{'Exibindo' if show_grev else 'Oculto'}</span>
+            </label>
+          </div>
+
+          <input name='google_review_url' type='url' placeholder='https://search.google.com/local/writereview?...'
+                value='{html.escape(prof.get("google_review_url", ""))}'>
+
+          <a class="link-google-review" target='_blank' rel='noopener'
+            href='https://support.google.com/business/answer/3474122?hl=pt-BR#:~:text=Para%20encontrar%20o%20link%20da,Pesquisa%20Google%2C%20selecione%20Solicitar%20avalia%C3%A7%C3%B5es'>
+            Toque aqui para ver como encontrar o link de Avaliação do Google Meu Negócio
+          </a>
+        </div>
+
+        <script>
+        (function(){{
+          // Deixa o knob do switch animado mesmo sem CSS externo
+          var sw = document.querySelector("input[name='google_review_show']");
+          if (!sw) return;
+          var ui = sw.parentElement && sw.parentElement.querySelector('.switch-ui');
+          var knob = ui && ui.querySelector('.knob');
+          function paint(){{
+            if (!ui || !knob) return;
+            if (sw.checked){{
+              ui.style.background = '#4caf50';
+              knob.style.left = '22px';
+            }} else {{
+              ui.style.background = '#2a2a2a';
+              knob.style.left = '3px';
+            }}
+            var label = sw.parentElement && sw.parentElement.querySelector('.muted');
+            if (label) label.textContent = sw.checked ? 'Exibindo' : 'Oculto';
+          }}
+          sw.addEventListener('change', paint);
+          paint();
+        }})();
+        </script>
       </form>
       <script>
       (function(){{
@@ -1427,6 +1499,8 @@ def edit_card(slug: str, request: Request, saved: str = ""):
 @app.post("/edit/{slug}")
 async def save_edit(slug: str, request: Request, full_name: str = Form(""), title: str = Form(""),
                whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
+               google_review_url: str = Form(""),
+               google_review_show: str = Form(""),
                label1: str = Form(""), href1: str = Form(""),
                label2: str = Form(""), href2: str = Form(""),
                label3: str = Form(""), href3: str = Form(""),
@@ -1449,6 +1523,8 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         "email_public": email_public.strip(),
         "site_url": (site_url or "").strip(),
         "address": (address or "").strip(),
+        "google_review_url": (google_review_url or "").strip(),
+        "google_review_show": bool(google_review_show),
     })
     # Atualiza chave Pix (pode ser vazia para limpar)
     prof["pix_key"] = (pix_key or "").strip()
