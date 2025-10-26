@@ -1,4 +1,4 @@
-name: Release
+name: Release & Deploy
 
 on:
   push:
@@ -7,6 +7,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -18,9 +22,50 @@ jobs:
           fetch-depth: 0
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      PROD_PATH: ${{ secrets.PROD_PATH || '/opt/soomei' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Envia os arquivos para o servidor (exclui .git/.github etc.)
+      - name: Upload to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          password: ${{ secrets.PROD_PASSWORD }}
+          port: 22
+          source: |
+            .
+            !.git/
+            !.github/
+            !**/*.md
+          target: ${{ env.PROD_PATH }}
+          overwrite: true
+          strip_components: 0
+
+      # Reinicia o serviço
+      - name: Restart service
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          password: ${{ secrets.PROD_PASSWORD }}
+          port: 22
+          script: |
+            set -e
+            cd "${{ env.PROD_PATH }}"
+            systemctl restart soomei
+            systemctl is-active --quiet soomei && echo "soomei ativo."
+            echo "Logs recentes:"
+            journalctl -u soomei -n 50 --no-pager || true
