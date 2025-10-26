@@ -7,12 +7,18 @@ import urllib.parse as urlparse
 import smtplib, ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from typing import Optional
 
 app = FastAPI(title="Soomei Card API v2")
 
 BASE = os.path.dirname(__file__)
 DATA = os.path.join(BASE, "data.json")
 WEB = os.path.join(BASE, "..", "web")
+PHONE_RE = re.compile(r"^\+?\d{10,15}$")
+CPF_RE   = re.compile(r"^\d{11}$")
+CNPJ_RE  = re.compile(r"^\d{14}$")
+UUID_RE  = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE, "..", "templates"))
 
@@ -99,34 +105,112 @@ def _norm_text(s: str, maxlen: int) -> str:
     t = re.sub(r"[^A-Za-z0-9 \-\.]+", "", t).strip() or "NA"
     return t[:maxlen].upper()
 
+# --- Validadores simples de CPF/CNPJ (checagem de dígitos verificadores) ---
+def _is_valid_cpf(cpf: str) -> bool:
+    cpf = re.sub(r"\D", "", cpf)
+    if len(cpf) != 11 or cpf == cpf[0] * 11:
+        return False
+    def dv(nums, mult):
+        s = sum(int(d) * m for d, m in zip(nums, mult))
+        r = (s * 10) % 11
+        return 0 if r == 10 else r
+    d1 = dv(cpf[:9], range(10, 1, -1))
+    d2 = dv(cpf[:9] + str(d1), range(11, 1, -1))
+    return cpf[-2:] == f"{d1}{d2}"
 
-def build_pix_emv(pix_key: str, amount: float | None, merchant_name: str, merchant_city: str, txid: str = "***") -> str:
-    # Payload Format Indicator (01)
+def _is_valid_cnpj(cnpj: str) -> bool:
+    cnpj = re.sub(r"\D", "", cnpj)
+    if len(cnpj) != 14 or cnpj == cnpj[0] * 14:
+        return False
+    def calc_dv(nums, pesos):
+        s = sum(int(n) * p for n, p in zip(nums, pesos))
+        r = s % 11
+        return 0 if r < 2 else 11 - r
+    p1 = [5,4,3,2,9,8,7,6,5,4,3,2]
+    p2 = [6] + p1
+    d1 = calc_dv(cnpj[:12], p1)
+    d2 = calc_dv(cnpj[:12] + str(d1), p2)
+    return cnpj[-2:] == f"{d1}{d2}"
+
+def _normalize_pix_key(pix_key: str) -> str:
+    key = (pix_key or "").strip()
+
+    # E-mail
+    if "@" in key:
+        k = key.lower()
+        if len(k) > 77:
+            raise ValueError("E-mail da chave Pix excede 77 caracteres.")
+        return k
+
+    # EVP (aleatória) comum como UUID
+    if UUID_RE.match(key):
+        return key
+
+    # Já está em E.164?
+    if key.startswith("+") and re.fullmatch(r"\+\d{11,15}", key):
+        return key
+
+    digits = re.sub(r"\D", "", key)
+
+    # CPF/CNPJ válidos: retornar exatamente os dígitos
+    if _is_valid_cpf(digits):
+        return digits
+    if _is_valid_cnpj(digits):
+        return digits
+
+    # Telefone (heurística): 10–13 dígitos → normalizar para E.164 assumindo Brasil (+55) quando faltar DDI
+    if 10 <= len(digits) <= 13:
+        if digits.startswith("55"):
+            phone = "+" + digits
+        else:
+            phone = "+55" + digits
+        if not re.fullmatch(r"\+\d{11,15}", phone):
+            raise ValueError("Telefone fora do padrão E.164 após normalização.")
+        return phone
+
+    # Caso restante: pode ser outra EVP não-UUID; devolver como veio (máx. 77 chars)
+    if len(key) <= 77:
+        return key
+    raise ValueError("Chave Pix inválida ou muito longa (máx. 77 caracteres).")
+
+def _sanitize_txid(txid: str) -> str:
+    return (txid or "***").strip()[:25]
+
+# --- SUA FUNÇÃO (atualizada) ---
+def build_pix_emv(pix_key: str, amount: Optional[float], merchant_name: str, merchant_city: str, txid: str = "***") -> str:
+    # 00: Payload Format Indicator
     payload = _tlv("00", "01")
-    # Point of Initiation Method: 12 dinamico quando tem valor; 11 estatico sem valor
+
+    # 01: Point of Initiation Method — 12 (dinâmico) quando tem valor; 11 (estático) sem valor
     poi = "12" if (amount or 0) > 0 else "11"
     payload += _tlv("01", poi)
-    # Merchant Account Information (26)
-    mai = _tlv("00", "br.gov.bcb.pix") + _tlv("01", (pix_key or "").strip())
+
+    # 26: Merchant Account Information (GUI + chave normalizada)
+    normalized_key = _normalize_pix_key(pix_key)
+    mai = _tlv("00", "br.gov.bcb.pix") + _tlv("01", normalized_key)
     payload += _tlv("26", mai)
-    # MCC (52), Moeda (53)
+
+    # 52: MCC (0000), 53: Moeda (986)
     payload += _tlv("52", "0000")
     payload += _tlv("53", "986")
-    # Valor (54) opcional
+
+    # 54: Valor (opcional)
     if (amount or 0) > 0:
         payload += _tlv("54", f"{amount:.2f}")
-    # Pais (58), Nome (59), Cidade (60)
+
+    # 58: País, 59: Nome, 60: Cidade
     payload += _tlv("58", "BR")
     payload += _tlv("59", _norm_text(merchant_name, 25))
     payload += _tlv("60", _norm_text(merchant_city, 15))
-    # Dados adicionais (62): txid (05)
-    add = _tlv("05", (txid or "***")[:25])
+
+    # 62: Dados Adicionais (05: txid)
+    add = _tlv("05", _sanitize_txid(txid))
     payload += _tlv("62", add)
-    # CRC16 (63)
+
+    # 63: CRC16
     to_crc = payload + "6304"
     crc = _crc16_ccitt(to_crc)
     return to_crc + crc
-
 
 def sanitize_phone(raw: str) -> str:
     s = (raw or "").strip()
@@ -1298,7 +1382,6 @@ def edit_card(slug: str, request: Request, saved: str = ""):
               <option value='telefone'>Telefone</option>
               <option value='cpf'>CPF</option>
               <option value='cnpj'>CNPJ</option>
-              <option value='copiacola'>Chave Copia e Cola</option>
             </select>
             <label>Valor da chave</label>
             <input id='pixValue' placeholder='sua-chave' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
