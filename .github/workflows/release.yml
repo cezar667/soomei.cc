@@ -16,8 +16,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -33,29 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROD_PATH: ${{ secrets.PROD_PATH || '/opt/soomei' }}
+      REPO_URL: https://github.com/cezar667/soomei.cc.git
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Envia os arquivos para o servidor (exclui .git/.github etc.)
-      - name: Upload to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          password: ${{ secrets.PROD_PASSWORD }}
-          port: 22
-          source: |
-            .
-            !.git/
-            !.github/
-            !**/*.md
-          target: ${{ env.PROD_PATH }}
-          overwrite: true
-          strip_components: 0
-
-      # Reinicia o serviço
-      - name: Restart service
+      - name: Deploy by git checkout on server
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PROD_HOST }}
@@ -63,9 +42,34 @@ jobs:
           password: ${{ secrets.PROD_PASSWORD }}
           port: 22
           script: |
-            set -e
-            cd "${{ env.PROD_PATH }}"
+            set -euo pipefail
+            TAG='${{ github.ref_name }}'                  # ex: v1.0.0
+            DIR='${{ env.PROD_PATH }}'
+            REPO='${{ env.REPO_URL }}'
+
+            command -v git >/dev/null 2>&1 || (apt-get update && apt-get install -y git)
+
+            mkdir -p "$DIR"
+            cd "$DIR"
+
+            if [ ! -d .git ]; then
+              git init
+              git remote add origin "$REPO" || git remote set-url origin "$REPO"
+            fi
+
+            # Buscar tudo (inclui tags)
+            git fetch --tags --force origin
+
+            # Checkout exato da tag
+            git checkout -f "$TAG" 2>/dev/null || git checkout -f "tags/$TAG"
+
+            # Garantir working tree igual à tag
+            git reset --hard
+
+            # (Opcional) rodar build/instalações aqui, se necessário:
+            # pip install -r requirements.txt
+            # npm ci && npm run build
+
             systemctl restart soomei
             systemctl is-active --quiet soomei && echo "soomei ativo."
-            echo "Logs recentes:"
             journalctl -u soomei -n 50 --no-pager || true
