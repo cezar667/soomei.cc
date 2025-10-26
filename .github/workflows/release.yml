@@ -33,12 +33,19 @@ jobs:
     env:
       PROD_PATH: ${{ secrets.PROD_PATH || '/opt/soomei' }}
     steps:
-      # <<< ESTE PASSO É ESSENCIAL >>>
       - name: Checkout tag (for deploy)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.ref }}   # garante o checkout da tag que disparou o workflow
+          ref: ${{ github.ref }}
+      
+      - name: List workspace for debugging
+        run: |
+          echo "GITHUB_REF=${GITHUB_REF}"
+          echo "Listing workspace root:"
+          ls -la
+          echo "Listing excluding .git/.github:"
+          find . -maxdepth 2 -not -path "./.git/*" -not -path "./.github/*" -printf "%p\n" | head -n 200
 
       - name: Upload to server
         uses: appleboy/scp-action@v0.1.7
