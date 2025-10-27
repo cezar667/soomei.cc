@@ -18,6 +18,7 @@ PHONE_RE = re.compile(r"^\+?\d{10,15}$")
 CPF_RE   = re.compile(r"^\d{11}$")
 CNPJ_RE  = re.compile(r"^\d{14}$")
 UUID_RE  = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+DEFAULT_AVATAR = "/static/img/user01.png"
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE, "..", "templates"))
@@ -249,6 +250,10 @@ def _brand_footer_inject(html_doc: str) -> str:
     snippet = "\n    <footer class='muted' style='text-align:center'>&copy; 2025 Soomei"+ ((" - " + PUBLIC_VERSION) if PUBLIC_VERSION else "") + "</footer>\n  "
     return html_doc.replace("</body>", snippet + "</body>", 1) if "</body>" in html_doc else (html_doc + snippet)
 
+def resolve_photo(photo: str | None) -> str:
+    if photo and str(photo).strip():
+        return photo
+    return DEFAULT_AVATAR
 
 @app.get("/onboard/{uid}", response_class=HTMLResponse)
 def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
@@ -502,7 +507,7 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     if vanity:
         card["vanity"] = vanity
     db["cards"][uid] = card
-    db["profiles"][email] = {"full_name": "Seu Nome", "title": "Cargo | Empresa", "links": [], "whatsapp": "", "pix_key": "", "email_public": "", "site_url": ""}
+    db["profiles"][email] = {"full_name": "", "title": "", "links": [], "whatsapp": "", "pix_key": "", "email_public": "", "site_url": ""}
     token = secrets.token_urlsafe(24)
     db["verify_tokens"][token] = {"email": email, "created_at": int(time.time())}
     save(db)
@@ -1274,6 +1279,7 @@ def edit_card(slug: str, request: Request, saved: str = ""):
         theme_base = "#000000"
     bg_hex = theme_base + "30"
     links = prof.get("links", [])
+    photo_url = resolve_photo(prof.get("photo_url"))
     while len(links) < 3:
         links.append({"label": "", "href": ""})
     notice = ("<div class='banner'>Alteracoes salvas. Para publicar seu cartao, adicione ao menos um meio de contato (WhatsApp, e-mail publico ou um link).</div>" if (str(saved) == "1" and not profile_complete(prof)) else ("<div class='banner ok'>Alteracoes salvas.</div>" if str(saved) == "1" else ""))
@@ -1310,15 +1316,22 @@ def edit_card(slug: str, request: Request, saved: str = ""):
         <div class='avatar-preview-wrap'>
           <div id='colorPreview' class='preview-carbon carbon' style='background-color: {html.escape(bg_hex)}'></div>
         <div style='text-align:center;margin:0'>
-          {f"<img id='avatarImg' class='avatar' src='{html.escape(prof.get('photo_url',''))}' alt='foto'>" if prof.get('photo_url') else "<div id='avatarHolder' class='avatar' style='background:#0b0b0c;border:2px dashed #2a2a2a'></div>"}
-          <div><a href='#' id='photoTrigger' class='photo-change' onclick=\"document.getElementById('photoInput').click(); return false;\">Alterar foto do perfil</a></div>
+          <img id='avatarImg'
+              class='avatar'
+              src='{html.escape(photo_url)}'
+              alt='foto'
+              onerror="this.onerror=null;this.src='{DEFAULT_AVATAR}'">
+          <div><a href='#' id='photoTrigger' class='photo-change'
+                  onclick="document.getElementById('photoInput').click(); return false;">
+                  Alterar foto do perfil
+          </a></div>
           <div class='muted' style='font-size:12px;margin-top:4px'>Tamanho máximo: 2 MB (JPEG/PNG)</div>
         </div>
         </div>
         <input type='file' id='photoInput' name='photo' accept='image/jpeg,image/png' style='display:none'>
         <label>Cor do cartão</label><input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 35px;'>
-        <label>Nome completo</label><input name='full_name' value='{html.escape(prof.get('full_name',''))}' required>
-        <label>Cargo | Empresa</label><input name='title' value='{html.escape(prof.get('title',''))}'>
+        <label>Nome</label><input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome' required>
+        <label>Cargo | Empresa</label><input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Cargo | Empresa'>
         <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='tel' placeholder='(00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}'>
         <label>Email publico</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
         <label>Site</label><input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}'>
@@ -1550,7 +1563,8 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
             return HTMLResponse("Imagem muito grande (máximo 2 MB).", status_code=400)
         with open(dest_path, "wb") as f:
             f.write(data)
-        prof["photo_url"] = f"/static/uploads/{filename}"
+        etag = hashlib.md5(data).hexdigest()[:8]
+        prof["photo_url"] = f"/static/uploads/{filename}?v={etag}"
     db2["profiles"][owner] = prof
     save(db2)
     # Se perfil ainda estiver incompleto, mantem usuario na edicao com aviso

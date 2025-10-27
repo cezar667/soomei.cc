@@ -343,7 +343,7 @@ def list_cards(request: Request, q: str = "", status: str = ""):
             f"<form method='post' action='/cards/{html.escape(uid)}/reset' style='display:inline' onsubmit=\"return confirm('Resetar este cartão? Isso apaga dados associados e volta a pending.');\">"
             f"<input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>"
             f"<button class='secondary'>Reset</button></form> "
-            f"<a href='/{html.escape(vanity or uid)}' target='_blank' rel='noopener' role='button' class='contrast'>Abrir</a>"
+            f"<a href='http://127.0.0.1:8000/{html.escape(vanity or uid)}' target='_blank' rel='noopener' role='button' class='contrast'>Abrir</a>"
             f"</td>"
             "</tr>"
         )
