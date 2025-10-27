@@ -6,13 +6,11 @@ h1{margin:0 0 8px;font-size:28px}.bio{color:#9aa0a6;margin:0 0 16px}
 .link{transition:transform .1s ease}
 .link:active{transform:scale(.98)}
 .actions{display:flex;gap:12px}.btn{text-decoration:none;background:#eaeaea;color:#0b0b0c;padding:12px 14px;border-radius:12px;display:inline-block}
-/* CartÃ£o pÃºblico */
 .card{background:#111114;border:1px solid #242427;border-radius:16px;padding:20px}
 .card{position:relative}
 .edit-gear{position:absolute;top:10px;right:10px;z-index:2;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;border:1px solid #e5e7eb;background:#ffffff;color:#0b0b0c;text-decoration:none;opacity:.9;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:opacity .2s ease,transform .1s ease,box-shadow .2s ease;font-size:16px;line-height:1;cursor:pointer}
 .edit-gear:hover{opacity:1;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 .edit-gear:active{transform:scale(.96)}
-/* Owner-only wallet button (top-left) */
 .wallet-btn{position:absolute;top:10px;left:10px;z-index:2;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;border:1px solid #e5e7eb;background:#ffffff;color:#0b0b0c;text-decoration:none;opacity:.95;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:opacity .2s ease,transform .1s ease,box-shadow .2s ease;font-size:16px;line-height:1;cursor:pointer}
 .wallet-btn:hover{opacity:1;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 .wallet-btn:active{transform:scale(.96)}
@@ -30,8 +28,6 @@ h1{margin:0 0 8px;font-size:28px}.bio{color:#9aa0a6;margin:0 0 16px}
 footer{margin-top:24px;color:#9aa0a6;font-size:12px}.muted{color:#9aa0a6}
 .banner{background:#2a2211;border:1px solid #4d3b12;padding:8px 12px;border-radius:10px;margin-bottom:12px;color:#e5c17a}
 form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea}
-
-/* ---- Public card enhanced styles (appended) ---- */
 .wrap{max-width:720px;margin:32px auto;padding:16px;margin-top:0}
 .card-public{margin-top:12px}
 .hero{border-radius:16px;overflow:hidden;border:1px solid #242427}
@@ -40,7 +36,6 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .actions-row .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid #2a2a2a;background:#eaeaea;color:#0b0b0c;padding:10px 12px;border-radius:999px}
 .actions-row .btn:active{transform:scale(.98)}
 .fixed-actions{display:flex;flex-direction:column;gap:10px;margin:14px 0}
-/* Unified style for all fixed action buttons */
 .fixed-actions .btn{display:block;text-align:center;border:1px solid #2a2a2a;background:#eaeaea;color:#0b0b0c;padding:12px 14px;border-radius:12px}
 .btn.disabled{opacity:.5;pointer-events:none;border-color:#2a2a2a;background:#1a1a1b;color:#777}
 .contact{list-style:none;padding:0;margin:10px 0}
@@ -79,15 +74,7 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .action.vcard{background:#c8e6c9;color:#0b0b0c;border-color:#a5d6a7}
 .action.share{background:#90caf9;color:#0b0b0c;border-color:#64b5f6}
 .action.pix{background:#b2dfdb;color:#0b0b0c;border-color:#80cbc4}
-
-@media (max-width: 520px){
-  .wrap{padding:12px}
-  .cover{max-height:300px}
-  .name{font-size:24px}
-  .links-grid{grid-template-columns:1fr}
-}
-
-/* Carbon graphite texture and centered card elements */
+@media (max-width: 520px){.wrap{padding:12px}.cover{max-height:300px}.name{font-size:24px}.links-grid{grid-template-columns:1fr}}
 .carbon{background-color:#0f1012;background-image:linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent),linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent);background-size:12px 12px;background-position:0 0,6px 6px}
 .card-center{text-align:center}
 .avatar-small{width:250px;height:250px;border-radius:50%;object-fit:cover;display:block;margin:0 auto 10px;border:2px solid #2a2a2a}
@@ -95,63 +82,21 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .preview-carbon{background-image:linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent),linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent);background-size:12px 12px;background-position:0 0,6px 6px;border:1px solid #242427;border-radius:16px;width:clamp(240px,66%,420px);height:100px;margin:24px auto;transition:background-color .15s ease}
 .avatar-preview-wrap .preview-carbon{position:absolute;top:-15px;left:50%;transform:translateX(-50%);margin:0;z-index:0}
 .avatar-preview-wrap .avatar{position:relative;z-index:1}
-
-/* Quick actions under avatar */
 .quick-actions{display:grid;grid-template-columns:repeat(3,minmax(0,70px));justify-content:center;gap:8px;margin:10px 0}
 .quick-actions.qa4{grid-template-columns:repeat(4,minmax(0,70px))}
 .qa-item{display:flex;flex-direction:column;align-items:center;gap:6px}
 .qa-item .icon-btn{width:40px;height:40px}
 .qa-label{font-size:12px;color:#9aa0a6}
 .section-divider{height:1px;border:0;background:linear-gradient(90deg,transparent,#2a2a2a,transparent);width:clamp(240px,80%,560px);margin:14px auto}
-/* Generic modal (used for wallet dialog) */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000}
 .modal-backdrop.show{display:flex}
 .modal{background:#111114;border:1px solid #242427;border-radius:12px;max-width:480px;width:92%;padding:12px}
 .modal header{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}
 .modal header h2{margin:0;font-size:18px;color:#eaeaea}
 .modal .close{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-
-.google-review {
-  text-align: center;
-  margin-top: 8px;
-  margin-bottom: 10px;
-}
-
-.btn-google-review {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 9px 16px;
-  font-size: 14px;
-  color: #fff;
-  background: #ffffff10;
-  border: 1px solid #ffffff20;
-  border-radius: 8px;
-  text-decoration: none;
-  font-weight: 500;
-  transition: all 0.25s ease;
-}
-
-.btn-google-review:hover {
-  background: #ffffff25;
-  border-color: #ffffff40;
-}
-
-.btn-google-review .g-icon {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  opacity: 0.9;
-  transition: opacity 0.2s;
-}
-
-.btn-google-review:hover .g-icon {
-  opacity: 1;
-}
-.link-google-review {
-    color: #77abff;
-    text-decoration: none;
-    font-weight: 500;
-    font-size: 11px;
-}
+.google-review {text-align: center;margin-top: 8px;margin-bottom: 10px;}
+.btn-google-review {display: inline-flex;align-items: center;justify-content: center;gap: 8px;padding: 9px 16px;font-size: 14px;color: #fff;background: #ffffff10;border: 1px solid #ffffff20;border-radius: 8px;text-decoration: none;font-weight: 500;transition: all 0.25s ease;}
+.btn-google-review:hover {background: #ffffff25;border-color: #ffffff40;}
+.btn-google-review .g-icon {width: 12px;height: 12px;flex-shrink: 0;opacity: 0.9;transition: opacity 0.2s;}
+.btn-google-review:hover .g-icon {opacity: 1;}
+.link-google-review {  color: #77abff;  text-decoration: none;  font-weight: 500;  font-size: 11px;}
