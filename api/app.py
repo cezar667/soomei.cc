@@ -648,7 +648,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         if "instagram" in s: return "instagram"
         if "linkedin" in s: return "linkedin"
         if "facebook" in s or "fb.com" in s: return "facebook"
-        if "youtube" in s or "youtu.be" in s: return "youtube"
+        if "youtube" in s or "youtu.be" in s or s.strip().startswith("@"): return "youtube"
         if "tiktok" in s: return "tiktok"
         if "twitter" in s or "x.com" in s: return "twitter"
         if "github" in s: return "github"
@@ -725,6 +725,12 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
                 "<path fill='currentColor' d='M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z'/>"
                 "</svg> "
             )
+        elif plat == "youtube":
+            icon = (
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='16' height='16' aria-hidden='true'>"
+                "<path fill='currentColor' d='M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z'/>"
+                "</svg> "
+            )
         text = html.escape(label or plat.title())
         link_items.append(
             f"<li><a class='link {cls}' href='{html.escape(href)}' target='_blank' rel='noopener'>{icon}{text}</a></li>"
@@ -757,6 +763,9 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     scripts = """
     <script>
     (function(){
+      var __s = document.createElement('style');
+      __s.textContent = '.is-hidden{display:none!important}';
+      document.head.appendChild(__s);
       var s = document.getElementById('shareBtn');
       if (s) {
         s.addEventListener('click', function(e){
@@ -955,7 +964,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             <div class='qa-label'>Salvar contato</div>
           </div>
           <div class='qa-item'>
-            <a class='icon-btn' id='offlineBtn' href='javascript:void(0)' title='Modo Offline' aria-label='Modo Offline' onclick="(function(){{ var sec=document.getElementById('offlineSection'); if(!sec) return false; var s=sec.style.display; sec.style.display=(s==='none'||!s)?'block':'none'; try{{ sec.scrollIntoView(); }}catch(_e){{}} return false; }})();">
+            <a class='icon-btn' id='offlineBtn' href='javascript:void(0)' title='Modo Offline' aria-label='Modo Offline' >
               <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>
                 <rect x='3' y='3' width='6' height='6' fill='none' stroke='currentColor' stroke-width='2'/>
                 <rect x='15' y='3' width='6' height='6' fill='none' stroke='currentColor' stroke-width='2'/>
@@ -967,7 +976,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           </div>
           {insta_quick}
         </div>
-        <div id='offlineSection' style='display:none;margin:12px 0 0'>
+        <div id='offlineSection' class='is-hidden' style='margin:12px 0 0'>
           <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;text-align:center'>
             <h3 class='page-title' style='margin:0 0 8px'>Modo Offline</h3>
             <p>Modo Offline permite salvar o seu contato diretamente na agenda do cliente, sem utilizar a internet. Basta acessar o QR Code com a camera do celular:</p>
@@ -989,8 +998,11 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
                   '<path fill=\"currentColor\" d=\"M22 12A10 10 0 1 0 10.5 21.9v-6.9H7.9v-3h2.6V9.2c0-2.6 1.6-4 3.9-4 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 3h-2.4v6.9A10 10 0 0 0 22 12z\"/>'
                   if plat == 'facebook' else (
                     '<path fill=\"currentColor\" d=\"M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z\"/>'
-                    if plat == 'linkedin' else
+                    if plat == 'linkedin' else (
+                    '<path fill=\"currentColor\" d=\"M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z\"/>'
+                    if plat == 'youtube' else 
                     '<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>'
+                    )
                   )
                 )}"
               f"</svg>"
@@ -1046,105 +1058,51 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         var ft = document.querySelector('footer');
         if (ft) {{
           ft.innerHTML = isOwner ? ("<a href='/auth/logout?next=/" + slugId + "' class='muted'>Sair</a>") : "<a href='/login' class='muted'>Entrar</a>";        // Ajusta link do Maps conforme dispositivo
-        (function(){{
-          var mapsBtn = document.getElementById('mapsBtn');
-          var mapsAddr = "{html.escape(address_text)}";
-          if (mapsBtn && mapsAddr){{
-            mapsBtn.addEventListener('click', function(e){{
-              try {{
-                var ua = navigator.userAgent || '';
-                var href = '';
-                if (/iPhone|iPad|iPod/i.test(ua)){{
-                  href = 'http://maps.apple.com/?q=' + encodeURIComponent(mapsAddr);
-                }} else if (/Android/i.test(ua)){{
-                  href = 'geo:0,0?q=' + encodeURIComponent(mapsAddr);
-                }} else {{
-                  href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(mapsAddr);
-                }}
-                mapsBtn.setAttribute('href', href);
-              }} catch(_e){{}}
-            }}, {{ passive: true }});
-          }}
-        }})();
+          (function(){{
+            var mapsBtn = document.getElementById('mapsBtn');
+            var mapsAddr = "{html.escape(address_text)}";
+            if (mapsBtn && mapsAddr){{
+              mapsBtn.addEventListener('click', function(e){{
+                try {{
+                  var ua = navigator.userAgent || '';
+                  var href = '';
+                  if (/iPhone|iPad|iPod/i.test(ua)){{
+                    href = 'http://maps.apple.com/?q=' + encodeURIComponent(mapsAddr);
+                  }} else if (/Android/i.test(ua)){{
+                    href = 'geo:0,0?q=' + encodeURIComponent(mapsAddr);
+                  }} else {{
+                    href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(mapsAddr);
+                  }}
+                  mapsBtn.setAttribute('href', href);
+                }} catch(_e){{}}
+              }}, {{ passive: true }});
+            }}
+          }})();
         }}
-        // Função global para abrir/fechar seção offline via inline onclick
-        window.__ofl = function(evt){{
-          try {{ if (evt && evt.preventDefault) evt.preventDefault(); }} catch(_e) {{}}
-          var sec = document.getElementById('offlineSection');
-          if (!sec) return false;
-          if (sec.style.display === 'none' || !sec.style.display) {{
-            sec.style.display = 'block';
-            try {{ sec.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }} catch(_e) {{}}
-          }} else {{
-            sec.style.display = 'none';
-          }}
-          return false;
-        }};
-        // Toggle subseção Modo Offline sem navegar
+        // Toggle subseção Modo Offline sem navegar (versão robusta)
         (function(){{
           var off = document.getElementById('offlineBtn');
           var sec = document.getElementById('offlineSection');
-          if (off && sec) {{
-            off.addEventListener('click', function(e){{
-              e.preventDefault();
-              if (sec.style.display === 'none' || !sec.style.display) {{
-                sec.style.display = '';
-                try {{ sec.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }} catch(_e) {{}}
-              }} else {{
-                sec.style.display = 'none';
-              }}
-            }});
+          if (!off || !sec) return;
+
+          off.setAttribute('aria-controls', 'offlineSection');
+          off.setAttribute('aria-expanded', 'false');
+
+          function isVisible(el){{
+            // visibilidade real, não apenas style inline
+            var cs = window.getComputedStyle(el);
+            return cs.display !== 'none';
           }}
-        }})();
-        // Modo de pagamento Pix: abre modal para valor e redireciona para QR
-        (function(){{
-          var pay = document.getElementById('payPixBtn');
-          if (!pay) return;
-          // injeta estilos do modal se necessários
-          if (!document.getElementById('modalStyles')) {{
-            var st = document.createElement('style'); st.id='modalStyles';
-            st.textContent = ".modal-backdrop{{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000}}.modal-backdrop.show{{display:flex}}.modal{{background:#111114;border:1px solid #242427;border-radius:12px;max-width:480px;width:92%;padding:12px}}.modal header{{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}}.modal header h2{{margin:0;font-size:18px;color:#eaeaea}}.modal .close{{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}}";
-            document.head.appendChild(st);
-          }}
-          var modal = document.createElement('div');
-          modal.className = 'modal-backdrop';
-          modal.setAttribute('role','dialog'); modal.setAttribute('aria-modal','true'); modal.setAttribute('aria-hidden','true');
-          // Fallback estilos inline (caso CSS injetado falhe)
-          modal.style.position = 'fixed';
-          modal.style.top = '0'; modal.style.left = '0'; modal.style.right = '0'; modal.style.bottom = '0';
-          modal.style.background = 'rgba(0,0,0,.6)';
-          modal.style.display = 'none';
-          modal.style.alignItems = 'center';
-          modal.style.justifyContent = 'center';
-          modal.style.zIndex = '1000';
-          modal.innerHTML = "\n          <div class='modal'>\n            <header>\n              <h2>Pagamento Pix</h2>\n              <button class='close' id='payClose' aria-label='Fechar' title='Fechar'>&#10005;</button>\n            </header>\n            <div>\n              <label>Valor do Pix</label>\n              <input id='pixAmount' placeholder='0,00' inputmode='numeric' pattern='[0-9,]*' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>\n              <div style='text-align:right'><a href='#' id='payGo' class='btn'>Gerar Pix</a></div>\n            </div>\n          </div>\n          ";
-          document.body.appendChild(modal);
-          function showM(){{ modal.classList.add('show'); modal.style.display='flex'; modal.setAttribute('aria-hidden','false'); }}
-          function hideM(){{ modal.classList.remove('show'); modal.style.display='none'; modal.setAttribute('aria-hidden','true'); }}
-          function maskMoney(inp){{
-            if (!inp) return;
-            var s = (inp.value||'').replace(/\D/g,'');
-            if (s.length === 0) {{ inp.value = ''; return; }}
-            while (s.length < 3) s = '0' + s;
-            var intp = s.slice(0,-2).replace(/^0+/, '') || '0';
-            var decp = s.slice(-2);
-            inp.value = intp + ',' + decp;
-          }}
-          var amount = modal.querySelector('#pixAmount');
-          amount.addEventListener('input', function(){{ maskMoney(amount); }});
-          amount.addEventListener('blur', function(){{ maskMoney(amount); }});
-          pay.addEventListener('click', function(e){{ e.preventDefault(); showM(); setTimeout(function(){{ amount.focus(); }}, 50); }});
-          modal.addEventListener('click', function(e){{ if (e.target===modal) hideM(); }});
-          var close = modal.querySelector('#payClose'); if (close) close.addEventListener('click', function(){{ hideM(); }});
-          var go = modal.querySelector('#payGo');
-          if (go) {{
-            go.addEventListener('click', function(e){{
-              e.preventDefault();
-              var s = (amount.value||'').replace(/\D/g,''); if (!s) s='0';
-              var cents = parseInt(s, 10) || 0; var v = (cents/100).toFixed(2).replace('.', ',');
-              window.location.href = '/'+slugId+'?pix=qr&v='+encodeURIComponent(v);
-            }});
-          }}
+
+          off.addEventListener('click', function(e){{
+            e.preventDefault();
+            var willHide = isVisible(sec);
+            sec.classList.toggle('is-hidden', willHide);
+            off.setAttribute('aria-expanded', (!willHide).toString());
+            if (!willHide) {{
+              try {{ sec.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }} catch(_e){{}}
+            }}
+          }});
         }})();
       }})();
       </script>
@@ -1315,7 +1273,7 @@ def edit_card(slug: str, request: Request, saved: str = ""):
     bg_hex = theme_base + "30"
     links = prof.get("links", [])
     photo_url = resolve_photo(prof.get("photo_url"))
-    while len(links) < 3:
+    while len(links) < 4:
         links.append({"label": "", "href": ""})
     notice = ("<div class='banner'>Alteracoes salvas. Para publicar seu cartao, adicione ao menos um meio de contato (WhatsApp, e-mail publico ou um link).</div>" if (str(saved) == "1" and not profile_complete(prof)) else ("<div class='banner ok'>Alteracoes salvas.</div>" if str(saved) == "1" else ""))
     html_form = f"""
@@ -1376,6 +1334,13 @@ def edit_card(slug: str, request: Request, saved: str = ""):
           <a href='#' id='addPix' class='btn'>Adicionar chave Pix</a>
           <span id='pixInfo' class='muted' style='font-size:12px;margin-left:8px'>{("Chave atual: " + html.escape(prof.get('pix_key','')) + " <a href='#' id='pixDel' class='muted' title='Remover' aria-label='Remover' style='margin-left:6px'>&#10005;</a>") if prof.get('pix_key') else ''}</span>
         </div>
+        <div style="margin:10px 0">
+          <input type="hidden" id="slugKey" value="{html.escape(card.get('vanity', uid))}">
+          <a href="#" id="addSlug" class="btn">Alterar slug</a>
+          <span id="slugInfo" class="muted" style="font-size:12px;margin-left:8px">
+            URL atual: /{html.escape(card.get('vanity', uid))}
+          </span>
+        </div>
         <h3>Links</h3>
         <label>Rotulo 1</label><input name='label1' value='{html.escape(links[0].get('label',''))}'>
         <label>URL 1</label><input name='href1' value='{html.escape(links[0].get('href',''))}'>
@@ -1383,6 +1348,9 @@ def edit_card(slug: str, request: Request, saved: str = ""):
         <label>URL 2</label><input name='href2' value='{html.escape(links[1].get('href',''))}'>
         <label>Rotulo 3</label><input name='label3' value='{html.escape(links[2].get('label',''))}'>
         <label>URL 3</label><input name='href3' value='{html.escape(links[2].get('href',''))}'>
+        <label>Rotulo 4</label><input name='label4' value='{ html.escape(links[3].get("label","")) }'>
+        <label>URL 4</label><input name='href4' value='{ html.escape(links[3].get("href","")) }'>
+
         <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
           <div style='display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px'>
             <label style='display:flex;align-items:center;gap:8px;margin:0'>
@@ -1421,6 +1389,7 @@ def edit_card(slug: str, request: Request, saved: str = ""):
           if (!sw) return;
           var ui = sw.parentElement && sw.parentElement.querySelector('.switch-ui');
           var knob = ui && ui.querySelector('.knob');
+          const UID = "{html.escape(uid)}";
           function paint(){{
             if (!ui || !knob) return;
             if (sw.checked){{
@@ -1484,6 +1453,178 @@ def edit_card(slug: str, request: Request, saved: str = ""):
             form.addEventListener('submit', function(){{
               el.value = el.value.replace(/\D/g,'').slice(0,13);
             }}, true);
+          }}
+
+          var style = document.createElement('style');
+          style.textContent = '.hint{{font-size:12px;margin-top:4px}}.ok{{color:#7bd88f}}.bad{{color:#f88}}'
+            + '#slugInput.is-ok{{border-color:#43a047;background:rgba(67,160,71,0.09)}}'
+            + '#slugInput.is-bad{{border-color:#e53935;background:rgba(229,57,53,0.08)}}'
+            + '.tooltip-err{{display:inline-block;background:#2a2211;border:1px solid #4d3b12;color:#e5c17a;padding:6px 8px;border-radius:8px;margin-top:4px}}'
+            + '.slug-input-row{{position:relative;display:flex;align-items:center;gap:8px}}'
+            + '.icon-btn.icon-sm{{width:26px;height:26px;font-size:14px}}'
+            + '.info-tip{{position:absolute;right:0;top:100%;margin-top:6px;display:none;max-width:320px;background:#111114;border:1px solid #242427;border-radius:8px;padding:8px 10px;color:#eaeaea;box-shadow:0 2px 8px rgba(0,0,0,.45);z-index:1000}}'
+            + '.info-tip.show{{display:block}}';
+            style.textContent +=
+              '.modal input{{width:100%;padding:10px;border-radius:10px;' +
+              'border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea}}';
+          document.head.appendChild(style);
+
+          var btn = document.getElementById('addSlug');
+          if (!btn) return;
+
+          var CURRENT = (document.getElementById('slugKey')?.value || '').trim();
+
+          function mountModal(){{
+            if (document.getElementById('slugBackdrop')) return;
+            var html = ''+
+            '<div class="modal-backdrop" id="slugBackdrop" role="dialog" aria-modal="true" aria-labelledby="slugTitle" style="display:none">'+
+            '  <div class="modal" id="slugModal">'+
+            '    <header><h2 id="slugTitle">Alterar slug</h2><button class="close" id="slugClose" aria-label="Fechar">×</button></header>'+
+            '    <div>'+
+            '      <label for="slugInput">Novo slug</label>'+
+            '      <div class="slug-input-row">'+
+            '        <input id="slugInput" placeholder="seu-nome" pattern="[a-z0-9-]{{3,30}}" inputmode="url" autocomplete="off" style="text-transform:lowercase;background:#0b0b0c;color:#eaeaea;border:1px solid #2a2a2a;border-radius:10px;padding:10px;width:100%">'+
+            '        <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que é um slug?" title="O que é um slug?">i</button>'+
+            '        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">Slug é o endereço curto da sua URL pública. Use 3–30 caracteres minúsculos, números ou hífen. Ex.: seu-nome</div>'+
+            '      </div>'+
+            '      <div id="slugMsg" class="hint"></div>'+
+            '      <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span class="muted">Prévia:</span> <code id="slugPreview">/'+(CURRENT||'')+'</code></div>'+
+            '      <div style="text-align:right;margin-top:12px"><button class="btn" id="slugSave">Salvar</button></div>'+
+            '    </div>'+
+            '  </div>'+
+            '</div>';
+            var tmp = document.createElement('div'); tmp.innerHTML = html; document.body.appendChild(tmp.firstElementChild);
+
+            // fechos
+            document.getElementById('slugClose').addEventListener('click', closeModal);
+            document.getElementById('slugBackdrop').addEventListener('click', function(e){{
+              if (e.target.id === 'slugBackdrop') closeModal();
+            }});
+            document.addEventListener('keydown', function esc(e){{
+              if (e.key === 'Escape') closeModal();
+            }});
+            document.getElementById('slugInfoBtn').addEventListener('click', function(e){{
+              e.preventDefault(); e.stopPropagation();
+              var tip = document.getElementById('slugInfoTip');
+              tip.classList.toggle('show');
+              tip.setAttribute('aria-hidden', tip.classList.contains('show') ? 'false' : 'true');
+            }});
+            document.addEventListener('click', function(){{ 
+              var tip = document.getElementById('slugInfoTip'); 
+              if (tip){{ tip.classList.remove('show'); tip.setAttribute('aria-hidden','true'); }}
+            }});
+          }}
+
+          function openModal(){{
+            mountModal();
+            var bd = document.getElementById('slugBackdrop');
+            bd.classList.add('show'); bd.style.display = 'flex';
+            var input = document.getElementById('slugInput');
+            input.value = CURRENT || '';
+            input.focus(); input.select();
+            updatePreview();
+            // roda uma checagem inicial se já veio preenchido
+            if (input.value) debounceCheck(input.value);
+          }}
+
+          function closeModal(){{
+            var bd = document.getElementById('slugBackdrop');
+            if (bd){{ bd.classList.remove('show'); bd.style.display = 'none'; }}
+          }}
+
+          function updatePreview(){{
+            var input = document.getElementById('slugInput');
+            var prev = document.getElementById('slugPreview');
+            prev.textContent = '/' + (input.value||'').trim().toLowerCase();
+          }}
+
+          var tCheck;
+          function debounceCheck(v){{
+            clearTimeout(tCheck);
+            tCheck = setTimeout(function(){{ checkAvailability(v); }}, 220);
+          }}
+
+          async function checkAvailability(v){{
+            var el = document.getElementById('slugInput');
+            var msg = document.getElementById('slugMsg');
+            v = (v||'').trim().toLowerCase();
+            if (!v){{ msg.textContent=''; el.classList.remove('is-ok','is-bad'); return; }}
+            if (!/^[a-z0-9-]{{3,30}}$/.test(v)){{
+              msg.innerHTML = '<span class="bad">Use 3–30 minúsculos/números/hífen.</span>';
+              el.classList.remove('is-ok'); el.classList.add('is-bad'); return;
+            }}
+            try{{
+              var r = await fetch('/slug/check?value='+encodeURIComponent(v));
+              var j = await r.json();
+              if (j && j.available){{
+                msg.innerHTML = '<span class="ok">Disponível</span>';
+                el.classList.add('is-ok'); el.classList.remove('is-bad');
+              }} else {{
+                msg.innerHTML = '<span class="bad">Indisponível</span>';
+                el.classList.add('is-bad'); el.classList.remove('is-ok');
+              }}
+            }}catch(_e){{
+              msg.textContent=''; el.classList.remove('is-ok','is-bad');
+            }}
+          }}
+
+          // input listeners
+          document.addEventListener('input', function(e){{
+            if (e.target && e.target.id === 'slugInput'){{
+              var el = e.target;
+              var vv = (el.value||''); var ll = vv.toLowerCase(); if (vv !== ll) el.value = ll;
+              updatePreview();
+              debounceCheck(el.value);
+            }}
+          }}, true);
+
+          // enter para salvar
+          document.addEventListener('keydown', function(e){{
+            if (e.key === 'Enter' && document.getElementById('slugBackdrop')?.classList.contains('show')){{
+              e.preventDefault();
+              document.getElementById('slugSave').click();
+            }}
+          }}, true);
+
+          // salvar -> POST /slug/select/{{uid}} ; depois volta à edição com o novo slug
+          document.addEventListener('click', async function(e){{
+            if (e.target && e.target.id === 'slugSave'){{
+              e.preventDefault();
+              var el = document.getElementById('slugInput');
+              var v = (el.value||'').trim().toLowerCase();
+              var msg = document.getElementById('slugMsg');
+              if (!el.classList.contains('is-ok')){{
+                msg.innerHTML = '<span class="bad tooltip-err">Escolha um slug disponível.</span>';
+                try{{ el.focus(); }}catch(_e){{}}
+                return;
+              }}
+              try{{
+                var resp = await fetch('/slug/select/'+encodeURIComponent(UID), {{
+                  method: 'POST',
+                  headers: {{'Content-Type':'application/x-www-form-urlencoded'}},
+                  body: 'value='+encodeURIComponent(v)
+                }});
+                if (resp.ok){{
+                  window.location.href = '/edit/'+encodeURIComponent(v);
+                }} else if (resp.status === 409){{
+                  msg.innerHTML = '<span class="bad">Indisponível, tente outro.</span>';
+                }} else {{
+                  msg.innerHTML = '<span class="bad">Erro ao salvar. Tente novamente.</span>';
+                }}
+              }}catch(_e){{
+                msg.innerHTML = '<span class="bad">Erro de rede. Tente novamente.</span>';
+              }}
+            }}
+          }}, true);
+
+          // abre modal
+          btn.addEventListener('click', function(e){{ e.preventDefault(); openModal(); }});
+          async function salvarSlug(novo) {{
+            return fetch("/slug/select/" + encodeURIComponent(UID), {{
+              method: "POST",
+              headers: {{ "Content-Type": "application/x-www-form-urlencoded" }},
+              body: "value=" + encodeURIComponent(novo)
+            }});
           }}
         }})();
         </script>
@@ -1602,6 +1743,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                label1: str = Form(""), href1: str = Form(""),
                label2: str = Form(""), href2: str = Form(""),
                label3: str = Form(""), href3: str = Form(""),
+               label4: str = Form(""), href4: str = Form(""),
                theme_color: str = Form(""),
                pix_key: str = Form(""),
                photo: UploadFile | None = File(None)):
@@ -1632,7 +1774,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         tc = "#000000"
     prof["theme_color"] = tc
     links = []
-    for (lbl, href) in [(label1, href1), (label2, href2), (label3, href3)]:
+    for (lbl, href) in [(label1, href1), (label2, href2), (label3, href3), (label4, href4)]:
         if lbl.strip() and href.strip():
             links.append({"label": lbl.strip(), "href": href.strip()})
     prof["links"] = links
