@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 import os, json, html, qrcode, io, hashlib, time, secrets, re, base64, unicodedata
 import urllib.parse as urlparse
 import smtplib, ssl
+import pathlib, shutil
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
@@ -20,7 +21,13 @@ CNPJ_RE  = re.compile(r"^\d{14}$")
 UUID_RE  = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 DEFAULT_AVATAR = "/static/img/user01.png"
 
-app.mount("/static", StaticFiles(directory=WEB), name="static")
+class CachedStaticFiles(StaticFiles):
+    def set_headers(self, scope, resp, path, stat_result):
+        # Cache forte para assets versionados por fingerprint
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+
+
+app.mount("/static", CachedStaticFiles(directory=WEB), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE, "..", "templates"))
 
 PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "https://soomei.cc").rstrip("/")
@@ -28,6 +35,34 @@ PUBLIC_VERSION = os.getenv("PUBLIC_VERSION")
 UPLOADS = os.path.join(WEB, "uploads")
 os.makedirs(UPLOADS, exist_ok=True)
 
+ASSETS = {}
+
+def _fingerprint_asset(rel_path: str) -> str:
+    """
+    Gera cópia com hash curto no nome: "card.css" -> "card.<hash8>.css".
+    Retorna o nome do arquivo versionado (sem /static).
+    """
+    src = pathlib.Path(WEB) / rel_path
+    if not src.exists():
+        # Fallback: retorna o próprio nome sem hash
+        return rel_path.replace("\\", "/")
+    data = src.read_bytes()
+    h = hashlib.sha1(data).hexdigest()[:8]
+    stem = src.stem
+    suffix = src.suffix  # ex: ".css"
+    dst_name = f"{stem}.{h}{suffix}"
+    dst = src.with_name(dst_name)
+    if not dst.exists():
+        shutil.copy2(src, dst)
+    return dst_name
+
+# Prepara href do CSS principal
+try:
+    _css_fp = _fingerprint_asset("card.css")
+except Exception:
+    _css_fp = "card.css"
+CSS_HREF = f"/static/{_css_fp}"
+ASSETS["card.css"] = _css_fp
 
 def load():
     if os.path.exists(DATA):
@@ -276,7 +311,7 @@ def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
     html_doc = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Ativar cartao</title>
+    <link rel='stylesheet' href='{CSS_HREF}'><title>Ativar cartao</title>
     <style>
       .terms-row{{display:flex;align-items:center;gap:8px;margin:10px 0 0}}
       .terms-label{{display:flex;align-items:center;gap:10px}}
@@ -516,7 +551,7 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     html_doc = f"""
     <!doctype html><html lang='pt-br'><head>
       <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-      <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Confirme seu email</title>
+      <link rel='stylesheet' href='{CSS_HREF}'><title>Confirme seu email</title>
     </head><body><main class='wrap'>
       <h1>Confirme seu email</h1>
       <p>Enviamos um link de verificacao para <b>{html.escape(email)}</b>.</p>
@@ -863,7 +898,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
 
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Soomei | {html.escape(prof.get('full_name',''))}</title></head><body>
+    <link rel='stylesheet' href='{CSS_HREF}'><title>Soomei | {html.escape(prof.get('full_name',''))}</title></head><body>
     <main class='wrap'>
       <section class='card card-public carbon card-center' style='background-color: {html.escape(bg_hex)}'>
         {owner_gear}
@@ -1286,7 +1321,7 @@ def edit_card(slug: str, request: Request, saved: str = ""):
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Soomei - Editar</title>
+    <link rel='stylesheet' href='{CSS_HREF}'><title>Soomei - Editar</title>
     <style>
       .modal-backdrop{{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000}}
       .modal-backdrop.show{{display:flex}}
@@ -1332,7 +1367,7 @@ def edit_card(slug: str, request: Request, saved: str = ""):
         <label>Cor do cartão</label><input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 35px;'>
         <label>Nome</label><input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome' required>
         <label>Cargo | Empresa</label><input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Cargo | Empresa'>
-        <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='tel' placeholder='(00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}'>
+        <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19'>
         <label>Email publico</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
         <label>Site</label><input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}'>
         <label>Endereco</label><input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, numero - Cidade/UF'>
@@ -1400,6 +1435,56 @@ def edit_card(slug: str, request: Request, saved: str = ""):
           }}
           sw.addEventListener('change', paint);
           paint();
+
+          var el = document.getElementById('whatsapp');
+          var form = document.getElementById('editForm');
+          if (!el) return;
+
+          function formatBR(v){{
+            // só dígitos
+            var d = (v||'').replace(/\D/g,'');
+            // força DDI 55 no campo exibido
+            if (!d.startsWith('55')) d = '55' + d;
+            // 55 + 2 DDD + 9 número = 13 dígitos
+            d = d.slice(0, 13);
+
+            var cc  = d.slice(0,2);   // 55
+            var ddd = d.slice(2,4);   // DD
+            var num = d.slice(4);     // 9 dígitos
+
+            var p1 = num.slice(0,5);  // 90000
+            var p2 = num.slice(5,9);  // 0000
+
+            var out = '+' + cc;
+            if (ddd) out += ' (' + ddd + ')';
+            if (p1)  out += ' ' + p1;
+            if (p2)  out += '-' + p2;
+            return out;
+          }}
+
+          function onInput(){{
+            var before = el.value;
+            var start = el.selectionStart || before.length;
+            el.value = formatBR(before);
+            // ajuste simples do cursor
+            var diff = el.value.length - before.length;
+            var pos = start + (diff > 0 ? diff : 0);
+            try {{ el.setSelectionRange(pos, pos); }} catch(_e){{}}
+          }}
+
+          // formata ao focar/digitar e na carga inicial (se já vier número cru)
+          el.addEventListener('focus', onInput);
+          el.addEventListener('input', onInput);
+          if (/^\+?\d{{11,13}}$/.test((el.value||'').replace(/\s|[()\-]/g,''))) {{
+            el.value = formatBR(el.value);
+          }}
+
+          // no submit, envia apenas dígitos (ex.: 5534999999999)
+          if (form) {{
+            form.addEventListener('submit', function(){{
+              el.value = el.value.replace(/\D/g,'').slice(0,13);
+            }}, true);
+          }}
         }})();
         </script>
       </form>
@@ -1679,7 +1764,7 @@ def root_slug(slug: str, request: Request):
         off_page = f"""
         <!doctype html><html lang='pt-br'><head>
         <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Modo Offline</title></head><body>
+        <link rel='stylesheet' href='{CSS_HREF}'><title>Modo Offline</title></head><body>
         <main class='wrap'>
           <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
             <div class='topbar'>
@@ -1720,7 +1805,7 @@ def root_slug(slug: str, request: Request):
             amt_page = f"""
             <!doctype html><html lang='pt-br'><head>
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-            <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Pagamento Pix</title></head><body>
+            <link rel='stylesheet' href='{CSS_HREF}'><title>Pagamento Pix</title></head><body>
             <main class='wrap'>
               <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
                 <div class='topbar'>
@@ -1806,7 +1891,7 @@ def root_slug(slug: str, request: Request):
             qr_page = f"""
             <!doctype html><html lang='pt-br'><head>
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-            <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Pix para {html.escape(prof.get('full_name',''))}</title></head><body>
+            <link rel='stylesheet' href='{CSS_HREF}'><title>Pix para {html.escape(prof.get('full_name',''))}</title></head><body>
             <main class='wrap'>
               <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
                 <div class='topbar'>
@@ -1874,7 +1959,7 @@ def root_slug(slug: str, request: Request):
             return HTMLResponse(_brand_footer_inject("""
             <!doctype html><html lang='pt-br'><head>
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-            <link rel='stylesheet' href='/static/card.css?v=20251026'><title>Em construcao</title></head>
+            <link rel='stylesheet' href='{CSS_HREF}'><title>Em construcao</title></head>
             <body><main class='wrap'>
               <h1>Cartao digital em construcao</h1>
               <p>O proprietario ainda nao finalizou o preenchimento deste cartao.</p>
