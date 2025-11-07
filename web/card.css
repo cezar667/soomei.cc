@@ -18,6 +18,10 @@ h1{margin:0 0 8px;font-size:28px}.bio{color:#9aa0a6;margin:0 0 16px}
 .avatar{width:200px;height:200px;border-radius:50%;object-fit:cover;display:block;margin:0 auto 12px;border:2px solid #2a2a2a}
 .name{font-size:26px;margin:0}
 .title{color:#9aa0a6;margin:4px 0 0}
+.view-chip{display:inline-flex;align-items:center;justify-content:center;gap:6px;margin:10px auto 0;padding:6px 14px;border-radius:999px;border:1px solid #2a2a2a;background:#151618;color:#eaeaea;font-size:13px;line-height:1;backdrop-filter:blur(8px);box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.view-chip svg{width:18px;height:18px;color:#8ab4f8}
+.view-chip__count{font-weight:600;font-size:15px}
+.view-chip__label{font-size:11px;color:#9aa0a6;text-transform:uppercase;letter-spacing:.3px}
 .actions-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 8px}
 .actions-grid .btn{display:block;text-align:center;border:1px solid #2a2a2a;background:#eaeaea;color:#0b0b0c}
 .actions-grid .btn:active{transform:scale(.98)}
@@ -62,6 +66,7 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .icon-btn.brand-site{color:#8ab4f8;border-color:#6f9fe8}
 .icon-btn.brand-email{color:#b39ddb;border-color:#9a7bd6}
 .icon-btn.brand-phone{color:#25D366;border-color:#21bf5b}
+.icon-btn.brand-share{color:#8ab4f8;border-color:#6f9fe8}
 .icon-btn.elevated{box-shadow:0 3px 10px rgba(0,0,0,.55);border-color:#e9edf0}
 .topbar{position:relative;display:flex;align-items:center;justify-content:center;margin:0 0 12px}
 .page-title{margin:0;font-size:20px}
@@ -82,7 +87,7 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .preview-carbon{background-image:linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent),linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent);background-size:12px 12px;background-position:0 0,6px 6px;border:1px solid #242427;border-radius:16px;width:clamp(240px,66%,420px);height:100px;margin:24px auto;transition:background-color .15s ease}
 .avatar-preview-wrap .preview-carbon{position:absolute;top:-15px;left:50%;transform:translateX(-50%);margin:0;z-index:0}
 .avatar-preview-wrap .avatar{position:relative;z-index:1}
-.quick-actions{display:grid;grid-template-columns:repeat(3,minmax(0,70px));justify-content:center;gap:8px;margin:10px 0}
+.quick-actions{display:grid;grid-template-columns:repeat(4,minmax(0,70px));justify-content:center;gap:8px;margin:10px 0}
 .quick-actions.qa4{grid-template-columns:repeat(4,minmax(0,70px))}
 .qa-item{display:flex;flex-direction:column;align-items:center;gap:6px}
 .qa-item .icon-btn{width:40px;height:40px}

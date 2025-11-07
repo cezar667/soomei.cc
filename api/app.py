@@ -268,6 +268,62 @@ def find_card_by_slug(slug: str):
     return db, None, None
 
 
+def _int_or_zero(value, default: int = 0) -> int:
+    try:
+        if value in (None, ""):
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def get_card_view_count(uid: str) -> int:
+    db = db_defaults(load())
+    card = db.get("cards", {}).get(uid) or {}
+    metrics = card.get("metrics") or {}
+    return _int_or_zero(metrics.get("views"), 0)
+
+
+def increment_card_view(uid: str) -> int:
+    db = db_defaults(load())
+    card = db.get("cards", {}).get(uid)
+    if not card:
+        return 0
+    metrics = card.setdefault("metrics", {})
+    current = _int_or_zero(metrics.get("views"), 0) + 1
+    metrics["views"] = current
+    try:
+        save(db)
+    except Exception:
+        pass
+    return current
+
+
+def should_track_view(request: Request, slug: str) -> bool:
+    if request.method.upper() != "GET":
+        return False
+    referer = request.headers.get("referer", "")
+    if not referer:
+        return True
+    try:
+        parsed = urlparse.urlparse(referer)
+    except ValueError:
+        return True
+    ref_host = (parsed.hostname or "").lower()
+    current_host = (request.headers.get("host") or "").split(":", 1)[0].lower()
+    if ref_host and current_host and ref_host != current_host:
+        return True
+    path = parsed.path or ""
+    if path.startswith("/auth/logout"):
+        return False
+    normalized = {f"/{slug}", f"/u/{slug}"}
+    if path in normalized:
+        q_keys = {k.lower() for k in urlparse.parse_qs(parsed.query or "").keys()}
+        if q_keys & {"pix", "offline"}:
+            return False
+    return True
+
+
 def profile_complete(prof: dict) -> bool:
     if not prof:
         return False
@@ -631,8 +687,9 @@ def logout(request: Request, next: str = "/"):
     return resp
 
 
-def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
-    photo = html.escape(prof.get("photo_url", "")) if prof else ""
+def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_count: int = 0):
+    raw_photo = (prof.get("photo_url", "") or "") if prof else ""
+    photo = html.escape(raw_photo) if raw_photo else ""
     wa_raw = (prof.get("whatsapp", "") or "").strip()
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
     email_pub = (prof.get("email_public", "") or "").strip()
@@ -640,12 +697,26 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     pix_key = (prof.get("pix_key", "") or "").strip()
     google_review_url = (prof.get("google_review_url", "") or "").strip()
     google_review_show = bool(prof.get("google_review_show", True))
+    try:
+        total_views = max(0, int(view_count))
+    except (TypeError, ValueError):
+        total_views = 0
+    view_chip = ""
+    if is_owner:
+        formatted_views = f"{total_views:,}".replace(",", ".")
+        view_chip = (
+            "<div class='view-chip' title='Total de acessos de visitantes'>"
+            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true'><path fill='currentColor' d='M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm0-6a2 2 0 1 0 .001 4.001A2 2 0 0 0 12 10z'/></svg>"
+            f"<span class='view-chip__count'>{formatted_views}</span>"
+            "<span class='view-chip__label'>visualizações</span>"
+            "</div>"
+        )
 
     links_list = prof.get("links", []) or []
 
     def platform(label: str, href: str) -> str:
         s = f"{(label or '').lower()} {(href or '').lower()}"
-        if "instagram" in s: return "instagram"
+        if "instagram" in s or s.strip().startswith("@"): return "instagram"
         if "linkedin" in s: return "linkedin"
         if "facebook" in s or "fb.com" in s: return "facebook"
         if "youtube" in s or "youtu.be" in s or s.strip().startswith("@"): return "youtube"
@@ -660,7 +731,6 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
         return "link"
 
     site_link = None
-    insta_link = None
     other_links = []
     for item in links_list:
         label = item.get("label", "")
@@ -671,15 +741,15 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             _hl = (href or "").lower()
             if ("maps.google" in _hl) or ("goo.gl/maps" in _hl) or ("maps.app.goo.gl" in _hl) or ("waze.com" in _hl) or ("maps.apple.com" in _hl):
                 continue
-        if plat == "instagram" and insta_link is None:
-            insta_link = (label, href)
-        elif plat == "site" and site_link is None:
+        if plat == "site" and site_link is None:
             site_link = (label, href)
         else:
             other_links.append((label, href, plat))
 
     share_url = f"{PUBLIC_BASE}/{slug}"
     share_text = urlparse.quote_plus(f"Ola! Vim pelo seu cartao da Soomei.")
+    share_base_message = "Este é o meu Cartão de Visita Digital"
+    share_base_message_js = json.dumps(share_base_message)
 
     actions = []
     if wa_digits:
@@ -687,9 +757,6 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     if site_link:
         _, href = site_link
         actions.append(f"<a class='btn action website' target='_blank' rel='noopener' href='{html.escape(href)}'>Site</a>")
-    if insta_link:
-        _, href = insta_link
-        actions.append(f"<a class='btn action instagram' target='_blank' rel='noopener' href='{html.escape(href)}'>Instagram</a>")
     if email_pub:
         actions.append(f"<a class='btn action email' href='mailto:{html.escape(email_pub)}'>E-mail</a>")
     actions.append("<a class='btn action share' id='shareBtn' href='#'>Compartilhar</a>")
@@ -731,88 +798,178 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
                 "<path fill='currentColor' d='M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z'/>"
                 "</svg> "
             )
+        elif plat == "instagram":
+            icon = (
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>"
+                "<path fill='currentColor' d='M7 2C4.24 2 2 4.24 2 7v10c0 2.76 2.24 5 5 5h10c2.76 0 5-2.24 5-5V7c0-2.76-2.24-5-5-5H7zm0 2h10c1.66 0 3 1.34 3 3v10c0 1.66-1.34 3-3 3H7c-1.66 0-3-1.34-3-3V7c0-1.66 1.34-3 3-3zm11 1.5a1 1 0 100 2 1 1 0 000-2zM12 7a5 5 0 100 10 5 5 0 000-10z'/>"
+                "</svg>"
+            )
         text = html.escape(label or plat.title())
         link_items.append(
             f"<li><a class='link {cls}' href='{html.escape(href)}' target='_blank' rel='noopener'>{icon}{text}</a></li>"
         )
     links_grid_html = "".join(link_items)
-    # Quick Instagram action (if present)
-    insta_quick = ""
-    if insta_link:
-        lbl, ihref = insta_link
-        raw = (ihref or lbl or "").strip()
-        if raw:
-            url = raw
-            rlow = raw.lower()
-            if not (rlow.startswith("http://") or rlow.startswith("https://")):
-                if "instagram.com" in rlow:
-                    url = ("https://" + raw.lstrip("/")).replace("http://", "https://")
-                else:
-                    url = "https://instagram.com/" + raw.lstrip("@")
-            insta_quick = (
-                "<div class='qa-item'>"
-                + f"<a class='icon-btn brand-instagram' href='{html.escape(url)}' target='_blank' rel='noopener' title='Instagram' aria-label='Instagram'>"
-                + "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>"
-                + "<path fill='currentColor' d='M7 2C4.24 2 2 4.24 2 7v10c0 2.76 2.24 5 5 5h10c2.76 0 5-2.24 5-5V7c0-2.76-2.24-5-5-5H7zm0 2h10c1.66 0 3 1.34 3 3v10c0 1.66-1.34 3-3 3H7c-1.66 0-3-1.34-3-3V7c0-1.66 1.34-3 3-3zm11 1.5a1 1 0 100 2 1 1 0 000-2zM12 7a5 5 0 100 10 5 5 0 000-10z'/>"
-                + "</svg>"
-                + "</a>"
-                + "<div class='qa-label'>Instagram</div>"
-                + "</div>"
-            )
-
     scripts = """
     <script>
     (function(){
       var __s = document.createElement('style');
-      __s.textContent = '.is-hidden{display:none!important}';
-      document.head.appendChild(__s);
-      var s = document.getElementById('shareBtn');
-      if (s) {
-        s.addEventListener('click', function(e){
+      if (__s) {
+        __s.textContent = '.is-hidden{display:none!important}';
+        document.head.appendChild(__s);
+      }
+      function getShareData(){
+        var pageUrl = window.location.href;
+        var text = """ + share_base_message_js + """ + " " + pageUrl;
+        return {url: pageUrl, text: text};
+      }
+      var shareBtn = document.getElementById('shareBtn');
+      if (shareBtn) {
+        shareBtn.addEventListener('click', function(e){
           e.preventDefault();
-          var url = window.location.href;
+          var data = getShareData();
           if (navigator.share) {
-            navigator.share({title: document.title, url: url}).catch(function(){});
-          } else if (navigator.clipboard) {
-            navigator.clipboard.writeText(url);
-            s.textContent = 'Link copiado'; setTimeout(function(){ s.textContent = 'Compartilhar'; }, 1500);
+            navigator.share({title: document.title, url: data.url}).catch(function(){});
+            return;
           }
-        });
-      }
-      var p = document.getElementById('pixBtn');
-      if (p) {
-        p.addEventListener('click', function(e){
-          e.preventDefault();
-          var k = p.getAttribute('data-key') || '';
           if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(k).then(function(){
-              p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500);
-            }).catch(function(){ /* fallback abaixo */
-              try {
-                var ta = document.createElement('textarea');
-                ta.value = k; ta.setAttribute('readonly','');
-                ta.style.position='fixed'; ta.style.top='0'; ta.style.left='0'; ta.style.opacity='0';
-                document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
-                var ok = document.execCommand('copy'); document.body.removeChild(ta);
-                if (ok) { p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500); }
-              } catch(_e) { /* silencia */ }
-            });
-          } else {
+            navigator.clipboard.writeText(data.url).then(function(){
+              shareBtn.textContent = 'Link copiado';
+              setTimeout(function(){ shareBtn.textContent = 'Compartilhar'; }, 1500);
+            }).catch(function(){});
+            return;
+          }
+          var ta = document.createElement('textarea');
+          ta.value = data.url;
+          ta.setAttribute('readonly','');
+          ta.style.position = 'absolute';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand('copy');
+            shareBtn.textContent = 'Link copiado';
+            setTimeout(function(){ shareBtn.textContent = 'Compartilhar'; }, 1500);
+          } catch (_e) {}
+          document.body.removeChild(ta);
+        });
+      }
+      var pixBtn = document.getElementById('pixBtn');
+      if (pixBtn) {
+        pixBtn.addEventListener('click', function(e){
+          e.preventDefault();
+          var key = pixBtn.getAttribute('data-key') || '';
+          function fallbackCopy(){
+            var ta = document.createElement('textarea');
+            ta.value = key;
+            ta.setAttribute('readonly','');
+            ta.style.position='fixed';
+            ta.style.top='0';
+            ta.style.left='0';
+            ta.style.opacity='0';
+            document.body.appendChild(ta);
+            ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
             try {
-              var ta = document.createElement('textarea');
-              ta.value = k; ta.setAttribute('readonly','');
-              ta.style.position='fixed'; ta.style.top='0'; ta.style.left='0'; ta.style.opacity='0';
-              document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
-              var ok = document.execCommand('copy'); document.body.removeChild(ta);
-              if (ok) { p.textContent = 'PIX copiado'; setTimeout(function(){ p.textContent = 'Copiar PIX'; }, 1500); }
-            } catch(_e) { /* sem alert */ }
+              if (document.execCommand('copy')) {
+                pixBtn.textContent = 'PIX copiado';
+                setTimeout(function(){ pixBtn.textContent = 'Copiar PIX'; }, 1500);
+              }
+            } catch (_e) {}
+            document.body.removeChild(ta);
+          }
+          if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(key).then(function(){
+              pixBtn.textContent = 'PIX copiado';
+              setTimeout(function(){ pixBtn.textContent = 'Copiar PIX'; }, 1500);
+            }).catch(fallbackCopy);
+          } else {
+            fallbackCopy();
           }
         });
       }
-      // Removido handler antigo de copia para o botao de pagamento Pix (conflitava com o modal)
+      (function(){
+        var shareCardBtn = document.getElementById('shareCardBtn');
+        if (!shareCardBtn) return;
+        var shareBackdrop = document.getElementById('shareBackdrop');
+        var sharePhone = document.getElementById('sharePhone');
+        var shareSend = document.getElementById('shareSend');
+        var shareCancel = document.getElementById('shareCancel');
+        var shareClose = document.getElementById('shareClose');
+        var shareError = document.getElementById('shareError');
+        function isMobile(){
+          return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+        }
+        function toggleShareError(msg){
+          if (!shareError) return;
+          if (msg){
+            shareError.textContent = msg;
+            shareError.style.display = 'block';
+          } else {
+            shareError.textContent = '';
+            shareError.style.display = 'none';
+          }
+        }
+        function openShareModal(){
+          if (!shareBackdrop) return;
+          toggleShareError('');
+          shareBackdrop.style.display = 'flex';
+          shareBackdrop.classList.add('show');
+          shareBackdrop.setAttribute('aria-hidden','false');
+          if (sharePhone){
+            sharePhone.focus();
+            sharePhone.select();
+          }
+        }
+        function closeShareModal(){
+          if (!shareBackdrop) return;
+          shareBackdrop.classList.remove('show');
+          shareBackdrop.style.display = 'none';
+          shareBackdrop.setAttribute('aria-hidden','true');
+          if (sharePhone) sharePhone.value = '';
+          toggleShareError('');
+        }
+        function sendViaModal(){
+          if (!sharePhone) return;
+          var digits = (sharePhone.value || '').replace(/\D/g,'');
+          if (digits.length < 10){
+            toggleShareError('Informe DDD + telefone com pelo menos 10 dígitos.');
+            return;
+          }
+          var shareData = getShareData();
+          var target = 'https://wa.me/' + digits + '?text=' + encodeURIComponent(shareData.text);
+          window.open(target, '_blank');
+          closeShareModal();
+        }
+        shareCardBtn.addEventListener('click', function(e){
+          e.preventDefault();
+          var shareData = getShareData();
+          if (navigator.share && isMobile()){
+            navigator.share({title: document.title, text: shareData.text, url: shareData.url}).catch(function(){
+              window.location.href = 'https://wa.me/?text=' + encodeURIComponent(shareData.text);
+            });
+            return;
+          }
+          if (isMobile()){
+            window.location.href = 'https://wa.me/?text=' + encodeURIComponent(shareData.text);
+            return;
+          }
+          openShareModal();
+        });
+        if (shareSend) shareSend.addEventListener('click', function(e){ e.preventDefault(); sendViaModal(); });
+        if (shareCancel) shareCancel.addEventListener('click', function(e){ e.preventDefault(); closeShareModal(); });
+        if (shareClose) shareClose.addEventListener('click', function(e){ e.preventDefault(); closeShareModal(); });
+        if (shareBackdrop){
+          shareBackdrop.addEventListener('click', function(ev){
+            if (ev.target === shareBackdrop){ closeShareModal(); }
+          });
+        }
+        document.addEventListener('keydown', function(ev){
+          if (ev.key === 'Escape'){ closeShareModal(); }
+        });
+      })();
     })();
     </script>
     """
+
 
     # Cor de fundo suavizada para o card público
     theme_base = (prof.get("theme_color", "#000000") or "#000000") if prof else "#000000"
@@ -905,9 +1062,30 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
     else:
         maps_href = ""
 
+    og_title = f"{prof.get('full_name','')} — Soomei Card".strip(" —") if prof else "Soomei Card"
+    og_desc = prof.get("title") if prof and prof.get("title") else "Clique para me chamar no WhatsApp e salvar meu contato."
+    og_image_url = raw_photo or DEFAULT_AVATAR
+    if og_image_url.startswith("/"):
+        og_image_url = f"{PUBLIC_BASE}{og_image_url}"
+    elif not og_image_url.startswith("http"):
+        og_image_url = f"{PUBLIC_BASE}/{og_image_url.lstrip('/')}"
+    og_image_url = html.escape(og_image_url)
+
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-    <link rel='stylesheet' href='{CSS_HREF}'><title>Soomei | {html.escape(prof.get('full_name',''))}</title></head><body>
+    <link rel='stylesheet' href='{CSS_HREF}'><title>Soomei | {html.escape(prof.get('full_name',''))}</title>
+    <meta property='og:type' content='website'>
+    <meta property='og:url' content='{html.escape(share_url)}'>
+    <meta property='og:title' content='{html.escape(og_title)}'>
+    <meta property='og:description' content='{html.escape(og_desc)}'>
+    <meta property='og:image' content='{og_image_url}'>
+    <meta property='og:image:width' content='1200'>
+    <meta property='og:image:height' content='630'>
+    <meta name='twitter:card' content='summary_large_image'>
+    <meta name='twitter:title' content='{html.escape(og_title)}'>
+    <meta name='twitter:description' content='{html.escape(og_desc)}'>
+    <meta name='twitter:image' content='{og_image_url}'>
+    </head><body>
     <main class='wrap'>
       <section class='card card-public carbon card-center' style='background-color: {html.escape(bg_hex)}'>
         {owner_gear}
@@ -915,6 +1093,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
           <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
           <p class='title'>{html.escape(prof.get('title',''))}</p>
+          {view_chip}
         </header>
           {f"""
             <div class='google-review'>
@@ -931,7 +1110,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
           """ if google_review_url and google_review_show else ""}
 
           <div class='section-divider'></div>
-          <div class='quick-actions{ ' qa4' if insta_quick else ''}'>
+          <div class='quick-actions qa4'>
           <div class='qa-item'>
             {(
               f"""
@@ -974,7 +1153,33 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
             </a>
             <div class='qa-label'>Modo Offline</div>
           </div>
-          {insta_quick}
+          <div class='qa-item'>
+            <button type='button' class='icon-btn brand-share' id='shareCardBtn' title='Enviar cartão' aria-label='Enviar cartão'>
+              <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18' focusable='false'>
+                <path d='M5 12h12' stroke='currentColor' stroke-width='2' stroke-linecap='round' fill='none'/>
+                <path d='M13 6l6 6-6 6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='none'/>
+              </svg>
+            </button>
+            <div class='qa-label'>Enviar cartão</div>
+          </div>
+        </div>
+        <div class='modal-backdrop' id='shareBackdrop' role='dialog' aria-modal='true' aria-hidden='true' style='display:none'>
+          <div class='modal'>
+            <header>
+              <h2>Enviar por WhatsApp</h2>
+              <button class='close' type='button' id='shareClose' aria-label='Fechar' title='Fechar'>&#10005;</button>
+            </header>
+            <div>
+              <label>Telefone com DDD</label>
+              <input id='sharePhone' type='tel' inputmode='tel' placeholder='11999990000' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
+              <p class='muted' style='font-size:12px;margin:4px 0 12px'>Digite apenas números (DDD+telefone). Usaremos o WhatsApp Web para enviar.</p>
+              <div style='display:flex;gap:10px;justify-content:flex-end'>
+                <button type='button' class='btn ghost' id='shareCancel'>Cancelar</button>
+                <button type='button' class='btn' id='shareSend'>Enviar</button>
+              </div>
+              <div id='shareError' class='banner bad' style='display:none;margin-top:10px'></div>
+            </div>
+          </div>
         </div>
         <div id='offlineSection' class='is-hidden' style='margin:12px 0 0'>
           <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;text-align:center'>
@@ -999,17 +1204,21 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False):
                   if plat == 'facebook' else (
                     '<path fill=\"currentColor\" d=\"M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z\"/>'
                     if plat == 'linkedin' else (
+                    '<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"5\" ry=\"5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>' 
+                    '<circle cx=\"12\" cy=\"12\" r=\"4\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>' 
+                    '<circle cx=\"17.5\" cy=\"6.5\" r=\"1.5\" fill=\"currentColor\"/>'
+                    if plat == 'instagram' else (
                     '<path fill=\"currentColor\" d=\"M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z\"/>'
                     if plat == 'youtube' else 
                     '<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>'
-                    )
+                    ))
                   )
                 )}"
               f"</svg>"
               f"</a>"
               f"<div class='qa-label'>{html.escape(label or plat.title())}</div>"
               f"</div>"
-            ) for (label, href, plat) in other_links[:3]
+            ) for (label, href, plat) in other_links[:4]
           ]) +
           "</div>"
         ) if (len(other_links) > 0) else ""}
@@ -1116,8 +1325,15 @@ def public_card(slug: str, request: Request):
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
-    prof = db["profiles"].get(card.get("user", ""), {})
-    return visitor_public_card(prof, slug, False)
+    owner = card.get("user", "")
+    prof = db["profiles"].get(owner, {})
+    who = current_user_email(request)
+    is_owner = bool(owner and who == owner)
+    if is_owner:
+        view_count = get_card_view_count(uid)
+    else:
+        view_count = increment_card_view(uid) if should_track_view(request, slug) else get_card_view_count(uid)
+    return visitor_public_card(prof, slug, is_owner, view_count)
 
 
 @app.get("/q/{slug}.png")
@@ -1256,7 +1472,7 @@ def hook(payload: dict):
 
 
 @app.get("/edit/{slug}", response_class=HTMLResponse)
-def edit_card(slug: str, request: Request, saved: str = ""):
+def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd: str = ""):
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
@@ -1275,7 +1491,17 @@ def edit_card(slug: str, request: Request, saved: str = ""):
     photo_url = resolve_photo(prof.get("photo_url"))
     while len(links) < 4:
         links.append({"label": "", "href": ""})
-    notice = ("<div class='banner'>Alteracoes salvas. Para publicar seu cartao, adicione ao menos um meio de contato (WhatsApp, e-mail publico ou um link).</div>" if (str(saved) == "1" and not profile_complete(prof)) else ("<div class='banner ok'>Alteracoes salvas.</div>" if str(saved) == "1" else ""))
+    banners: list[str] = []
+    if error:
+        banners.append(f"<div class='banner bad'>{html.escape(error)}</div>")
+    if str(saved) == "1":
+        if not profile_complete(prof):
+            banners.append("<div class='banner'>Alteracoes salvas. Para publicar seu cartao, adicione ao menos um meio de contato (WhatsApp, e-mail publico ou um link).</div>")
+        else:
+            banners.append("<div class='banner ok'>Alteracoes salvas.</div>")
+    if str(pwd) == "1":
+        banners.append("<div class='banner ok'>Senha atualizada com sucesso.</div>")
+    notice = "".join(banners)
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -1288,70 +1514,137 @@ def edit_card(slug: str, request: Request, saved: str = ""):
       .modal header h2{{margin:0;font-size:18px;color:#eaeaea}}
       .modal .close{{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}}
       .modal iframe{{width:100%;height:70vh;border:0;background:#0b0b0c}}
+      .banner.bad{{background:#3a1717;border-color:#5c2323;color:#f5b8b8}}
+      .edit-sections{{display:flex;flex-direction:column;gap:18px;margin-top:12px}}
+      .edit-section{{background:#111114;border:1px solid #242427;border-radius:16px;padding:18px}}
+      .section-kicker{{text-transform:uppercase;font-size:11px;letter-spacing:.3px;color:#9aa0a6;margin:0 0 6px}}
+      .section-head{{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}}
+      .section-title{{margin:0;font-size:20px}}
+      .section-desc{{margin:0;font-size:13px;color:#9aa0a6}}
+      .section-grid{{display:grid;gap:14px}}
+      .section-grid.two-col{{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}}
+      .form-control{{display:flex;flex-direction:column;gap:6px}}
+      .form-control label{{font-weight:600;font-size:13px;color:#eaeaea}}
+      .form-control input{{border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea;padding:10px;border-radius:10px}}
+      .form-control.full{{grid-column:1 / -1}}
+      .visual-grid{{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}}
+      .cta-row{{display:flex;flex-direction:column;gap:16px}}
+      .cta-card{{border:1px solid #242427;border-radius:12px;padding:16px;background:#0f0f10}}
+      .cta-card h4{{margin:0 0 6px;font-size:15px}}
+      .cta-card p{{margin:0 0 10px;font-size:13px;color:#9aa0a6}}
+      .panel-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
+      .links-grid-edit{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}}
+      .password-fields{{margin-top:14px;display:grid;gap:12px}}
+      .password-fields.is-hidden{{display:none}}
+      .btn.ghost{{background:transparent;border:1px solid #2a2a2a;color:#eaeaea}}
+      .btn.primary{{background:#eaeaea;color:#0b0b0c;font-weight:600}}
+      .edit-actions{{position:sticky;bottom:0;padding:0;margin-top:24px;background:linear-gradient(180deg,rgba(11,11,12,0) 0%,rgba(11,11,12,.85) 30%,rgba(11,11,12,1) 70%)}}
+      .edit-actions-inner{{display:flex;gap:12px;padding:12px 0;border-top:1px solid #1f1f1f}}
+      .edit-actions-inner .btn{{flex:1;text-align:center}}
     </style>
     </head>
     <body><main class='wrap'>
       {notice}
       <form id='editForm' method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
         <div class='topbar'>
-          <button class='icon-btn top-left' type='button' aria-label='Voltar' title='Voltar' onclick="location.href='/{html.escape(slug)}'">
-            <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true'>
-              <path d='M15 18l-6-6 6-6' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
-            </svg>
-          </button>
           <h1 class='page-title'>Editar Perfil</h1>
-          <button class='icon-btn top-right' type='submit' aria-label='Salvar' title='Salvar'>
-            <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true'>
-              <path d='M5 13l4 4L19 7' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
-            </svg>
-          </button>
         </div>
-        <div class='avatar-preview-wrap'>
-          <div id='colorPreview' class='preview-carbon carbon' style='background-color: {html.escape(bg_hex)}'></div>
-        <div style='text-align:center;margin:0'>
-          <img id='avatarImg'
-              class='avatar'
-              src='{html.escape(photo_url)}'
-              alt='foto'
-              onerror="this.onerror=null;this.src='{DEFAULT_AVATAR}'">
-          <div><a href='#' id='photoTrigger' class='photo-change'
-                  onclick="document.getElementById('photoInput').click(); return false;">
-                  Alterar foto do perfil
-          </a></div>
-          <div class='muted' style='font-size:12px;margin-top:4px'>Tamanho máximo: 2 MB (JPEG/PNG)</div>
-        </div>
-        </div>
-        <input type='file' id='photoInput' name='photo' accept='image/jpeg,image/png' style='display:none'>
-        <label>Cor do cartão</label><input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 35px;'>
-        <label>Nome</label><input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome' required>
-        <label>Cargo | Empresa</label><input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Cargo | Empresa'>
-        <label>WhatsApp</label><input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19'>
-        <label>Email publico</label><input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}'>
-        <label>Site</label><input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}'>
-        <label>Endereco</label><input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, numero - Cidade/UF'>
-        <div style='margin:10px 0'>
-          <input type='hidden' id='pixKey' name='pix_key' value='{html.escape(prof.get('pix_key',''))}'>
-          <a href='#' id='addPix' class='btn'>Adicionar chave Pix</a>
-          <span id='pixInfo' class='muted' style='font-size:12px;margin-left:8px'>{("Chave atual: " + html.escape(prof.get('pix_key','')) + " <a href='#' id='pixDel' class='muted' title='Remover' aria-label='Remover' style='margin-left:6px'>&#10005;</a>") if prof.get('pix_key') else ''}</span>
-        </div>
-        <div style="margin:10px 0">
-          <input type="hidden" id="slugKey" value="{html.escape(card.get('vanity', uid))}">
-          <a href="#" id="addSlug" class="btn">Alterar slug</a>
-          <span id="slugInfo" class="muted" style="font-size:12px;margin-left:8px">
-            URL atual: /{html.escape(card.get('vanity', uid))}
-          </span>
-        </div>
-        <h3>Links</h3>
-        <label>Rotulo 1</label><input name='label1' value='{html.escape(links[0].get('label',''))}'>
-        <label>URL 1</label><input name='href1' value='{html.escape(links[0].get('href',''))}'>
-        <label>Rotulo 2</label><input name='label2' value='{html.escape(links[1].get('label',''))}'>
-        <label>URL 2</label><input name='href2' value='{html.escape(links[1].get('href',''))}'>
-        <label>Rotulo 3</label><input name='label3' value='{html.escape(links[2].get('label',''))}'>
-        <label>URL 3</label><input name='href3' value='{html.escape(links[2].get('href',''))}'>
-        <label>Rotulo 4</label><input name='label4' value='{ html.escape(links[3].get("label","")) }'>
-        <label>URL 4</label><input name='href4' value='{ html.escape(links[3].get("href","")) }'>
+        <div class='edit-sections'>
+          <section class='edit-section'>
+            <p class='section-kicker'>Identidade</p>
+            <div class='section-head'>
+              <h2 class='section-title'>Foto e cores</h2>
+              <p class='section-desc'>Atualize sua imagem principal e mantenha o cartão alinhado à sua marca.</p>
+            </div>
+            <div class='visual-grid'>
+              <div>
+                <div class='avatar-preview-wrap'>
+                  <div id='colorPreview' class='preview-carbon carbon' style='background-color: {html.escape(bg_hex)}'></div>
+                  <div style='text-align:center;margin:0'>
+                    <img id='avatarImg'
+                        class='avatar'
+                        src='{html.escape(photo_url)}'
+                        alt='foto'
+                        onerror="this.onerror=null;this.src='{DEFAULT_AVATAR}'">
+                    <div><a href='#' id='photoTrigger' class='photo-change'
+                            onclick="document.getElementById('photoInput').click(); return false;">
+                            Alterar foto do perfil
+                    </a></div>
+                    <div class='muted' style='font-size:12px;margin-top:4px'>Tamanho máximo: 2 MB (JPEG/PNG)</div>
+                  </div>
+                </div>
+                <input type='file' id='photoInput' name='photo' accept='image/jpeg,image/png' style='display:none'>
+              </div>
+              <div class='form-control'>
+                <label>Cor do cartão</label>
+                <input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 48px'>
+                <span class='muted hint'>Essa cor é usada em botões e cartões auxiliares.</span>
+              </div>
+            </div>
+          </section>
 
-        <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
+          <section class='edit-section'>
+            <p class='section-kicker'>Informações principais</p>
+            <div class='section-head'>
+              <h2 class='section-title'>Contato e apresentação</h2>
+              <p class='section-desc'>Esses dados aparecem no topo do seu cartão.</p>
+            </div>
+            <div class='section-grid two-col'>
+              <div class='form-control'>
+                <label>Nome</label>
+                <input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome completo' required>
+              </div>
+              <div class='form-control'>
+                <label>Cargo | Empresa</label>
+                <input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei'>
+              </div>
+              <div class='form-control'>
+                <label>WhatsApp</label>
+                <input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19'>
+              </div>
+              <div class='form-control'>
+                <label>Email público</label>
+                <input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}' placeholder='contato@exemplo.com'>
+              </div>
+              <div class='form-control'>
+                <label>Site</label>
+                <input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}'>
+              </div>
+              <div class='form-control full'>
+                <label>Endereço</label>
+                <input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF'>
+              </div>
+            </div>
+          </section>
+
+          <section class='edit-section'>
+            <p class='section-kicker'>Integrações</p>
+            <div class='section-head'>
+              <h2 class='section-title'>Pix, slug e avaliações</h2>
+              <p class='section-desc'>Configure como as pessoas chegam até você e como pagam por seus serviços.</p>
+            </div>
+            <div class='cta-row'>
+              <div class='cta-card'>
+                <h4>Chave Pix</h4>
+                <p>Guarde uma chave Pix para gerar QR Codes e receber pagamentos.</p>
+                <div class='panel-actions'>
+                  <input type='hidden' id='pixKey' name='pix_key' value='{html.escape(prof.get('pix_key',''))}'>
+                  <a href='#' id='addPix' class='btn'>Definir chave Pix</a>
+                  <span id='pixInfo' class='muted' style='font-size:12px'>{("Chave atual: " + html.escape(prof.get('pix_key','')) + " <a href='#' id='pixDel' class='muted' title='Remover' aria-label='Remover' style='margin-left:6px'>&#10005;</a>") if prof.get('pix_key') else ''}</span>
+                </div>
+              </div>
+              <div class='cta-card'>
+                <h4>Slug público</h4>
+                <p>Escolha o endereço curto do seu cartão (ex.: /seu-nome).</p>
+                <div class='panel-actions'>
+                  <input type='hidden' id='slugKey' value='{html.escape(card.get('vanity', uid))}'>
+                  <a href='#' id='addSlug' class='btn ghost'>Alterar slug</a>
+                  <span id='slugInfo' class='muted' style='font-size:12px'>URL atual: /{html.escape(card.get('vanity', uid))}</span>
+                </div>
+              </div>
+            </div>
+
+        <div class='cta-card' style='margin-top:12px'>
           <div style='display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px'>
             <label style='display:flex;align-items:center;gap:8px;margin:0'>
               <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='18' height='18' class='g-icon'>
@@ -1381,6 +1674,117 @@ def edit_card(slug: str, request: Request, saved: str = ""):
             Toque aqui para ver como encontrar o link de Avaliação do Google Meu Negócio
           </a>
         </div>
+
+          </section>
+
+          <section class='edit-section'>
+            <p class='section-kicker'>Presença digital</p>
+            <div class='section-head'>
+              <h2 class='section-title'>Links em destaque</h2>
+              <p class='section-desc'>Adicione até quatro links personalizados.</p>
+            </div>
+            <div class='links-grid-edit'>
+              <div class='form-control'>
+                <label>Rótulo 1</label>
+                <input name='label1' value='{html.escape(links[0].get('label',''))}'>
+              </div>
+              <div class='form-control'>
+                <label>URL 1</label>
+                <input name='href1' value='{html.escape(links[0].get('href',''))}'>
+              </div>
+              <div class='form-control'>
+                <label>Rótulo 2</label>
+                <input name='label2' value='{html.escape(links[1].get('label',''))}'>
+              </div>
+              <div class='form-control'>
+                <label>URL 2</label>
+                <input name='href2' value='{html.escape(links[1].get('href',''))}'>
+              </div>
+              <div class='form-control'>
+                <label>Rótulo 3</label>
+                <input name='label3' value='{html.escape(links[2].get('label',''))}'>
+              </div>
+              <div class='form-control'>
+                <label>URL 3</label>
+                <input name='href3' value='{html.escape(links[2].get('href',''))}'>
+              </div>
+              <div class='form-control'>
+                <label>Rótulo 4</label>
+                <input name='label4' value='{html.escape(links[3].get('label',''))}'>
+              </div>
+              <div class='form-control'>
+                <label>URL 4</label>
+                <input name='href4' value='{html.escape(links[3].get('href',''))}'>
+              </div>
+            </div>
+          </section>
+
+          <section class='edit-section'>
+            <p class='section-kicker'>Segurança</p>
+            <div class='section-head'>
+              <h2 class='section-title'>Senha e acesso</h2>
+              <p class='section-desc'>Troque sua senha sempre que identificar atividade suspeita.</p>
+            </div>
+            <button type='button' class='btn ghost' id='togglePassword' aria-expanded='false'>Alterar senha</button>
+            <div id='passwordFields' class='password-fields is-hidden'>
+              <div class='form-control'>
+                <label>Senha atual</label>
+                <input type='password' name='current_password' autocomplete='current-password' placeholder='Digite sua senha atual'>
+              </div>
+              <div class='form-control'>
+                <label>Nova senha</label>
+                <input type='password' name='new_password' autocomplete='new-password' minlength='8' placeholder='Mínimo de 8 caracteres'>
+              </div>
+              <div class='form-control'>
+                <label>Confirmar nova senha</label>
+                <input type='password' name='confirm_password' autocomplete='new-password' minlength='8' placeholder='Repita a nova senha'>
+              </div>
+              <p class='muted hint'>Sua sessão permanecerá ativa após a troca.</p>
+            </div>
+          </section>
+        </div>
+
+        <div class='edit-actions'>
+          <div class='edit-actions-inner'>
+            <button type='button' class='btn ghost' id='backToCard'>Voltar</button>
+            <button type='submit' class='btn primary'>Salvar alterações</button>
+          </div>
+        </div>
+
+        <script>
+        (function(){{
+          var backBtn = document.getElementById('backToCard');
+          if (backBtn){{
+            backBtn.addEventListener('click', function(e){{
+              e.preventDefault();
+              window.location.href='/{html.escape(slug)}';
+            }});
+          }}
+          var togglePwd = document.getElementById('togglePassword');
+          var pwdFields = document.getElementById('passwordFields');
+          if (togglePwd && pwdFields){{
+            function setState(open){{
+              if (open){{
+                pwdFields.classList.remove('is-hidden');
+                togglePwd.textContent = 'Cancelar alteração de senha';
+                togglePwd.setAttribute('aria-expanded','true');
+              }} else {{
+                pwdFields.classList.add('is-hidden');
+                togglePwd.textContent = 'Alterar senha';
+                togglePwd.setAttribute('aria-expanded','false');
+                var inputs = pwdFields.querySelectorAll('input');
+                Array.prototype.forEach.call(inputs, function(inp){{ inp.value = ''; }});
+              }}
+            }}
+            togglePwd.addEventListener('click', function(e){{
+              e.preventDefault();
+              var open = pwdFields.classList.contains('is-hidden');
+              setState(open);
+            }});
+            setState(false);
+          }}
+        }})();
+        </script>
 
         <script>
         (function(){{
@@ -1746,6 +2150,9 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                label4: str = Form(""), href4: str = Form(""),
                theme_color: str = Form(""),
                pix_key: str = Form(""),
+               current_password: str = Form(""),
+               new_password: str = Form(""),
+               confirm_password: str = Form(""),
                photo: UploadFile | None = File(None)):
     db, uid, card = find_card_by_slug(slug)
     if not card:
@@ -1755,6 +2162,8 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
     db2 = db_defaults(load())
+    def redirect_error(msg: str):
+        return RedirectResponse(f"/edit/{slug}?error={urlparse.quote_plus(msg)}", status_code=303)
     prof = db2["profiles"].get(owner, {})
     prof.update({
         "full_name": full_name.strip(),
@@ -1778,6 +2187,23 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         if lbl.strip() and href.strip():
             links.append({"label": lbl.strip(), "href": href.strip()})
     prof["links"] = links
+    pwd_changed = False
+    current_password = (current_password or "").strip()
+    new_password = (new_password or "").strip()
+    confirm_password = (confirm_password or "").strip()
+    if current_password or new_password or confirm_password:
+        if not (current_password and new_password and confirm_password):
+            return redirect_error("Preencha todos os campos de senha.")
+        if len(new_password) < 8:
+            return redirect_error("Nova senha deve ter no minimo 8 caracteres.")
+        if new_password != confirm_password:
+            return redirect_error("As senhas nao conferem.")
+        user = db2["users"].get(owner)
+        if not user or user.get("pwd") != h(current_password):
+            return redirect_error("Senha atual incorreta.")
+        user["pwd"] = h(new_password)
+        db2["users"][owner] = user
+        pwd_changed = True
     if photo and photo.filename:
         ct = (photo.content_type or "").lower()
         if ct not in ("image/jpeg", "image/png"):
@@ -1794,9 +2220,12 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         prof["photo_url"] = f"/static/uploads/{filename}?v={etag}"
     db2["profiles"][owner] = prof
     save(db2)
-    # Se perfil ainda estiver incompleto, mantem usuario na edicao com aviso
-    if not profile_complete(prof):
-        return RedirectResponse(f"/edit/{slug}?saved=1", status_code=303)
+    # Se perfil ainda estiver incompleto ou senha foi alterada, mantem usuario na edicao com aviso
+    if not profile_complete(prof) or pwd_changed:
+        params = ["saved=1"]
+        if pwd_changed:
+            params.append("pwd=1")
+        return RedirectResponse(f"/edit/{slug}?{'&'.join(params)}", status_code=303)
     return RedirectResponse(f"/{slug}?saved=1", status_code=303)
 
 
@@ -1819,6 +2248,7 @@ def root_slug(slug: str, request: Request):
     owner = card.get("user", "")
     prof = load()["profiles"].get(owner, {})
     who = current_user_email(request)
+    is_owner = bool(owner and who == owner)
     # Offline flow (vCard QR) — handled early so it is not bypassed by other returns
     offline = request.query_params.get("offline", "")
     if offline:
@@ -1929,7 +2359,7 @@ def root_slug(slug: str, request: Request):
         return HTMLResponse(_brand_footer_inject(off_page))
     if who == owner and not card.get("vanity"):
         return RedirectResponse(f"/slug/select/{html.escape(uid)}", status_code=302)
-    if who == owner and not profile_complete(prof):
+    if is_owner and not profile_complete(prof):
         return RedirectResponse(f"/edit/{html.escape(slug)}", status_code=302)
     # Pix flow handling
     pix_mode = request.query_params.get("pix", "")
@@ -2096,7 +2526,11 @@ def root_slug(slug: str, request: Request):
             </body></html>
             """
             return HTMLResponse(_brand_footer_inject(qr_page))
-    if who != owner:
+    if is_owner:
+        view_count = get_card_view_count(uid)
+    else:
+        view_count = increment_card_view(uid) if should_track_view(request, slug) else get_card_view_count(uid)
+    if not is_owner:
         if not profile_complete(prof):
             return HTMLResponse(_brand_footer_inject("""
             <!doctype html><html lang='pt-br'><head>
@@ -2108,8 +2542,8 @@ def root_slug(slug: str, request: Request):
               <p class='muted'><a href='/login'>Sou o dono? Entrar</a></p>
             </main></body></html>
             """))
-        return visitor_public_card(prof, slug, False)
-    return visitor_public_card(prof, slug, True)
+        return visitor_public_card(prof, slug, False, view_count)
+    return visitor_public_card(prof, slug, True, view_count)
 
 
 
