@@ -66,7 +66,7 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .icon-btn.brand-site{color:#8ab4f8;border-color:#6f9fe8}
 .icon-btn.brand-email{color:#b39ddb;border-color:#9a7bd6}
 .icon-btn.brand-phone{color:#25D366;border-color:#21bf5b}
-.icon-btn.brand-share{color:#8ab4f8;border-color:#6f9fe8}
+.icon-btn.brand-share{color:#000000;border-color:#6f9fe8}
 .icon-btn.elevated{box-shadow:0 3px 10px rgba(0,0,0,.55);border-color:#e9edf0}
 .topbar{position:relative;display:flex;align-items:center;justify-content:center;margin:0 0 12px}
 .page-title{margin:0;font-size:20px}

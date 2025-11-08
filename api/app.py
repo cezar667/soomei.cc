@@ -1157,12 +1157,20 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
             <div class='qa-label'>Modo Offline</div>
           </div>
           <div class='qa-item'>
-            <button type='button' class='icon-btn brand-share' id='shareCardBtn' title='Compartilhar cartão' aria-label='Compartilhar cartão'>
-              <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18' focusable='false'>
-                <path d='M5 12h12' stroke='currentColor' stroke-width='2' stroke-linecap='round' fill='none'/>
-                <path d='M13 6l6 6-6 6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='none'/>
+            <button type="button" class="icon-btn brand-share" id="shareCardBtn"
+                    title="Compartilhar" aria-label="Compartilhar este cartão">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                  width="18" height="18" aria-hidden="true" focusable="false">
+                <!-- seta para cima -->
+                <path d="M12 4v10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M8.5 7.5L12 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+                <!-- quadrado (caixa) -->
+                <rect x="4" y="10" width="16" height="10" rx="2" ry="2"
+                      fill="none" stroke="currentColor" stroke-width="2"/>
               </svg>
             </button>
+
             <div class='qa-label'>Compartilhar cartão</div>
           </div>
         </div>
