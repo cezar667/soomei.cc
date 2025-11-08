@@ -828,7 +828,9 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
           e.preventDefault();
           var data = getShareData();
           if (navigator.share) {
-            navigator.share({title: document.title, url: data.url}).catch(function(){});
+            navigator.share({title: document.title, text: data.text}).catch(function(err){
+              if (err && err.name === 'AbortError') { return; }
+            });
             return;
           }
           if (navigator.clipboard && window.isSecureContext) {
@@ -943,7 +945,8 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
           e.preventDefault();
           var shareData = getShareData();
           if (navigator.share && isMobile()){
-            navigator.share({title: document.title, text: shareData.text, url: shareData.url}).catch(function(){
+            navigator.share({title: document.title, text: shareData.text}).catch(function(err){
+              if (err && err.name === 'AbortError') { return; }
               window.location.href = 'https://wa.me/?text=' + encodeURIComponent(shareData.text);
             });
             return;
@@ -1154,13 +1157,13 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
             <div class='qa-label'>Modo Offline</div>
           </div>
           <div class='qa-item'>
-            <button type='button' class='icon-btn brand-share' id='shareCardBtn' title='Enviar cartão' aria-label='Enviar cartão'>
+            <button type='button' class='icon-btn brand-share' id='shareCardBtn' title='Compartilhar cartão' aria-label='Compartilhar cartão'>
               <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18' focusable='false'>
                 <path d='M5 12h12' stroke='currentColor' stroke-width='2' stroke-linecap='round' fill='none'/>
                 <path d='M13 6l6 6-6 6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='none'/>
               </svg>
             </button>
-            <div class='qa-label'>Enviar cartão</div>
+            <div class='qa-label'>Compartilhar cartão</div>
           </div>
         </div>
         <div class='modal-backdrop' id='shareBackdrop' role='dialog' aria-modal='true' aria-hidden='true' style='display:none'>
