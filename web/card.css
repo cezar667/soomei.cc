@@ -8,13 +8,16 @@ h1{margin:0 0 8px;font-size:28px}.bio{color:#9aa0a6;margin:0 0 16px}
 .actions{display:flex;gap:12px}.btn{text-decoration:none;background:#eaeaea;color:#0b0b0c;padding:12px 14px;border-radius:12px;display:inline-block}
 .card{background:#111114;border:1px solid #242427;border-radius:16px;padding:20px}
 .card{position:relative}
+.card-cover{width:calc(100% + 40px);margin:-20px -20px 0;border-radius:16px 16px 0 0;overflow:hidden;height:120px;background:#1b1b1d;display:block}
+.card-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.card-cover + .card-header{margin-top:-60px;padding-top:10px}
 .edit-gear{position:absolute;top:10px;right:10px;z-index:2;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;border:1px solid #e5e7eb;background:#ffffff;color:#0b0b0c;text-decoration:none;opacity:.9;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:opacity .2s ease,transform .1s ease,box-shadow .2s ease;font-size:16px;line-height:1;cursor:pointer}
 .edit-gear:hover{opacity:1;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 .edit-gear:active{transform:scale(.96)}
 .wallet-btn{position:absolute;top:10px;left:10px;z-index:2;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;border:1px solid #e5e7eb;background:#ffffff;color:#0b0b0c;text-decoration:none;opacity:.95;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:opacity .2s ease,transform .1s ease,box-shadow .2s ease;font-size:16px;line-height:1;cursor:pointer}
 .wallet-btn:hover{opacity:1;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 .wallet-btn:active{transform:scale(.96)}
-.card-header{text-align:center;margin-bottom:16px}
+.card-header{text-align:center;margin:0 0 16px;padding-top:10px}
 .avatar{width:200px;height:200px;border-radius:50%;object-fit:cover;display:block;margin:0 auto 12px;border:2px solid #2a2a2a}
 .name{font-size:26px;margin:0}
 .title{color:#9aa0a6;margin:4px 0 0}

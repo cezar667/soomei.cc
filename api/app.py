@@ -346,6 +346,27 @@ def resolve_photo(photo: str | None) -> str:
         return photo
     return DEFAULT_AVATAR
 
+
+def _save_resized_image(data: bytes, filename: str, max_size: tuple[int, int]) -> str:
+    try:
+        from PIL import Image  # type: ignore
+    except ImportError as exc:  # pragma: no cover
+        raise HTTPException(500, "Dependencia Pillow ausente para processar imagens.") from exc
+    try:
+        image = Image.open(io.BytesIO(data))
+    except Exception as exc:
+        raise HTTPException(400, "Arquivo de imagem inválido.") from exc
+    image = image.convert("RGB")
+    image.thumbnail(max_size, Image.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85, optimize=True)
+    payload = buffer.getvalue()
+    dest_path = os.path.join(UPLOADS, filename)
+    with open(dest_path, "wb") as f:
+        f.write(payload)
+    etag = hashlib.md5(payload).hexdigest()[:8]
+    return f"/static/uploads/{filename}?v={etag}"
+
 @app.get("/onboard/{uid}", response_class=HTMLResponse)
 def onboard(uid: str, email: str = "", vanity: str = "", error: str = ""):
     db = db_defaults(load())
@@ -598,7 +619,7 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     if vanity:
         card["vanity"] = vanity
     db["cards"][uid] = card
-    db["profiles"][email] = {"full_name": "", "title": "", "links": [], "whatsapp": "", "pix_key": "", "email_public": "", "site_url": ""}
+    db["profiles"][email] = {"full_name": "", "title": "", "links": [], "whatsapp": "", "pix_key": "", "email_public": "", "site_url": "", "photo_url": "", "cover_url": ""}
     token = secrets.token_urlsafe(24)
     db["verify_tokens"][token] = {"email": email, "created_at": int(time.time())}
     save(db)
@@ -689,7 +710,9 @@ def logout(request: Request, next: str = "/"):
 
 def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_count: int = 0):
     raw_photo = (prof.get("photo_url", "") or "") if prof else ""
+    raw_cover = (prof.get("cover_url", "") or "") if prof else ""
     photo = html.escape(raw_photo) if raw_photo else ""
+    cover = html.escape(raw_cover) if raw_cover else ""
     wa_raw = (prof.get("whatsapp", "") or "").strip()
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
     email_pub = (prof.get("email_public", "") or "").strip()
@@ -750,6 +773,13 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
     share_text = urlparse.quote_plus(f"Ola! Vim pelo seu cartao da Soomei.")
     share_base_message = "Este é o meu Cartão de Visita Digital"
     share_base_message_js = json.dumps(share_base_message)
+    cover_block = (
+        "<div class='card-cover'>"
+        f"<img src='{cover}' alt='capa do cartão'>"
+        "</div>"
+        if cover
+        else ""
+    )
 
     actions = []
     if wa_digits:
@@ -1067,11 +1097,13 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
 
     og_title = f"{prof.get('full_name','')} — Soomei Card".strip(" —") if prof else "Soomei Card"
     og_desc = prof.get("title") if prof and prof.get("title") else "Clique para me chamar no WhatsApp e salvar meu contato."
-    og_image_url = raw_photo or DEFAULT_AVATAR
-    if og_image_url.startswith("/"):
-        og_image_url = f"{PUBLIC_BASE}{og_image_url}"
-    elif not og_image_url.startswith("http"):
-        og_image_url = f"{PUBLIC_BASE}/{og_image_url.lstrip('/')}"
+    og_image_src = raw_cover or raw_photo or DEFAULT_AVATAR
+    if og_image_src.startswith("/"):
+        og_image_url = f"{PUBLIC_BASE}{og_image_src}"
+    elif not og_image_src.startswith("http"):
+        og_image_url = f"{PUBLIC_BASE}/{og_image_src.lstrip('/')}"
+    else:
+        og_image_url = og_image_src
     og_image_url = html.escape(og_image_url)
 
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
@@ -1092,6 +1124,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
     <main class='wrap'>
       <section class='card card-public carbon card-center' style='background-color: {html.escape(bg_hex)}'>
         {owner_gear}
+        {cover_block}
         <header class='card-header'>
           {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
           <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
@@ -1500,6 +1533,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     bg_hex = theme_base + "30"
     links = prof.get("links", [])
     photo_url = resolve_photo(prof.get("photo_url"))
+    cover_url = (prof.get("cover_url") or "").strip()
     while len(links) < 4:
         links.append({"label": "", "href": ""})
     banners: list[str] = []
@@ -1539,6 +1573,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       .form-control input{{border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea;padding:10px;border-radius:10px}}
       .form-control.full{{grid-column:1 / -1}}
       .visual-grid{{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}}
+      .cover-preview{{width:100%;height:150px;border:1px dashed #2a2a2a;border-radius:12px;background:#0f0f10;display:flex;align-items:center;justify-content:center;overflow:hidden}}
+      .cover-preview img{{width:100%;height:100%;object-fit:cover;display:block}}
+      .cover-placeholder{{color:#9aa0a6;font-size:13px;text-align:center}}
+      .cover-actions{{display:flex;align-items:center;gap:12px;margin-top:8px}}
       .cta-row{{display:flex;flex-direction:column;gap:16px}}
       .cta-card{{border:1px solid #242427;border-radius:12px;padding:16px;background:#0f0f10}}
       .cta-card h4{{margin:0 0 6px;font-size:15px}}
@@ -1568,6 +1606,19 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <p class='section-desc'>Atualize sua imagem principal e mantenha o cartão alinhado à sua marca.</p>
             </div>
             <div class='visual-grid'>
+              <div class='form-control full'>
+                <label>Capa do cartão</label>
+                <div class='cover-preview' id='coverPreview'>
+                  {(
+                    f"<img id='coverImg' src='{html.escape(cover_url)}' alt='capa do cartão'>"
+                  ) if cover_url else "<img id='coverImg' src='' alt='capa do cartão' style='display:none'><span id='coverPlaceholder' class='cover-placeholder'>Nenhuma capa selecionada</span>"}
+                </div>
+                <div class='cover-actions'>
+                  <a href='#' id='coverTrigger' class='photo-change' onclick="document.getElementById('coverInput').click(); return false;">Alterar imagem de capa</a>
+                  <span class='muted hint'>Sugerimos 1200x630px. Otimizamos automaticamente após o envio.</span>
+                </div>
+                <input type='file' id='coverInput' name='cover' accept='image/jpeg,image/png' style='display:none'>
+              </div>
               <div>
                 <div class='avatar-preview-wrap'>
                   <div id='colorPreview' class='preview-carbon carbon' style='background-color: {html.escape(bg_hex)}'></div>
@@ -1581,7 +1632,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                             onclick="document.getElementById('photoInput').click(); return false;">
                             Alterar foto do perfil
                     </a></div>
-                    <div class='muted' style='font-size:12px;margin-top:4px'>Tamanho máximo: 2 MB (JPEG/PNG)</div>
+                    <div class='muted' style='font-size:12px;margin-top:4px'>Aceitamos JPG/PNG; otimizamos automaticamente após o envio.</div>
                   </div>
                 </div>
                 <input type='file' id='photoInput' name='photo' accept='image/jpeg,image/png' style='display:none'>
@@ -2049,25 +2100,37 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
         var input = document.getElementById('photoInput');
         if (input) {{
           var img = document.getElementById('avatarImg');
-          var holder = document.getElementById('avatarHolder');
           input.addEventListener('change', function(){{
             var f = input.files && input.files[0];
             if (!f) return;
-            var MAX = 2 * 1024 * 1024;
-            if (f.size > MAX) {{ alert('Arquivo muito grande (maximo 2 MB).'); input.value=''; return; }}
-            var ok = /^(image\/jpeg|image\/png)$/.test(f.type);
+            var ok = /^(image\/jpeg|image\/png)$/i.test((f.type || ''));
             if (!ok) {{ alert('Formato de imagem nao suportado (use JPEG ou PNG)'); input.value=''; return; }}
             var url = URL.createObjectURL(f);
             if (img) {{
               img.src = url;
-            }} else {{
-              img = document.createElement('img');
-              img.id = 'avatarImg';
-              img.className = 'avatar';
-              img.alt = 'foto';
-              img.src = url;
-              if (holder) holder.replaceWith(img);
             }}
+          }});
+        }}
+        var coverInput = document.getElementById('coverInput');
+        if (coverInput) {{
+          var coverImg = document.getElementById('coverImg');
+          var coverPlaceholder = document.getElementById('coverPlaceholder');
+          coverInput.addEventListener('change', function(){{
+            var f = coverInput.files && coverInput.files[0];
+            if (!f) return;
+            var ok = /^(image\/jpeg|image\/png)$/i.test((f.type || ''));
+            if (!ok) {{ alert('Formato de imagem nao suportado (use JPEG ou PNG)'); coverInput.value=''; return; }}
+            var reader = new FileReader();
+            reader.onload = function(evt){{
+              if (coverImg) {{
+                coverImg.src = (evt && evt.target && evt.target.result) ? evt.target.result : '';
+                coverImg.style.display = coverImg.src ? 'block' : 'none';
+              }}
+              if (coverPlaceholder && coverImg && coverImg.src) {{
+                coverPlaceholder.style.display = 'none';
+              }}
+            }};
+            reader.readAsDataURL(f);
           }});
         }}
         // Atualiza preview de cor imediatamente ao selecionar
@@ -2164,7 +2227,8 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                current_password: str = Form(""),
                new_password: str = Form(""),
                confirm_password: str = Form(""),
-               photo: UploadFile | None = File(None)):
+               photo: UploadFile | None = File(None),
+               cover: UploadFile | None = File(None)):
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
@@ -2215,20 +2279,23 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         user["pwd"] = h(new_password)
         db2["users"][owner] = user
         pwd_changed = True
+    allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
     if photo and photo.filename:
         ct = (photo.content_type or "").lower()
-        if ct not in ("image/jpeg", "image/png"):
+        if ct not in allowed_types:
             return HTMLResponse("Formato de imagem nao suportado (use JPEG ou PNG)", status_code=400)
-        ext = ".jpg" if ct == "image/jpeg" else ".png"
-        filename = f"{uid}{ext}"
-        dest_path = os.path.join(UPLOADS, filename)
         data = await photo.read()
-        if len(data) > 2 * 1024 * 1024:
-            return HTMLResponse("Imagem muito grande (máximo 2 MB).", status_code=400)
-        with open(dest_path, "wb") as f:
-            f.write(data)
-        etag = hashlib.md5(data).hexdigest()[:8]
-        prof["photo_url"] = f"/static/uploads/{filename}?v={etag}"
+        if not data:
+            return HTMLResponse("Imagem vazia.", status_code=400)
+        prof["photo_url"] = _save_resized_image(data, f"{uid}.jpg", (800, 800))
+    if cover and cover.filename:
+        ct = (cover.content_type or "").lower()
+        if ct not in allowed_types:
+            return HTMLResponse("Formato de imagem nao suportado (use JPEG ou PNG)", status_code=400)
+        data = await cover.read()
+        if not data:
+            return HTMLResponse("Imagem vazia.", status_code=400)
+        prof["cover_url"] = _save_resized_image(data, f"{uid}_cover.jpg", (1600, 900))
     db2["profiles"][owner] = prof
     save(db2)
     # Se perfil ainda estiver incompleto ou senha foi alterada, mantem usuario na edicao com aviso
