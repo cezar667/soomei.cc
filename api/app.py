@@ -1576,7 +1576,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       .cover-preview{{width:100%;height:150px;border:1px dashed #2a2a2a;border-radius:12px;background:#0f0f10;display:flex;align-items:center;justify-content:center;overflow:hidden}}
       .cover-preview img{{width:100%;height:100%;object-fit:cover;display:block}}
       .cover-placeholder{{color:#9aa0a6;font-size:13px;text-align:center}}
-      .cover-actions{{display:flex;align-items:center;gap:12px;margin-top:8px}}
+      .cover-actions{{display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap}}
       .cta-row{{display:flex;flex-direction:column;gap:16px}}
       .cta-card{{border:1px solid #242427;border-radius:12px;padding:16px;background:#0f0f10}}
       .cta-card h4{{margin:0 0 6px;font-size:15px}}
@@ -1615,9 +1615,12 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 </div>
                 <div class='cover-actions'>
                   <a href='#' id='coverTrigger' class='photo-change' onclick="document.getElementById('coverInput').click(); return false;">Alterar imagem de capa</a>
+                  <span> | </span>
+                  <a href='#' id='coverRemove' class='photo-change muted' onclick="document.getElementById('coverRemoveFlag').value='1';document.getElementById('coverPreview').classList.add('is-empty');document.getElementById('coverPlaceholder').style.display='block';var img=document.getElementById('coverImg'); if(img){{img.src='';img.style.display='none';}} return false;">Remover capa</a>
                   <span class='muted hint'>Sugerimos 1200x630px. Otimizamos automaticamente após o envio.</span>
                 </div>
                 <input type='file' id='coverInput' name='cover' accept='image/jpeg,image/png' style='display:none'>
+                <input type='hidden' id='coverRemoveFlag' name='cover_remove' value='0'>
               </div>
               <div>
                 <div class='avatar-preview-wrap'>
@@ -2115,6 +2118,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
         if (coverInput) {{
           var coverImg = document.getElementById('coverImg');
           var coverPlaceholder = document.getElementById('coverPlaceholder');
+          var coverRemoveFlag = document.getElementById('coverRemoveFlag');
           coverInput.addEventListener('change', function(){{
             var f = coverInput.files && coverInput.files[0];
             if (!f) return;
@@ -2129,9 +2133,20 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               if (coverPlaceholder && coverImg && coverImg.src) {{
                 coverPlaceholder.style.display = 'none';
               }}
+              if (coverRemoveFlag) coverRemoveFlag.value = '0';
             }};
             reader.readAsDataURL(f);
           }});
+          var coverRemove = document.getElementById('coverRemove');
+          if (coverRemove) {{
+            coverRemove.addEventListener('click', function(ev){{
+              ev.preventDefault();
+              if (coverImg) {{ coverImg.src = ''; coverImg.style.display = 'none'; }}
+              if (coverPlaceholder) {{ coverPlaceholder.style.display = 'block'; }}
+              if (coverRemoveFlag) {{ coverRemoveFlag.value = '1'; }}
+              if (coverInput) coverInput.value = '';
+            }});
+          }}
         }}
         // Atualiza preview de cor imediatamente ao selecionar
         var colorEl = document.getElementById('themeColor');
@@ -2227,6 +2242,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                current_password: str = Form(""),
                new_password: str = Form(""),
                confirm_password: str = Form(""),
+               cover_remove: str = Form("0"),
                photo: UploadFile | None = File(None),
                cover: UploadFile | None = File(None)):
     db, uid, card = find_card_by_slug(slug)
@@ -2288,7 +2304,9 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         if not data:
             return HTMLResponse("Imagem vazia.", status_code=400)
         prof["photo_url"] = _save_resized_image(data, f"{uid}.jpg", (800, 800))
-    if cover and cover.filename:
+    if (cover_remove or "").strip() == "1":
+        prof["cover_url"] = ""
+    elif cover and cover.filename:
         ct = (cover.content_type or "").lower()
         if ct not in allowed_types:
             return HTMLResponse("Formato de imagem nao suportado (use JPEG ou PNG)", status_code=400)
