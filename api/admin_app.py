@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, Form
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote as url_quote, unquote as url_unquote
 from fastapi.responses import HTMLResponse, RedirectResponse
 import os, json, time, secrets, hashlib, html
 
@@ -499,14 +499,16 @@ def list_users(request: Request):
     db = load_db()
     rows = []
     for email, meta in db.get("users", {}).items():
+        detail_href = f"/users/{url_quote(email, safe='')}"
         rows.append(
             "<tr>"
             f"<td>{html.escape(email)}</td>"
             f"<td>{'sim' if _admin_allowed(email) else 'não'}</td>"
             f"<td>{'verificado' if meta.get('email_verified_at') else 'pendente'}</td>"
+            f"<td><a href='{detail_href}' role='button' class='secondary'>Detalhes</a></td>"
             "</tr>"
         )
-    rows_html = "".join(rows) or "<tr><td colspan='3' class='muted'>Nenhum usuário</td></tr>"
+    rows_html = "".join(rows) or "<tr><td colspan='4' class='muted'>Nenhum usuário</td></tr>"
     return HTMLResponse(
         f"""
         <!doctype html><html lang='pt-br'><head>
@@ -527,7 +529,7 @@ def list_users(request: Request):
           <article>
             <div style='overflow:auto'>
               <table>
-                <thead><tr><th>E-mail</th><th>Admin?</th><th>Status e-mail</th></tr></thead>
+                <thead><tr><th>E-mail</th><th>Admin?</th><th>Status e-mail</th><th></th></tr></thead>
                 <tbody>{rows_html}</tbody>
               </table>
             </div>
@@ -535,3 +537,123 @@ def list_users(request: Request):
         </main></body></html>
         """
     )
+
+
+@app.get("/users/{email}", response_class=HTMLResponse)
+def user_detail(email: str, request: Request):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return RedirectResponse(f"/login?next=/users/{url_quote(email, safe='')}", status_code=303)
+    decoded_email = url_unquote(email)
+    db = load_db()
+    user = db.get("users", {}).get(decoded_email)
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+    profile = db.get("profiles", {}).get(decoded_email, {})
+    cards = [(uid, meta) for uid, meta in db.get("cards", {}).items() if meta.get("user") == decoded_email]
+    cards.sort(key=lambda item: item[0])
+    _tok, _sess = _current_admin_session(request)
+    csrf = (_sess or {}).get("csrf", "")
+
+    qp = request.query_params
+    notice = ""
+    if qp.get("ok") == "pwd":
+        notice = "<mark role='status'>Senha atualizada com sucesso.</mark>"
+    elif qp.get("error") == "pwd":
+        notice = "<mark role='alert'>Senha inválida (mínimo 8 caracteres).</mark>"
+
+    def _format_value(value):
+        if isinstance(value, (dict, list)):
+            return "<pre>" + html.escape(json.dumps(value, ensure_ascii=False, indent=2)) + "</pre>"
+        return html.escape(str(value if value is not None else ""))
+
+    profile_rows = "".join(
+        f"<tr><th scope='row'>{html.escape(str(k))}</th><td>{_format_value(v)}</td></tr>"
+        for k, v in profile.items()
+    ) or "<tr><td colspan='2' class='muted'>Sem dados de perfil.</td></tr>"
+
+    cards_rows = []
+    for uid, meta in cards:
+        cards_rows.append(
+            "<tr>"
+            f"<td>{html.escape(uid)}</td>"
+            f"<td>{html.escape(meta.get('vanity', ''))}</td>"
+            f"<td>{html.escape(meta.get('status', ''))}</td>"
+            f"<td>{html.escape(meta.get('pin', ''))}</td>"
+            f"<td><a href='/{html.escape(meta.get('vanity') or uid)}' target='_blank' rel='noopener'>Abrir</a></td>"
+            "</tr>"
+        )
+    cards_html = "".join(cards_rows) or "<tr><td colspan='5' class='muted'>Nenhum cartão vinculado.</td></tr>"
+    detail_path = f"/users/{url_quote(decoded_email, safe='')}"
+
+    return HTMLResponse(
+        f"""
+        <!doctype html><html lang='pt-br'><head>
+        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
+        <title>Admin | Usuário {html.escape(decoded_email)}</title></head>
+        <body><main class="container">
+          <nav>
+            <ul><li><a href='/users'>← Usuários</a></li></ul>
+            <ul><li><a href='/cards'>Cartões</a></li><li><a href='/logout'>Sair</a></li></ul>
+          </nav>
+          <h1>Usuário: {html.escape(decoded_email)}</h1>
+          {notice}
+          <article>
+            <h3>Informações básicas</h3>
+            <table>
+              <tbody>
+                <tr><th scope='row'>Admin?</th><td>{'Sim' if _admin_allowed(decoded_email) else 'Não'}</td></tr>
+                <tr><th scope='row'>E-mail verificado</th><td>{'Sim' if user.get('email_verified_at') else 'Pendente'}</td></tr>
+              </tbody>
+            </table>
+          </article>
+          <article>
+            <h3>Perfil preenchido</h3>
+            <div style='overflow:auto'>
+              <table>
+                <tbody>{profile_rows}</tbody>
+              </table>
+            </div>
+          </article>
+          <article>
+            <h3>Cartões vinculados</h3>
+            <div style='overflow:auto'>
+              <table>
+                <thead><tr><th>UID</th><th>Slug</th><th>Status</th><th>PIN</th><th></th></tr></thead>
+                <tbody>{cards_html}</tbody>
+              </table>
+            </div>
+          </article>
+          <article>
+            <h3>Resetar senha</h3>
+            <form method='post' action='{detail_path}/reset_password' class='grid'>
+              <input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>
+              <input type='password' name='new_password' placeholder='Nova senha (mínimo 8 caracteres)' minlength='8' required>
+              <button>Atualizar senha</button>
+            </form>
+          </article>
+        </main></body></html>
+        """
+    )
+
+
+@app.post("/users/{email}/reset_password")
+def admin_reset_password(email: str, request: Request, new_password: str = Form(...), csrf_token: str = Form("")):
+    _csrf_protect(request, csrf_token)
+    try:
+        require_admin(request)
+    except HTTPException:
+        return RedirectResponse("/login?next=/users", status_code=303)
+    decoded_email = url_unquote(email)
+    new_password = (new_password or "").strip()
+    if len(new_password) < 8:
+        return RedirectResponse(f"/users/{url_quote(decoded_email, safe='')}?error=pwd", status_code=303)
+    db = load_db()
+    user = db.get("users", {}).get(decoded_email)
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+    user["pwd"] = h(new_password)
+    save_db(db)
+    return RedirectResponse(f"/users/{url_quote(decoded_email, safe='')}?ok=pwd", status_code=303)
