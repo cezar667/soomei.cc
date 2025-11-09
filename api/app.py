@@ -349,13 +349,17 @@ def resolve_photo(photo: str | None) -> str:
 
 def _save_resized_image(data: bytes, filename: str, max_size: tuple[int, int]) -> str:
     try:
-        from PIL import Image  # type: ignore
+        from PIL import Image, ImageOps  # type: ignore
     except ImportError as exc:  # pragma: no cover
         raise HTTPException(500, "Dependencia Pillow ausente para processar imagens.") from exc
     try:
         image = Image.open(io.BytesIO(data))
     except Exception as exc:
         raise HTTPException(400, "Arquivo de imagem inválido.") from exc
+    try:
+        image = ImageOps.exif_transpose(image)
+    except Exception:
+        pass
     image = image.convert("RGB")
     image.thumbnail(max_size, Image.LANCZOS)
     buffer = io.BytesIO()
@@ -711,7 +715,8 @@ def logout(request: Request, next: str = "/"):
 def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_count: int = 0):
     raw_photo = (prof.get("photo_url", "") or "") if prof else ""
     raw_cover = (prof.get("cover_url", "") or "") if prof else ""
-    photo = html.escape(raw_photo) if raw_photo else ""
+    photo_src = resolve_photo(raw_photo)
+    photo = html.escape(photo_src) if photo_src else ""
     cover = html.escape(raw_cover) if raw_cover else ""
     wa_raw = (prof.get("whatsapp", "") or "").strip()
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
@@ -999,6 +1004,15 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
           if (ev.key === 'Escape'){ closeShareModal(); }
         });
       })();
+      var editForm = document.getElementById('editForm');
+      if (editForm) {
+        var saveBtn = document.getElementById('saveBtn');
+        var loader = document.getElementById('formLoading');
+        editForm.addEventListener('submit', function(){
+          if (loader) { loader.classList.add('show'); loader.setAttribute('aria-hidden','false'); }
+          if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
+        }, { once: true });
+      }
     })();
     </script>
     """
@@ -1590,6 +1604,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       .edit-actions{{position:sticky;bottom:0;padding:0;margin-top:24px;background:linear-gradient(180deg,rgba(11,11,12,0) 0%,rgba(11,11,12,.85) 30%,rgba(11,11,12,1) 70%)}}
       .edit-actions-inner{{display:flex;gap:12px;padding:12px 0;border-top:1px solid #1f1f1f}}
       .edit-actions-inner .btn{{flex:1;text-align:center}}
+      .loading-overlay{{position:fixed;inset:0;background:rgba(11,11,12,.8);display:none;align-items:center;justify-content:center;z-index:2000}}
+      .loading-overlay.show{{display:flex}}
+      .loading-spinner{{width:48px;height:48px;border-radius:999px;border:4px solid rgba(255,255,255,.2);border-top-color:#8ab4f8;animation:spin .8s linear infinite}}
+      @keyframes spin{{to{{transform:rotate(360deg);}}}}
     </style>
     </head>
     <body><main class='wrap'>
@@ -1611,7 +1629,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <div class='cover-preview' id='coverPreview'>
                   {(
                     f"<img id='coverImg' src='{html.escape(cover_url)}' alt='capa do cartão'>"
-                  ) if cover_url else "<img id='coverImg' src='' alt='capa do cartão' style='display:none'><span id='coverPlaceholder' class='cover-placeholder'>Nenhuma capa selecionada</span>"}
+                  ) if cover_url else "<img id='coverImg' src='' alt='capa do cartão' style='display:none'>"}
+                  <span id='coverPlaceholder' class='cover-placeholder' style='display:{'none' if cover_url else 'block'}'>Nenhuma capa selecionada</span>
                 </div>
                 <div class='cover-actions'>
                   <a href='#' id='coverTrigger' class='photo-change' onclick="document.getElementById('coverInput').click(); return false;">Alterar imagem de capa</a>
@@ -1809,10 +1828,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           </section>
         </div>
 
-        <div class='edit-actions'>
+          <div class='edit-actions'>
           <div class='edit-actions-inner'>
             <button type='button' class='btn ghost' id='backToCard'>Voltar</button>
-            <button type='submit' class='btn primary'>Salvar alterações</button>
+            <button type='submit' class='btn primary' id='saveBtn'>Salvar alterações</button>
           </div>
         </div>
 
@@ -2192,6 +2211,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <div style='text-align:right'><a href='#' id='pixSave' class='btn'>Salvar</a></div>
           </div>
         </div>
+        <div class='loading-overlay' id='formLoading' aria-hidden='true'><div class='loading-spinner' role='status' aria-label='Salvando'></div></div>
         `;
         document.body.appendChild(modal);
         function showM(){{ modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); }}
