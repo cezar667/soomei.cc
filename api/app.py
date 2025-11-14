@@ -20,6 +20,70 @@ CPF_RE   = re.compile(r"^\d{11}$")
 CNPJ_RE  = re.compile(r"^\d{14}$")
 UUID_RE  = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 DEFAULT_AVATAR = "/static/img/user01.png"
+FEATURED_DEFAULT_COLOR = "#FFB473"
+
+
+def normalize_external_url(value: str) -> str:
+    """
+    Garante que links externos tenham esquema quando o usuário não define (https://).
+    Mantém mailto: e tel: intocados.
+    """
+    v = (value or "").strip()
+    if not v:
+        return ""
+    if re.match(r"^(https?://|mailto:|tel:)", v, re.IGNORECASE):
+        return v
+    return "https://" + v.lstrip("/")
+
+
+def _absolute_asset_url(path: str) -> str:
+    p = (path or "").strip()
+    if not p:
+        p = DEFAULT_AVATAR
+    if p.startswith("http://") or p.startswith("https://"):
+        return p
+    if p.startswith("/"):
+        return f"{PUBLIC_BASE}{p}"
+    return f"{PUBLIC_BASE}/{p.lstrip('/')}"
+
+
+def _normalize_hex_color(value: str | None, fallback: str = FEATURED_DEFAULT_COLOR) -> str:
+    if not value:
+        return fallback
+    v = value.strip()
+    if not v:
+        return fallback
+    if re.fullmatch(r"#([0-9a-fA-F]{6})", v):
+        return v.upper()
+    if re.fullmatch(r"[0-9a-fA-F]{6}", v):
+        return ("#" + v).upper()
+    return fallback
+
+
+def _hex_to_rgb_tuple(value: str) -> tuple[int, int, int]:
+    v = value.lstrip("#")
+    return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
+
+
+def _mix_hex_color(value: str, factor: float) -> str:
+    r, g, b = _hex_to_rgb_tuple(value)
+    def _mix(c: int) -> int:
+        if factor >= 0:
+            return int(c + (255 - c) * min(factor, 1))
+        return int(c * (1 + max(factor, -1)))
+    return "#{:02X}{:02X}{:02X}".format(_mix(r), _mix(g), _mix(b))
+
+
+def _rgb_string(value: str) -> str:
+    r, g, b = _hex_to_rgb_tuple(value)
+    return f"{r},{g},{b}"
+
+
+def _pick_text_color(value: str) -> str:
+    r, g, b = _hex_to_rgb_tuple(value)
+    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    return "#2B1600" if luminance > 140 else "#FFF8F0"
+
 
 class CachedStaticFiles(StaticFiles):
     def set_headers(self, scope, resp, path, stat_result):
@@ -1135,9 +1199,40 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
     except Exception:
         offline_data_url = ""
     # Normaliza URL do site para garantir esquema (https://) quando ausente
-    site_href = (prof.get("site_url", "") or "").strip()
-    if site_href and not (site_href.startswith("http://") or site_href.startswith("https://") or site_href.startswith("mailto:") or site_href.startswith("tel:")):
-        site_href = "https://" + site_href.lstrip("/")
+    site_href = normalize_external_url(prof.get("site_url", ""))
+    # Botão destaque configurável
+    featured_label = (prof.get("featured_label", "") or "").strip()
+    featured_url = normalize_external_url(prof.get("featured_url", ""))
+    featured_enabled = bool(prof.get("featured_enabled", True))
+    featured_color = _normalize_hex_color(prof.get("featured_color"), FEATURED_DEFAULT_COLOR)
+    feat_start = _mix_hex_color(featured_color, 0.25)
+    feat_end = _mix_hex_color(featured_color, -0.15)
+    feat_shadow_rgb = _rgb_string(featured_color)
+    feat_text_color = _pick_text_color(featured_color)
+    featured_block = ""
+    if featured_label and featured_url and featured_enabled:
+        featured_style = (
+            f"--featured-start:{feat_start};"
+            f"--featured-end:{feat_end};"
+            f"--featured-shadow-rgb:{feat_shadow_rgb};"
+            f"--featured-text:{feat_text_color};"
+        )
+        featured_block = f"""
+        <a class='featured-cta' href='{html.escape(featured_url)}' target='_blank' rel='noopener' data-cta='featured-{html.escape(slug)}' style='{html.escape(featured_style)}'>
+          <div class='featured-cta__text'>
+            <span class='featured-cta__eyebrow'>Botão destaque</span>
+            <span class='featured-cta__label'>{html.escape(featured_label)}</span>
+            <span class='featured-cta__hint'>Toque para continuar</span>
+          </div>
+          <span class='featured-cta__icon' aria-hidden='true'>
+            <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='22' height='22' fill='none' stroke='currentColor' stroke-width='2'>
+              <path d='M5 12h14'></path>
+              <path d='M13 6l6 6-6 6'></path>
+            </svg>
+          </span>
+        </a>
+        """
+
     # Endereço (opcional) para link do Maps
     address_text = (prof.get("address", "") or "").strip() if prof else ""
     if address_text:
@@ -1148,14 +1243,10 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
 
     og_title = f"{prof.get('full_name','')} — Soomei Card".strip(" —") if prof else "Soomei Card"
     og_desc = prof.get("title") if prof and prof.get("title") else "Clique para me chamar no WhatsApp e salvar meu contato."
-    og_image_src = raw_cover or raw_photo or DEFAULT_AVATAR
-    if og_image_src.startswith("/"):
-        og_image_url = f"{PUBLIC_BASE}{og_image_src}"
-    elif not og_image_src.startswith("http"):
-        og_image_url = f"{PUBLIC_BASE}/{og_image_src.lstrip('/')}"
-    else:
-        og_image_url = og_image_src
-    og_image_url = html.escape(og_image_url)
+    primary_image = raw_photo or raw_cover or DEFAULT_AVATAR
+    secondary_image = raw_cover if (raw_cover and raw_cover != primary_image) else ""
+    og_image_url = html.escape(_absolute_asset_url(primary_image))
+    og_image_second = html.escape(_absolute_asset_url(secondary_image)) if secondary_image else ""
 
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -1165,6 +1256,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
     <meta property='og:title' content='{html.escape(og_title)}'>
     <meta property='og:description' content='{html.escape(og_desc)}'>
     <meta property='og:image' content='{og_image_url}'>
+    {f"<meta property='og:image' content='{og_image_second}'>" if og_image_second else ""}
     <meta property='og:image:width' content='1200'>
     <meta property='og:image:height' content='630'>
     <meta name='twitter:card' content='summary_large_image'>
@@ -1258,6 +1350,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
             <div class='qa-label'>Compartilhar cartão</div>
           </div>
         </div>
+        {featured_block}
         <div class='modal-backdrop' id='shareBackdrop' role='dialog' aria-modal='true' aria-hidden='true' style='display:none'>
           <div class='modal'>
             <header>
@@ -1581,6 +1674,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     saved_flag = bool(saved_cookie or str(saved) == "1")
     pwd_flag = bool(pwd_cookie or str(pwd) == "1")
     show_grev = bool(prof.get("google_review_show", True))
+    featured_enabled = bool(prof.get("featured_enabled", True))
     # Cor do tema do cartão (hex #RRGGBB)
     theme_base = prof.get("theme_color", "#000000") or "#000000"
     if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
@@ -1803,6 +1897,38 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                   <span id='slugInfo' class='muted' style='font-size:12px'>URL atual: /{html.escape(card.get('vanity', uid))}</span>
                 </div>
               </div>
+              <div class='cta-card highlight-config'>
+                <div style='display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px'>
+                  <div>
+                    <h4 style='margin:0'>Botão destaque</h4>
+                    <p style='margin:4px 0 0;font-size:13px;color:#9aa0a6'>Defina a principal ação que você quer que os visitantes realizem ao abrir seu cartão.</p>
+                  </div>
+                  <label class='switch' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+                    <input type='checkbox' name='featured_enabled' value='1' {'checked' if featured_enabled else ''} style='display:none'>
+                    <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
+                      <span class='knob' style='position:absolute;top:3px;left:{'22px' if featured_enabled else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
+                    </span>
+                    <span class='muted' style='font-size:12px'>{'Exibindo' if featured_enabled else 'Oculto'}</span>
+                  </label>
+                </div>
+                <div class='form-control'>
+                  <label>Título do botão</label>
+                  <input name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência'>
+                </div>
+                <div class='form-control'>
+                  <label>Link (URL)</label>
+                  <input name='featured_url' type='url' inputmode='url' placeholder='https://seusite.com/agendar' value='{html.escape(prof.get('featured_url',''))}'>
+                </div>
+                <div class='form-control'>
+                  <label>Cor principal</label>
+                  <div style='display:flex;align-items:center;gap:10px'>
+                    <input id='featuredColor' data-default-color='{FEATURED_DEFAULT_COLOR}' name='featured_color' type='color' value='{html.escape(prof.get('featured_color', FEATURED_DEFAULT_COLOR) or FEATURED_DEFAULT_COLOR)}' style='height:42px;padding:0 8px;border-radius:12px;flex:0 0 120px'>
+                    <button type='button' class='btn ghost' id='featuredColorReset' style='flex:1'>Resetar cor</button>
+                  </div>
+                  <p class='muted hint'>Define o gradiente e o brilho do botão.</p>
+                </div>
+                <p class='muted hint'>Deixe em branco para ocultar o botão destaque.</p>
+              </div>
             </div>
 
         <div class='cta-card' style='margin-top:12px'>
@@ -1949,26 +2075,39 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
 
         <script>
         (function(){{
-          // Deixa o knob do switch animado mesmo sem CSS externo
-          var sw = document.querySelector("input[name='google_review_show']");
-          if (!sw) return;
-          var ui = sw.parentElement && sw.parentElement.querySelector('.switch-ui');
-          var knob = ui && ui.querySelector('.knob');
-          const UID = "{html.escape(uid)}";
-          function paint(){{
-            if (!ui || !knob) return;
-            if (sw.checked){{
-              ui.style.background = '#4caf50';
-              knob.style.left = '22px';
-            }} else {{
-              ui.style.background = '#2a2a2a';
-              knob.style.left = '3px';
+          // Deixa os knobs dos switches animados mesmo sem CSS externo
+          function hydrateSwitch(selector){{
+            var sw = document.querySelector(selector);
+            if (!sw) return;
+            var ui = sw.parentElement && sw.parentElement.querySelector('.switch-ui');
+            var knob = ui && ui.querySelector('.knob');
+            function paint(){{
+              if (!ui || !knob) return;
+              if (sw.checked){{
+                ui.style.background = '#4caf50';
+                knob.style.left = '22px';
+              }} else {{
+                ui.style.background = '#2a2a2a';
+                knob.style.left = '3px';
+              }}
+              var label = sw.parentElement && sw.parentElement.querySelector('.muted');
+              if (label) label.textContent = sw.checked ? 'Exibindo' : 'Oculto';
             }}
-            var label = sw.parentElement && sw.parentElement.querySelector('.muted');
-            if (label) label.textContent = sw.checked ? 'Exibindo' : 'Oculto';
+            sw.addEventListener('change', paint);
+            paint();
           }}
-          sw.addEventListener('change', paint);
-          paint();
+          hydrateSwitch("input[name='google_review_show']");
+          hydrateSwitch("input[name='featured_enabled']");
+          var featuredColor = document.getElementById('featuredColor');
+          var featuredReset = document.getElementById('featuredColorReset');
+          if (featuredColor && featuredReset){{
+            var defaultColor = featuredColor.getAttribute('data-default-color') || "{FEATURED_DEFAULT_COLOR}";
+            featuredReset.addEventListener('click', function(ev){{
+              ev.preventDefault();
+              featuredColor.value = defaultColor;
+            }});
+          }}
+          const UID = "{html.escape(uid)}";
 
           var el = document.getElementById('whatsapp');
           var form = document.getElementById('editForm');
@@ -2339,6 +2478,10 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
                google_review_url: str = Form(""),
                google_review_show: str = Form(""),
+               featured_label: str = Form(""),
+               featured_url: str = Form(""),
+               featured_color: str = Form("#FFB473"),
+               featured_enabled: str = Form(""),
                label1: str = Form(""), href1: str = Form(""),
                label2: str = Form(""), href2: str = Form(""),
                label3: str = Form(""), href3: str = Form(""),
@@ -2371,7 +2514,19 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         "address": (address or "").strip(),
         "google_review_url": (google_review_url or "").strip(),
         "google_review_show": bool(google_review_show),
+        "featured_color": _normalize_hex_color(featured_color, "#FFB473"),
     })
+    feat_label_value = (featured_label or "").strip()
+    feat_url_value = (featured_url or "").strip()
+    feat_enabled_flag = bool(featured_enabled)
+    if feat_label_value and feat_url_value:
+        prof["featured_label"] = feat_label_value[:60]
+        prof["featured_url"] = normalize_external_url(feat_url_value)
+    else:
+        prof["featured_label"] = ""
+        prof["featured_url"] = ""
+    prof["featured_enabled"] = feat_enabled_flag
+    prof["featured_color"] = _normalize_hex_color(featured_color, FEATURED_DEFAULT_COLOR)
     # Atualiza chave Pix (pode ser vazia para limpar)
     prof["pix_key"] = (pix_key or "").strip()
     # Salva cor do tema (hex #RRGGBB)
