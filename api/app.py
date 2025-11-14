@@ -1,5 +1,5 @@
 ﻿from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, PlainTextResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os, json, html, qrcode, io, hashlib, time, secrets, re, base64, unicodedata
@@ -63,6 +63,18 @@ except Exception:
     _css_fp = "card.css"
 CSS_HREF = f"/static/{_css_fp}"
 ASSETS["card.css"] = _css_fp
+
+
+@app.get("/favicon.ico")
+def favicon():
+    ico_path = os.path.join(WEB, "favicon.ico")
+    if os.path.exists(ico_path):
+        return FileResponse(ico_path, media_type="image/x-icon")
+    png_fallback = os.path.join(WEB, "img", "user01.png")
+    if os.path.exists(png_fallback):
+        return FileResponse(png_fallback, media_type="image/png")
+    return Response(status_code=204)
+
 
 def load():
     if os.path.exists(DATA):
@@ -1005,13 +1017,38 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
         });
       })();
       var editForm = document.getElementById('editForm');
+      var loaderCtrl = window.soomeiLoader || null;
       if (editForm) {
         var saveBtn = document.getElementById('saveBtn');
-        var loader = document.getElementById('formLoading');
-        editForm.addEventListener('submit', function(){
-          if (loader) { loader.classList.add('show'); loader.setAttribute('aria-hidden','false'); }
+        var loaderEl = document.getElementById('formLoading');
+        var submitted = false;
+        editForm.addEventListener('submit', function(ev){
+          if (submitted) { return; }
+          if (typeof editForm.reportValidity === 'function') {
+            if (!editForm.reportValidity()) { return; }
+          } else if (typeof editForm.checkValidity === 'function' && !editForm.checkValidity()) {
+            return;
+          }
+          ev.preventDefault();
+          submitted = true;
+          if (loaderCtrl && loaderCtrl.show) {
+            loaderCtrl.show();
+          } else if (loaderEl) {
+            loaderEl.classList.add('show');
+            loaderEl.setAttribute('aria-hidden','false');
+          }
           if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
-        }, { once: true });
+          var submitAfterPaint = function(){
+            if (window.requestAnimationFrame) {
+              window.requestAnimationFrame(function(){
+                window.requestAnimationFrame(function(){ editForm.submit(); });
+              });
+            } else {
+              setTimeout(function(){ editForm.submit(); }, 16);
+            }
+          };
+          submitAfterPaint();
+        });
       }
     })();
     </script>
@@ -1539,6 +1576,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
     prof = load()["profiles"].get(owner, {})
+    saved_cookie = request.cookies.get("flash_edit_saved")
+    pwd_cookie = request.cookies.get("flash_edit_pwd")
+    saved_flag = bool(saved_cookie or str(saved) == "1")
+    pwd_flag = bool(pwd_cookie or str(pwd) == "1")
     show_grev = bool(prof.get("google_review_show", True))
     # Cor do tema do cartão (hex #RRGGBB)
     theme_base = prof.get("theme_color", "#000000") or "#000000"
@@ -1553,12 +1594,12 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     banners: list[str] = []
     if error:
         banners.append(f"<div class='banner bad'>{html.escape(error)}</div>")
-    if str(saved) == "1":
+    if saved_flag:
         if not profile_complete(prof):
             banners.append("<div class='banner'>Alteracoes salvas. Para publicar seu cartao, adicione ao menos um meio de contato (WhatsApp, e-mail publico ou um link).</div>")
         else:
             banners.append("<div class='banner ok'>Alteracoes salvas.</div>")
-    if str(pwd) == "1":
+    if pwd_flag:
         banners.append("<div class='banner ok'>Senha atualizada com sucesso.</div>")
     notice = "".join(banners)
     html_form = f"""
@@ -1606,11 +1647,47 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       .edit-actions-inner .btn{{flex:1;text-align:center}}
       .loading-overlay{{position:fixed;inset:0;background:rgba(11,11,12,.8);display:none;align-items:center;justify-content:center;z-index:2000}}
       .loading-overlay.show{{display:flex}}
-      .loading-spinner{{width:48px;height:48px;border-radius:999px;border:4px solid rgba(255,255,255,.2);border-top-color:#8ab4f8;animation:spin .8s linear infinite}}
-      @keyframes spin{{to{{transform:rotate(360deg);}}}}
+      .loading-spinner{{width:96px;height:96px;object-fit:contain;pointer-events:none}}
     </style>
     </head>
-    <body><main class='wrap'>
+    <body>
+      <div class='loading-overlay' id='formLoading' aria-hidden='true' role='status' aria-live='polite' aria-label='Processando'>
+        <img src='/static/img/loading.gif' alt='Processando...' class='loading-spinner'>
+      </div>
+      <script>
+        window.soomeiLoader = (function(){{
+          var el = null;
+          function getEl(){{
+            if (!el){{
+              el = document.getElementById('formLoading');
+            }}
+            return el;
+          }}
+          function setState(open){{
+            var target = getEl();
+            if (!target) return;
+            if (open){{
+              target.classList.add('show');
+              target.setAttribute('aria-hidden','false');
+            }} else {{
+              target.classList.remove('show');
+              target.setAttribute('aria-hidden','true');
+            }}
+          }}
+          function requestShow(){{
+            if (window.requestAnimationFrame){{
+              window.requestAnimationFrame(function(){{ setState(true); }});
+            }} else {{
+              setState(true);
+            }}
+          }}
+          return {{
+            show: requestShow,
+            hide: function(){{ setState(false); }}
+          }};
+        }})();
+      </script>
+      <main class='wrap'>
       {notice}
       <form id='editForm' method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
         <div class='topbar'>
@@ -1769,35 +1846,35 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <div class='links-grid-edit'>
               <div class='form-control'>
-                <label>Rótulo 1</label>
+                <label>Nome Botão 1</label>
                 <input name='label1' value='{html.escape(links[0].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL 1</label>
+                <label>URL Botão 1</label>
                 <input name='href1' value='{html.escape(links[0].get('href',''))}'>
               </div>
               <div class='form-control'>
-                <label>Rótulo 2</label>
+                <label>Nome Botão  2</label>
                 <input name='label2' value='{html.escape(links[1].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL 2</label>
+                <label>URL Botão 2</label>
                 <input name='href2' value='{html.escape(links[1].get('href',''))}'>
               </div>
               <div class='form-control'>
-                <label>Rótulo 3</label>
+                <label>Nome Botão  3</label>
                 <input name='label3' value='{html.escape(links[2].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL 3</label>
+                <label>URL Botão 3</label>
                 <input name='href3' value='{html.escape(links[2].get('href',''))}'>
               </div>
               <div class='form-control'>
-                <label>Rótulo 4</label>
+                <label>Nome Botão  4</label>
                 <input name='label4' value='{html.escape(links[3].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL 4</label>
+                <label>URL Botão 4</label>
                 <input name='href4' value='{html.escape(links[3].get('href',''))}'>
               </div>
             </div>
@@ -1959,6 +2036,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
 
           var btn = document.getElementById('addSlug');
           if (!btn) return;
+          var loaderCtl = window.soomeiLoader || null;
 
           var CURRENT = (document.getElementById('slugKey')?.value || '').trim();
 
@@ -2086,6 +2164,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 try{{ el.focus(); }}catch(_e){{}}
                 return;
               }}
+              if (loaderCtl && loaderCtl.show){{ loaderCtl.show(); }}
               try{{
                 var resp = await fetch('/slug/select/'+encodeURIComponent(UID), {{
                   method: 'POST',
@@ -2094,12 +2173,15 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 }});
                 if (resp.ok){{
                   window.location.href = '/edit/'+encodeURIComponent(v);
+                  return;
                 }} else if (resp.status === 409){{
                   msg.innerHTML = '<span class="bad">Indisponível, tente outro.</span>';
                 }} else {{
                   msg.innerHTML = '<span class="bad">Erro ao salvar. Tente novamente.</span>';
                 }}
+                if (loaderCtl && loaderCtl.hide){{ loaderCtl.hide(); }}
               }}catch(_e){{
+                if (loaderCtl && loaderCtl.hide){{ loaderCtl.hide(); }}
                 msg.innerHTML = '<span class="bad">Erro de rede. Tente novamente.</span>';
               }}
             }}
@@ -2211,7 +2293,6 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <div style='text-align:right'><a href='#' id='pixSave' class='btn'>Salvar</a></div>
           </div>
         </div>
-        <div class='loading-overlay' id='formLoading' aria-hidden='true'><div class='loading-spinner' role='status' aria-label='Salvando'></div></div>
         `;
         document.body.appendChild(modal);
         function showM(){{ modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); }}
@@ -2245,7 +2326,12 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       <p><a class='muted' href='/auth/logout?next=/{html.escape(slug)}'>Sair</a></p>
     </main></body></html>
     """
-    return HTMLResponse(_brand_footer_inject(html_form))
+    response = HTMLResponse(_brand_footer_inject(html_form))
+    if saved_cookie:
+        response.delete_cookie("flash_edit_saved", path="/edit")
+    if pwd_cookie:
+        response.delete_cookie("flash_edit_pwd", path="/edit")
+    return response
 
 
 @app.post("/edit/{slug}")
@@ -2338,11 +2424,12 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     save(db2)
     # Se perfil ainda estiver incompleto ou senha foi alterada, mantem usuario na edicao com aviso
     if not profile_complete(prof) or pwd_changed:
-        params = ["saved=1"]
+        resp = RedirectResponse(f"/edit/{slug}", status_code=303)
+        resp.set_cookie("flash_edit_saved", "1", max_age=15, path="/edit", httponly=True, samesite="lax")
         if pwd_changed:
-            params.append("pwd=1")
-        return RedirectResponse(f"/edit/{slug}?{'&'.join(params)}", status_code=303)
-    return RedirectResponse(f"/{slug}?saved=1", status_code=303)
+            resp.set_cookie("flash_edit_pwd", "1", max_age=15, path="/edit", httponly=True, samesite="lax")
+        return resp
+    return RedirectResponse(f"/{slug}", status_code=303)
 
 
 @app.get("/blocked", response_class=HTMLResponse)

@@ -90,7 +90,7 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .preview-carbon{background-image:linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent),linear-gradient(45deg,rgba(255,255,255,.03) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.03) 50%,rgba(255,255,255,.03) 75%,transparent 75%,transparent);background-size:12px 12px;background-position:0 0,6px 6px;border:1px solid #242427;border-radius:16px;width:clamp(240px,66%,420px);height:100px;margin:24px auto;transition:background-color .15s ease}
 .avatar-preview-wrap .preview-carbon{position:absolute;top:-15px;left:50%;transform:translateX(-50%);margin:0;z-index:0}
 .avatar-preview-wrap .avatar{position:relative;z-index:1}
-.quick-actions{display:grid;grid-template-columns:repeat(4,minmax(0,70px));justify-content:center;gap:8px;margin:10px 0}
+.quick-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,70px));justify-content:center;gap:8px;margin:10px 0}
 .quick-actions.qa4{grid-template-columns:repeat(4,minmax(0,70px))}
 .qa-item{display:flex;flex-direction:column;align-items:center;gap:6px}
 .qa-item .icon-btn{width:40px;height:40px}
