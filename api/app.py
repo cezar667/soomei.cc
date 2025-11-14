@@ -1972,35 +1972,35 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <div class='links-grid-edit'>
               <div class='form-control'>
-                <label>Nome Botão 1</label>
+                <label>Título do botão 1</label>
                 <input name='label1' value='{html.escape(links[0].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL Botão 1</label>
+                <label>Link (URL)</label>
                 <input name='href1' value='{html.escape(links[0].get('href',''))}'>
               </div>
               <div class='form-control'>
-                <label>Nome Botão  2</label>
+                <label>Título do botão 2</label>
                 <input name='label2' value='{html.escape(links[1].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL Botão 2</label>
+                <label>Link (URL)</label>
                 <input name='href2' value='{html.escape(links[1].get('href',''))}'>
               </div>
               <div class='form-control'>
-                <label>Nome Botão  3</label>
+                <label>Título do botão 3</label>
                 <input name='label3' value='{html.escape(links[2].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL Botão 3</label>
+                <label>Link (URL)</label>
                 <input name='href3' value='{html.escape(links[2].get('href',''))}'>
               </div>
               <div class='form-control'>
-                <label>Nome Botão  4</label>
+                <label>Título do botão 4</label>
                 <input name='label4' value='{html.escape(links[3].get('label',''))}'>
               </div>
               <div class='form-control'>
-                <label>URL Botão 4</label>
+                <label>Link (URL)</label>
                 <input name='href4' value='{html.escape(links[3].get('href',''))}'>
               </div>
             </div>
