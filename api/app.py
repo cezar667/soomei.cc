@@ -1220,7 +1220,7 @@ def visitor_public_card(prof: dict, slug: str, is_owner: bool = False, view_coun
         featured_block = f"""
         <a class='featured-cta' href='{html.escape(featured_url)}' target='_blank' rel='noopener' data-cta='featured-{html.escape(slug)}' style='{html.escape(featured_style)}'>
           <div class='featured-cta__text'>
-            <span class='featured-cta__eyebrow'>Botão destaque</span>
+            <span class='featured-cta__eyebrow'>Em destaque</span>
             <span class='featured-cta__label'>{html.escape(featured_label)}</span>
             <span class='featured-cta__hint'>Toque para continuar</span>
           </div>
