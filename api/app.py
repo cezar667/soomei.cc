@@ -111,6 +111,19 @@ PUBLIC_BASE_HOST = (urlparse.urlparse(PUBLIC_BASE).hostname or "").lower()
 PUBLIC_VERSION = os.getenv("PUBLIC_VERSION")
 UPLOADS = os.path.join(WEB, "uploads")
 os.makedirs(UPLOADS, exist_ok=True)
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+try:
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "0").strip() or "0")
+except ValueError:
+    SMTP_PORT = 0
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
+APP_ENV = (os.getenv("APP_ENV", "dev") or "dev").lower().strip()
+try:
+    PASSWORD_RESET_TTL = int(os.getenv("PASSWORD_RESET_TTL", "86400").strip() or "86400")
+except ValueError:
+    PASSWORD_RESET_TTL = 86400
 
 ASSETS = {}
 
@@ -142,6 +155,54 @@ CSS_HREF = f"/static/{_css_fp}"
 ASSETS["card.css"] = _css_fp
 
 
+def absolute_url(path: str) -> str:
+    """
+    Converte caminhos relativos em URLs absolutas usando PUBLIC_BASE.
+    """
+    base = PUBLIC_BASE.rstrip("/")
+    if not path:
+        return base + "/"
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    if not path.startswith("/"):
+        path = "/" + path
+    return base + path
+
+
+def send_email(subject: str, to_email: str, html_body: str, text_body: str | None = None) -> bool:
+    """
+    Envia e-mails utilizando as credenciais SMTP definidas via env.
+    Quando configurações não estiverem disponíveis, retorna False sem enviar.
+    """
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM):
+        print("[email] Configuracao SMTP ausente; ignorando envio.")
+        return False
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_email
+    plain = text_body or html_body
+    msg.attach(MIMEText(plain, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    port = SMTP_PORT or 465
+    try:
+        if port == 465:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(SMTP_HOST, port, context=context) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(SMTP_HOST, port or 587) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+        return True
+    except Exception as exc:
+        print(f"[email] Falha ao enviar para {to_email}: {exc}")
+        return False
+
+
 @app.get("/favicon.ico")
 def favicon():
     ico_path = os.path.join(WEB, "favicon.ico")
@@ -157,7 +218,15 @@ def load():
     if os.path.exists(DATA):
         with open(DATA, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"users": {}, "cards": {}, "profiles": {}, "sessions": {}, "verify_tokens": {}, "custom_domains": {}}
+    return {
+        "users": {},
+        "cards": {},
+        "profiles": {},
+        "sessions": {},
+        "verify_tokens": {},
+        "custom_domains": {},
+        "reset_tokens": {},
+    }
 
 
 def save(db):
@@ -175,6 +244,7 @@ def db_defaults(db):
     db.setdefault("profiles", {})
     db.setdefault("sessions", {})
     db.setdefault("verify_tokens", {})
+    db.setdefault("reset_tokens", {})
     db.setdefault("custom_domains", {})
     return db
 
@@ -851,16 +921,36 @@ def register(uid: str = Form(...), email: str = Form(...), pin: str = Form(...),
     token = secrets.token_urlsafe(24)
     db["verify_tokens"][token] = {"email": email, "created_at": int(time.time())}
     save(db)
-    verify_url = f"/auth/verify?token={html.escape(token)}"
+    verify_path = f"/auth/verify?token={token}"
+    verify_url = absolute_url(verify_path)
     dest = card.get("vanity", uid)
+    email_html = f"""
+    <p>Olá!</p>
+    <p>Use o botão abaixo para confirmar seu e-mail e ativar o seu cartão digital:</p>
+    <p><a href="{verify_url}" style="background:#0ea5e9;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;">Confirmar meu e-mail</a></p>
+    <p>Se o botão não funcionar, copie e cole este link no navegador:</p>
+    <p><a href="{verify_url}">{verify_url}</a></p>
+    <p>Equipe Soomei</p>
+    """
+    email_text = f"Olá! Confirme seu e-mail acessando: {verify_url}"
+    email_sent = send_email("Confirme seu e-mail - Soomei", email, email_html, email_text)
+    dev_hint = ""
+    if APP_ENV != "prod":
+        dev_hint = f"<p class='muted'>Ambiente de desenvolvimento: você também pode confirmar clicando <a class='btn' href='{html.escape(verify_path)}'>aqui</a>.</p>"
+    delivery = (
+        f"<p>Enviamos um link de verificação para <b>{html.escape(email)}</b>. Confira sua caixa de entrada.</p>"
+        if email_sent
+        else "<p class='banner bad'>Não foi possível enviar o e-mail de confirmação automaticamente. Use o link abaixo para confirmar:</p>"
+    )
     html_doc = f"""
     <!doctype html><html lang='pt-br'><head>
       <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
       <link rel='stylesheet' href='{CSS_HREF}'><title>Confirme seu email</title>
     </head><body><main class='wrap'>
       <h1>Confirme seu email</h1>
-      <p>Enviamos um link de verificacao para <b>{html.escape(email)}</b>.</p>
-      {("<p class='muted'>Ambiente de desenvolvimento: voce pode clicar aqui para confirmar agora:</p><p><a class='btn' href='" + verify_url + "'>Confirmar email</a></p>") if os.getenv('APP_ENV','dev').lower().strip() != 'prod' else ("<p class='muted'>Verifique sua caixa de entrada para concluir a confirmacao.</p>")}
+      {delivery}
+      {dev_hint}
+      {("" if email_sent else f"<p><a class='btn' href='{html.escape(verify_path)}'>Confirmar email</a></p>")}
       <p>Depois de confirmar, voce sera direcionado ao cartao <code>/{html.escape(dest)}</code>.</p>
     </main></body></html>
     """
@@ -883,9 +973,34 @@ def do_login(uid: str = Form(""), email: str = Form(...), password: str = Form(.
         token = None
         for t, meta in db.get("verify_tokens", {}).items():
             if meta.get("email") == email:
-                token = t; break
-        link = f"/auth/verify?token={token}" if token else f"/login?uid={uid}&error=Email%20nao%20verificado"
-        return RedirectResponse(link, status_code=303)
+                token = t
+                break
+        if not token:
+            token = secrets.token_urlsafe(24)
+            db["verify_tokens"][token] = {"email": email, "created_at": int(time.time())}
+            save(db)
+        verify_path = f"/auth/verify?token={token}"
+        verify_url = absolute_url(verify_path)
+        email_html = f"""
+        <p>Olá!</p>
+        <p>Para concluir seu acesso, confirme seu e-mail clicando no botão abaixo:</p>
+        <p><a href="{verify_url}" style="background:#0ea5e9;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;">Confirmar meu e-mail</a></p>
+        <p>Se preferir, copie e cole este link no navegador:</p>
+        <p><a href="{verify_url}">{verify_url}</a></p>
+        """
+        send_email("Confirme seu e-mail - Soomei", email, email_html, f"Confirme seu e-mail: {verify_url}")
+        html_doc = f"""
+        <!doctype html><html lang='pt-br'><head>
+        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <link rel='stylesheet' href='{CSS_HREF}'><title>Confirme seu email</title></head>
+        <body><main class='wrap'>
+          <h1>Confirme seu email</h1>
+          <p class='muted'>Ainda não identificamos a confirmação do seu endereço.</p>
+          <p>Reenviamos o link de verificação para <b>{html.escape(email)}</b>.</p>
+          {("<p><a class='btn' href='" + html.escape(verify_path) + "'>Confirmar agora</a></p>" if APP_ENV != "prod" else "<p>Verifique sua caixa de entrada para continuar.</p>")}
+        </main></body></html>
+        """
+        return HTMLResponse(_brand_footer_inject(html_doc))
     target = None
     if uid and uid in db["cards"]:
         target = db["cards"][uid].get("vanity", uid)
@@ -897,6 +1012,120 @@ def do_login(uid: str = Form(""), email: str = Form(...), password: str = Form(.
     resp = RedirectResponse(f"/{target}", status_code=303)
     resp.set_cookie("session", token, httponly=True, samesite="lax")
     return resp
+
+
+@app.get("/auth/forgot", response_class=HTMLResponse)
+def forgot_password_form(message: str = "", error: str = ""):
+    html_doc = f"""
+    <!doctype html><html lang='pt-br'><head>
+      <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+      <link rel='stylesheet' href='{CSS_HREF}'><title>Recuperar senha</title>
+    </head><body><main class='wrap'>
+      <h1>Recuperar senha</h1>
+      <p>Informe o e-mail cadastrado para receber o link de redefinição.</p>
+      <form method='post' action='/auth/forgot' class='grid'>
+        <input name='email' type='email' placeholder='voce@exemplo.com' required>
+        <button class='btn'>Enviar link</button>
+      </form>
+      {f"<p class='banner ok'>{html.escape(message)}</p>" if message else ""}
+      {f"<p class='banner bad'>{html.escape(error)}</p>" if error else ""}
+      <p><a class='muted' href='/login'>Voltar ao login</a></p>
+    </main></body></html>
+    """
+    return HTMLResponse(_brand_footer_inject(html_doc))
+
+
+@app.post("/auth/forgot")
+def forgot_password_request(email: str = Form("")):
+    addr = (email or "").strip().lower()
+    db = db_defaults(load())
+    now = int(time.time())
+    if addr and addr in db.get("users", {}):
+        token = secrets.token_urlsafe(32)
+        db["reset_tokens"][token] = {"email": addr, "created_at": now}
+        save(db)
+        reset_url = absolute_url(f"/auth/reset?token={token}")
+        html_body = f"""
+        <p>Olá!</p>
+        <p>Recebemos um pedido para redefinir a sua senha.</p>
+        <p><a href="{reset_url}" style="background:#0ea5e9;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;">Redefinir senha</a></p>
+        <p>Se o botão não funcionar, copie e cole o link abaixo:</p>
+        <p><a href="{reset_url}">{reset_url}</a></p>
+        <p>Se você não solicitou, basta ignorar esta mensagem.</p>
+        """
+        send_email("Redefina sua senha - Soomei", addr, html_body, f"Use este link para redefinir sua senha: {reset_url}")
+    return RedirectResponse("/auth/forgot?message=Se o email estiver cadastrado, enviaremos as instrucoes em instantes.", status_code=303)
+
+
+def _resolve_reset_token(db: dict, token: str) -> tuple[dict | None, dict]:
+    meta = db.get("reset_tokens", {}).get(token)
+    if not meta:
+        return None, db
+    created = meta.get("created_at", 0)
+    if created and created < int(time.time()) - PASSWORD_RESET_TTL:
+        db["reset_tokens"].pop(token, None)
+        save(db)
+        return None, db
+    return meta, db
+
+
+@app.get("/auth/reset", response_class=HTMLResponse)
+def reset_form(token: str = "", error: str = ""):
+    db = db_defaults(load())
+    meta, db = _resolve_reset_token(db, token)
+    if not meta:
+        return HTMLResponse("<h1>Link inválido ou expirado.</h1><p><a href='/auth/forgot'>Solicitar novamente</a></p>", status_code=400)
+    html_doc = f"""
+    <!doctype html><html lang='pt-br'><head>
+      <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+      <link rel='stylesheet' href='{CSS_HREF}'><title>Definir nova senha</title>
+    </head><body><main class='wrap'>
+      <h1>Definir nova senha</h1>
+      <form method='post' action='/auth/reset' class='grid'>
+        <input type='hidden' name='token' value='{html.escape(token)}'>
+        <label>Nova senha</label>
+        <input name='password' type='password' minlength='8' required>
+        <label>Confirme a senha</label>
+        <input name='confirm' type='password' minlength='8' required>
+        <button class='btn'>Atualizar</button>
+      </form>
+      {f"<p class='banner bad'>{html.escape(error)}</p>" if error else ""}
+    </main></body></html>
+    """
+    return HTMLResponse(_brand_footer_inject(html_doc))
+
+
+@app.post("/auth/reset")
+def reset_password(token: str = Form(""), password: str = Form(""), confirm: str = Form("")):
+    db = db_defaults(load())
+    meta, db = _resolve_reset_token(db, token)
+    if not meta:
+        return RedirectResponse("/auth/forgot?error=Link%20invalido%20ou%20expirado.", status_code=303)
+    if len(password or "") < 8:
+        return RedirectResponse(f"/auth/reset?token={urlparse.quote_plus(token)}&error=Senha%20deve%20ter%20no%20minimo%208%20caracteres.", status_code=303)
+    if password != confirm:
+        return RedirectResponse(f"/auth/reset?token={urlparse.quote_plus(token)}&error=As%20senhas%20nao%20conferem.", status_code=303)
+    email = meta.get("email")
+    user = db.get("users", {}).get(email or "")
+    if not user:
+        db["reset_tokens"].pop(token, None)
+        save(db)
+        return RedirectResponse("/auth/forgot?error=Usuario%20nao%20encontrado.", status_code=303)
+    user["pwd"] = h(password)
+    db["users"][email] = user
+    db["reset_tokens"].pop(token, None)
+    save(db)
+    html_doc = f"""
+    <!doctype html><html lang='pt-br'><head>
+      <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+      <link rel='stylesheet' href='{CSS_HREF}'><title>Senha atualizada</title>
+    </head><body><main class='wrap'>
+      <h1>Senha atualizada</h1>
+      <p>Senha redefinida com sucesso para <b>{html.escape(email or '')}</b>.</p>
+      <p><a class='btn' href='/login'>Voltar ao login</a></p>
+    </main></body></html>
+    """
+    return HTMLResponse(_brand_footer_inject(html_doc))
 
 
 @app.get("/auth/verify")

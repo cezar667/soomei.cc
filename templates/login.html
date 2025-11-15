@@ -10,6 +10,6 @@
     <input name="password" type="password" required>
     <button class="btn">Entrar</button>
   </form>
+  <p><a class="muted" href="/auth/forgot">Esqueceu a senha?</a></p>
   <div id="formAlert" class="banner" role="alert" aria-live="polite" style="display:{% if error and error|trim %}block{% else %}none{% endif %}">{{ error }}</div>
 {% endblock %}
-
