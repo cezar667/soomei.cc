@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Ativar cartao{% endblock %}
+{% block content %}
+  <style>
+    .terms-row{display:flex;align-items:center;gap:8px;margin:10px 0 0}
+    .terms-label{display:flex;align-items:center;gap:10px}
+    .terms-row input[type=checkbox]{margin:0}
+    .terms-link{color:#8ab4f8;text-decoration:none;font-weight:600}
+    .terms-text{line-height:1.2}
+    .onboard-cta{margin-top:18px}
+    .hint{font-size:12px;margin:4px 0 0}
+    .ok{color:#7bd88f}
+    .bad{color:#f88}
+    .nice-check{appearance:none;-webkit-appearance:none;width:18px;height:18px;border:2px solid #8ab4f8;border-radius:4px;background:#0b0b0c;display:inline-block;position:relative;cursor:pointer}
+    .nice-check:focus-visible{outline:2px solid #8ab4f8;outline-offset:2px}
+    .nice-check:checked{background:#8ab4f8;border-color:#8ab4f8}
+    .nice-check:checked::after{content:'';position:absolute;left:4px;top:1px;width:5px;height:10px;border:2px solid #0b0b0c;border-top:0;border-left:0;transform:rotate(45deg)}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000;padding:12px}
+    .modal-backdrop.show{display:flex}
+    .modal{background:#111114;border:1px solid #242427;border-radius:12px;max-width:840px;width:92%;max-height:85vh;overflow:auto;padding:12px}
+    .modal header{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}
+    .modal header h2{margin:0;font-size:18px;color:#eaeaea}
+    .modal .close{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+    .modal iframe{width:100%;height:70vh;border:0;background:#0b0b0c}
+    .legal{line-height:1.5;margin-bottom:10px}
+    .legal ol{padding-left:20px}
+  </style>
+  <section class="card card-public carbon">
+    <h1>Ativar cartao</h1>
+    <p>UID: <b>{{ uid }}</b></p>
+    <div id="formAlert" class="banner" role="alert" aria-live="polite" style="display:{% if error and error|trim %}block{% else %}none{% endif %}">{{ error }}</div>
+    <form id="onbForm" method="post" action="/auth/register">
+      <input type="hidden" name="uid" value="{{ uid }}">
+      <label>Email</label>
+      <input id="emailInput" name="email" type="email" required value="{{ email }}" autocapitalize="none" autocomplete="email" autocorrect="off">
+      <div id="emailMsg" class="hint"></div>
+      <label>PIN da carta</label>
+      <input name="pin" type="password" required inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Somente numeros">
+      <div class="hint">Dica: PIN possui apenas numeros.</div>
+      <label>Nova senha</label>
+      <input name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="Minimo de 8 caracteres">
+      <label>Link do seu cartão (opcional)</label>
+      <input id="vanityInput" name="vanity" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" value="{{ vanity }}" autocapitalize="none" autocorrect="off" inputmode="url" style="text-transform:lowercase">
+      <div id="slugMsg" class="hint">Use 3-30 caracteres, todos minusculos, sem caracteres especiais</div>
+      <div class="terms-row">
+        <label class="terms-label">
+          <input class="nice-check" type="checkbox" name="lgpd" required>
+          <span class="terms-text">Concordo com os <a href="#" id="openTerms" class="terms-link">Termos e Privacidade</a></span>
+        </label>
+      </div>
+      <button class="btn onboard-cta" {% if not uid_exists %}disabled{% endif %}>Criar conta</button>
+    </form>
+  </section>
+  <div id="termsBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal">
+      <header>
+        <h2>Termos de Uso e Privacidade</h2>
+        <button class="close" id="closeTerms" aria-label="Fechar" title="Fechar">&#10005;</button>
+      </header>
+      <iframe id="termsFrame" src="/legal/terms"></iframe>
+    </div>
+  </div>
+  {% set welcome_class = 'modal-backdrop show' if show_welcome else 'modal-backdrop' %}
+  {% set welcome_aria = 'false' if show_welcome else 'true' %}
+  <div id="welcomeBackdrop" class="{{ welcome_class }}" role="dialog" aria-modal="true" aria-hidden="{{ welcome_aria }}">
+    <div class="modal">
+      <header>
+        <h2>Bem-vindo(a) a Soomei</h2>
+        <button class="close" id="closeWelcome" aria-label="Fechar" title="Fechar">&#10005;</button>
+      </header>
+      <div class="legal">
+        <p>Estamos felizes em ter voce aqui! Para ativar seu cartao digital com seguranca, tenha em maos sua carta/etiqueta com o <b>PIN de ativacao</b>.</p>
+        <ol>
+          <li>Informe seu e-mail e PIN da carta.</li>
+          <li>Crie uma senha forte (minimo 8 caracteres).</li>
+          <li>(Opcional) Escolha um slug personalizado para seu cartao.</li>
+          <li>Leia e concorde com os Termos e Privacidade.</li>
+          <li>Clique em "Criar conta" e confirme seu e-mail.</li>
+        </ol>
+        <p class="muted">Dica: mantenha seu PIN em sigilo. Se tiver duvidas, fale com o suporte.</p>
+      </div>
+      <div style="text-align:right;margin-top:10px">
+        <a href="#" class="btn" id="startWelcome">Vamos comecar</a>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (function(){
+      var open = document.getElementById('openTerms');
+      var back = document.getElementById('termsBackdrop');
+      var close = document.getElementById('closeTerms');
+      if (open && back && close){
+        open.addEventListener('click', function(e){
+          e.preventDefault();
+          back.classList.add('show');
+          back.setAttribute('aria-hidden','false');
+        });
+        close.addEventListener('click', function(){
+          back.classList.remove('show');
+          back.setAttribute('aria-hidden','true');
+        });
+        back.addEventListener('click', function(e){
+          if (e.target === back){
+            back.classList.remove('show');
+            back.setAttribute('aria-hidden','true');
+          }
+        });
+      }
+      var wback = document.getElementById('welcomeBackdrop');
+      var wclose = document.getElementById('closeWelcome');
+      var wstart = document.getElementById('startWelcome');
+      function hideWelcome(){
+        if(!wback) return;
+        wback.classList.remove('show');
+        wback.setAttribute('aria-hidden','true');
+      }
+      if (wclose){
+        wclose.addEventListener('click', function(){ hideWelcome(); });
+      }
+      if (wstart){
+        wstart.addEventListener('click', function(e){
+          e.preventDefault();
+          hideWelcome();
+        });
+      }
+      if (wback){
+        wback.addEventListener('click', function(e){
+          if (e.target === wback){
+            hideWelcome();
+          }
+        });
+      }
+      function setMsg(el, ok, text){
+        if(!el) return;
+        el.innerHTML = ok ? "<span class='ok'>"+text+"</span>" : "<span class='bad'>"+text+"</span>";
+      }
+      var emailEl = document.getElementById('emailInput');
+      var emailMsg = document.getElementById('emailMsg');
+      var slugEl = document.getElementById('vanityInput');
+      var slugMsg = document.getElementById('slugMsg');
+      (function(){
+        var form = document.getElementById('onbForm');
+        if (!(form && emailEl && emailMsg)) return;
+        form.addEventListener('submit', function(e){
+          var alertBox = document.getElementById('formAlert');
+          function fail(msg, focusEl){
+            try{ e.preventDefault(); e.stopImmediatePropagation(); }catch(_e){}
+            if(alertBox){
+              alertBox.textContent = msg;
+              alertBox.style.display = 'block';
+            }
+            if(focusEl){
+              try{ focusEl.focus(); }catch(_e){}
+            }
+          }
+          var vEmail = (emailEl.value||'').trim();
+          if (!vEmail) return;
+          var pinEl = form.querySelector('input[name="pin"]');
+          var pwdEl = form.querySelector('input[name="password"]');
+          var lgpdEl = form.querySelector('input[name="lgpd"]');
+          var vPin = (pinEl && pinEl.value||'').trim();
+          var vPwd = (pwdEl && pwdEl.value||'').trim();
+          if (lgpdEl && !lgpdEl.checked){ return fail('E necessario aceitar os termos para continuar.', lgpdEl); }
+          if (vPwd && vPwd.length < 8){ return fail('Senha muito curta. Use no minimo 8 caracteres.', pwdEl); }
+          if (vPin && /[^0-9]/.test(vPin)){ return fail('PIN deve conter apenas numeros.', pinEl); }
+          if (slugEl){ slugEl.value = (slugEl.value||'').toLowerCase(); }
+          try{ e.preventDefault(); e.stopImmediatePropagation(); }catch(_e){}
+          emailMsg.innerHTML = '';
+          var btn = form.querySelector('button');
+          if (btn) btn.disabled = true;
+          fetch('/auth/check_email?value='+encodeURIComponent(vEmail))
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+              if (j && j.available){ form.submit(); }
+              else {
+                setMsg(emailMsg, false, 'E-mail ja cadastrado');
+                if (btn) btn.disabled = false;
+                emailEl.focus();
+              }
+            })
+            .catch(function(){
+              if (btn) btn.disabled = false;
+              form.submit();
+            });
+        }, true);
+      })();
+      var form = document.getElementById('onbForm');
+      if (form && emailEl && emailMsg){
+        form.addEventListener('submit', function(e){
+          var v = (emailEl.value||'').trim();
+          if (!v) return;
+          e.preventDefault();
+          emailMsg.innerHTML = '';
+          var btn = form.querySelector('button');
+          if (btn) btn.disabled = true;
+          fetch('/auth/check_email?value='+encodeURIComponent(v))
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+              if (j && j.available){ form.submit(); }
+              else {
+                setMsg(emailMsg, false, 'E-mail ja cadastrado');
+                if (btn) btn.disabled = false;
+                emailEl.focus();
+              }
+            })
+            .catch(function(){
+              if (btn) btn.disabled = false;
+              form.submit();
+            });
+        });
+      }
+      if (slugEl && slugMsg){
+        var t2;
+        slugEl.addEventListener('input', function(){
+          clearTimeout(t2);
+          var v = (slugEl.value||'').trim();
+          if (!v){
+            slugMsg.innerHTML='';
+            return;
+          }
+          var lower = v.toLowerCase();
+          if (v !== lower){ slugEl.value = lower; v = lower; }
+          if (!/^[a-z0-9-]{3,30}$/.test(v)){
+            setMsg(slugMsg, false, 'Use 3-30 caracteres, todos minusculos, sem caracteres especiais');
+            return;
+          }
+          t2 = setTimeout(function(){
+            fetch('/slug/check?value='+encodeURIComponent(v))
+              .then(function(r){ return r.json(); })
+              .then(function(j){
+                setMsg(slugMsg, j && j.available, (j && j.available) ? 'Disponivel' : 'Indisponivel');
+              })
+              .catch(function(){
+                slugMsg.innerHTML = '';
+              });
+          }, 250);
+        });
+        slugEl.addEventListener('input', function(){
+          var vv = slugEl.value||'';
+          var ll = vv.toLowerCase();
+          if (vv!==ll) slugEl.value = ll;
+        });
+      }
+      var colorEl = document.getElementById('themeColor');
+      var prev = document.getElementById('colorPreview');
+      if (colorEl && prev){
+        colorEl.addEventListener('input', function(){
+          var c = (colorEl.value||'').trim();
+          if (/^#[0-9a-fA-F]{6}$/.test(c)){
+            prev.style.backgroundColor = c + '30';
+          }
+        });
+      }
+    })();
+  </script>
+{% endblock %}

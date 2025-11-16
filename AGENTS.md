@@ -1,4 +1,4 @@
-# AGENTS.md — Guia de Arquitetura, Qualidade, Segurança e Deploy
+﻿# AGENTS.md — Guia de Arquitetura, Qualidade, Segurança e Deploy
 
 Este documento orienta agentes e contribuidores em todo o repositório. Foca em boas práticas de engenharia (design, segurança, performance) e no caminho para produção.
 
@@ -7,7 +7,7 @@ Este documento orienta agentes e contribuidores em todo o repositório. Foca em 
 - Componentes:
   - API FastAPI (HTML server-rendered minimalista)
   - Worker Cloudflare (roteador curto `/r/{uid}` com KV/Queue)
-  - Armazenamento local (MVP) em `api/data.json` — substituível por Postgres/D1.
+  - Armazenamento local (MVP) em `api/data.json` — substituível por Postgres/D1.
   - Scripts para provisionar cartões (UID/PIN) e resetar.
 
 ## Arquitetura e Padrões de Projeto
@@ -45,7 +45,7 @@ Este documento orienta agentes e contribuidores em todo o repositório. Foca em 
 Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, `/q/*`, `/v/*`, `/{slug}`, `/slug/*`, `/blocked`.
 
 ## Admin (Subdomínio)
-- App dedicado em `api/admin_app.py`; recomendado expor em `adm.seu-dominio` (ex.: `adm.soomei.cc`).
+- App dedicado em `api/admin_app.py`; recomendado expor em `adm.seu-dominio` (ex.: `adm.soomei.cc`).
 - Sessão separada: cookie `admin_session` (não reutilizar `session` do público).
 - Requisitos de acesso (MVP):
   - E-mail verificado obrigatório (`email_verified_at` presente).
@@ -99,7 +99,7 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
 - Não bloquear loop: operações pesadas (ex.: QR, imagem) podem ir para tasks (ou pre-geradas/cached).
 
 ## Dados e Evolução para Produção
-- Migrar `api/data.json` → Postgres (ou Cloudflare D1):
+- Migrar `api/data.json` → Postgres (ou Cloudflare D1):
   - Tabelas: `users`, `cards`, `profiles`, `taps`, `email_tokens`, `sessions`
   - Migrations: Alembic
   - Hash de senha: argon2/bcrypt
@@ -187,3 +187,13 @@ Checklist de Segurança em Produção
 - Commits: `tipo(escopo): resumo` (ex.: `feat(api): valida slug no cadastro`).
 - Abrir PRs com descrição clara e impacto em rotas/segurança.
 - Respeitar rotas estáveis; se quebrar, documentar migração.
+
+### Modularizacao em andamento
+- api/domain/slugs.py: valida e verifica disponibilidade de slugs.
+- api/services/slug_service.py: regras de negocio para checagem e atribuicao de slugs.
+- api/services/session_service.py: emissao de sessoes e obtencao do usuario autenticado.
+- api/services/card_service.py: lookup compartilhado de cartoes por UID/slug.
+- api/routers/auth.py e api/routers/slug.py: primeiros routers FastAPI fora do monolito.
+- api/services/custom_domain_service.py e api/routers/custom_domain.py: fluxo de dominios personalizados (solicitar, retirar, remover). Use a env `CUSTOM_DOMAINS_ENABLED=1` para habilitar.
+- api/routers/hooks.py: webhooks externos (ex.: `/hooks/themembers`) isolados do monolito.
+

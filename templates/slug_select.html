@@ -1,21 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Escolher slug{% endblock %}
 {% block content %}
-  <h1>Escolher seu slug</h1>
-  <p>Este sera o seu endereco publico: <code>/slug</code></p>
-  <form method="post" action="/slug/select/{{ uid }}">
-    <label>Slug</label>
-    <div class="slug-input-row">
-      <input name="value" id="slug" value="{{ current }}" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" required aria-describedby="slugInfoTip">
-      <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que é um slug?" title="O que é um slug?">i</button>
-      <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">
-        Slug é o endereço curto que aparece na URL pública do seu cartão.
-        Use 3–30 caracteres minúsculos, números ou hífen. Ex.: seu-nome
+  <section class="card card-public carbon">
+    <h1>Link do seu cartão</h1>
+    <p>Este será o seu endereço público: <code>/slug</code></p>
+    <form method="post" action="/slug/select/{{ uid }}">
+      <label>Slug</label>
+      <div class="slug-input-row">
+        <input name="value" id="slug" value="{{ current }}" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" required aria-describedby="slugInfoTip">
+        <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que e um slug?" title="O que e um slug?">i</button>
+        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">
+          Esse é o “apelido” do seu link.
+          Exemplo: se você colocar studioana, seu cartão será soomei.cc/studioana.
+        </div>
       </div>
-    </div>
-    <div id="msg" class="hint"></div>
-    <button class="btn">Salvar slug</button>
-  </form>
+      <div id="msg" class="hint"></div>
+      <button class="btn">Salvar slug</button>
+    </form>
+  </section>
 {% endblock %}
 
 {% block scripts %}
@@ -30,34 +32,32 @@
       const msg = document.getElementById('msg');
       if (!el || !msg) return;
       let t;
-      let lastOk = false;
       async function check(v){
         v = (v||'').trim().toLowerCase();
         if (!v){ msg.textContent=''; el.classList.remove('is-ok','is-bad'); return; }
+        if (!/^[a-z0-9-]{3,30}$/.test(v)){
+          msg.innerHTML = '<span class="bad">Use 3-30 caracteres minusculos e numeros.</span>';
+          el.classList.add('is-bad'); el.classList.remove('is-ok');
+          return;
+        }
         try{
           const r = await fetch('/slug/check?value='+encodeURIComponent(v));
           const j = await r.json();
           if (j && j.available){
             msg.innerHTML = '<span class="ok">Disponivel</span>';
             el.classList.add('is-ok'); el.classList.remove('is-bad');
-            lastOk = true;
           } else {
             msg.innerHTML = '<span class="bad">Indisponivel</span>';
             el.classList.add('is-bad'); el.classList.remove('is-ok');
-            lastOk = false;
           }
         } catch(_e){
-          // On error, clear feedback to avoid stale state
           el.classList.remove('is-ok','is-bad'); msg.textContent='';
-          lastOk = false;
         }
       }
       el.addEventListener('input', function(){
-        // force lowercase on typing
         const vv = el.value||''; const ll = vv.toLowerCase(); if (vv!==ll) el.value = ll;
         clearTimeout(t); t=setTimeout(function(){ check(el.value); }, 220);
       });
-      // prevent submission when unavailable; show tooltip message
       const form = el.closest('form');
       if (form){
         form.addEventListener('submit', function(e){
@@ -70,10 +70,8 @@
           }
         });
       }
-      // initial check
       check(el.value);
 
-      // Info tooltip logic
       const infoBtn = document.getElementById('slugInfoBtn');
       const infoTip = document.getElementById('slugInfoTip');
       if (infoBtn && infoTip){

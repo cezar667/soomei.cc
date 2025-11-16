@@ -1,0 +1,39 @@
+﻿{% extends "base.html" %}
+{% block title %}Cartao em construcao{% endblock %}
+{% block content %}
+  <section class="status-shell">
+    <div class="carbon status-card">
+      <img src="/static/img/soomei_logo.png" alt="Soomei" class="status-logo">
+      <div class="status-body">
+        <p class="muted status-kicker">Cartao digital</p>
+        <h1>Cartao em construcao</h1>
+        <p>Estamos preparando o link publico para {{ owner_name or "este perfil" }}.</p>
+        {% if slug %}
+        <p class="status-pill">/{{ slug }}</p>
+        {% endif %}
+        <p class="muted">Volte em breve e encontre todas as informacoes completas por aqui.</p>
+        <div class="status-actions">
+          <a class="btn primary" href="/login">Sou o dono? Entrar</a>
+          <a class="btn ghost" href="/">Voltar</a>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <style>
+    .status-shell{min-height:calc(100vh - 120px);display:flex;align-items:center;justify-content:center;padding:20px}
+    .status-card{border:1px solid #27282f;border-radius:20px;box-shadow:0 20px 50px rgba(0,0,0,.35);max-width:460px;width:100%;padding:40px 32px;text-align:center}
+    .status-logo{width:120px;height:auto;margin:0 auto 16px;display:block}
+    .status-body h1{margin:8px 0 4px;font-size:26px}
+    .status-body p{margin:0 0 16px}
+    .status-kicker{text-transform:uppercase;font-size:12px;letter-spacing:.2em;margin-bottom:8px}
+    .status-pill{display:inline-block;background:#15161b;border:1px solid #32343c;border-radius:999px;padding:6px 18px;font-weight:600;margin-bottom:8px}
+    .status-actions{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:12px}
+    .status-actions .btn{flex:1 1 160px}
+    .btn.ghost{background:transparent;border:1px solid #3b3e47;color:#e2e5f2}
+    .btn.ghost:hover{border-color:#fff;color:#fff}
+    @media(min-width:768px){.status-card{display:flex;flex-direction:column}}
+  </style>
+{% endblock %}
