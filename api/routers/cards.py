@@ -724,7 +724,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             '      <div class="slug-input-row">'+
             '        <input id="slugInput" placeholder="seu-nome" pattern="[a-z0-9-]{{3,30}}" inputmode="url" autocomplete="off" style="text-transform:lowercase;background:#0b0b0c;color:#eaeaea;border:1px solid #2a2a2a;border-radius:10px;padding:10px;width:100%">'+
             '        <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que é um slug?" title="O que é um slug?">i</button>'+
-            '        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">Slug é o endereço curto da sua URL pública. Use 3?30 caracteres minúsculos, números ou hífen. Ex.: seu-nome</div>'+
+            '        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">Slug é o endereço curto da sua URL pública. Use 3-30 caracteres minúsculos, números ou hífen. Ex.: seu-nome</div>'+
             '      </div>'+
             '      <div id="slugMsg" class="hint"></div>'+
             '      <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span class="muted">Prévia:</span> <code id="slugPreview">/'+(CURRENT||'')+'</code></div>'+
@@ -783,7 +783,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             v = (v||'').trim().toLowerCase();
             if (!v){{ msg.textContent=''; el.classList.remove('is-ok','is-bad'); return; }}
             if (!/^[a-z0-9-]{{3,30}}$/.test(v)){{
-              msg.innerHTML = '<span class="bad">Use 3?30 minúsculos/números/hífen.</span>';
+              msg.innerHTML = '<span class="bad">Use 3-30 minúsculos/números/hífen.</span>';
               el.classList.remove('is-ok'); el.classList.add('is-bad'); return;
             }}
             try{{
@@ -1924,7 +1924,7 @@ def visitor_public_card(
         maps_href = f"https://www.google.com/maps/search/?api=1&query={maps_q}"
     else:
         maps_href = ""
-    og_title = f"{prof.get('full_name','')} ? Soomei Card".strip(" ?") if prof else "Soomei Card"
+    og_title = f"{prof.get('full_name','')} | Soomei Card".strip(" ?") if prof else "Soomei Card"
     og_desc = prof.get("title") if prof and prof.get("title") else "Clique para me chamar no WhatsApp e salvar meu contato."
     primary_image = raw_photo or raw_cover or DEFAULT_AVATAR
     secondary_image = raw_cover if (raw_cover and raw_cover != primary_image) else ""
