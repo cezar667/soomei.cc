@@ -28,6 +28,13 @@ def _css_href(request: Request) -> str:
     return getattr(getattr(request.app, "state", None), "css_href", "/static/card.css")
 
 
+def _templates(request: Request):
+    tpl = getattr(getattr(request.app, "state", None), "templates", None)
+    if tpl:
+        return tpl
+    raise RuntimeError("Templates nao configurados")
+
+
 def _banner(content: str, css_class: str) -> str:
     if not content:
         return ""
@@ -174,26 +181,31 @@ def register(
     css = _css_href(request)
     dev_hint = ""
     if APP_ENV != "prod":
-        dev_hint = f"<p class='muted'>Ambiente de desenvolvimento: você também pode confirmar clicando <a class='btn' href='{html.escape(result.verify_path)}'>aqui</a>.</p>"
+        dev_hint = (
+            f"<p class='muted'>Ambiente de desenvolvimento: voce tambem pode confirmar clicando <a class='btn' href='{html.escape(result.verify_path)}'>aqui</a>.</p>"
+        )
     delivery = (
-        f"<p>Enviamos um link de verificação para <b>{html.escape(result.email)}</b>. Confira sua caixa de entrada.</p>"
+        f"<p>Enviamos um link de verificacao para <b>{html.escape(result.email)}</b>. Confira sua caixa de entrada.</p>"
         if result.email_sent
-        else "<p class='banner bad'>Não foi possível enviar o e-mail de confirmação automaticamente. Use o link abaixo para confirmar:</p>"
+        else "<p class='banner bad'>Nao foi possivel enviar o e-mail de confirmacao automaticamente. Use o link abaixo para confirmar:</p>"
     )
     manual_link = "" if result.email_sent else f"<p><a class='btn' href='{html.escape(result.verify_path)}'>Confirmar email</a></p>"
-    html_doc = f"""
-    <!doctype html><html lang='pt-br'><head>
-      <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-      <link rel='stylesheet' href='{css}'><title>Confirme seu email</title>
-    </head><body><main class='wrap'>
-      <h1>Confirme seu email</h1>
-      {delivery}
-      {dev_hint}
-      {manual_link}
-      <p>Depois de confirmar, voce sera direcionado ao cartao <code>/{html.escape(result.dest_slug)}</code>.</p>
-    </main></body></html>
-    """
-    return HTMLResponse(html_doc)
+    body_html = (
+        delivery
+        + dev_hint
+        + manual_link
+        + f"<p>Depois de confirmar, voce sera direcionado ao cartao <code>/{html.escape(result.dest_slug)}</code>.</p>"
+    )
+    templates = _templates(request)
+    return templates.TemplateResponse(
+        "confirm_email.html",
+        {
+            "request": request,
+            "title": "Confirme seu email",
+            "heading": "Confirme seu email",
+            "body_html": body_html,
+        },
+    )
 
 
 @router.post("/login")
@@ -203,19 +215,26 @@ def do_login(request: Request, uid: str = Form(""), email: str = Form(...), pass
     except InvalidCredentialsError:
         return RedirectResponse(f"/login?uid={uid}&error=Credenciais%20invalidas", status_code=303)
     if isinstance(outcome, LoginVerificationRequired):
-        css = _css_href(request)
-        html_doc = f"""
-        <!doctype html><html lang='pt-br'><head>
-        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel='stylesheet' href='{css}'><title>Confirme seu email</title></head>
-        <body><main class='wrap'>
-          <h1>Confirme seu email</h1>
-          <p class='muted'>Ainda não identificamos a confirmação do seu endereço.</p>
-          <p>Reenviamos o link de verificação para <b>{html.escape(outcome.email)}</b>.</p>
-          {("<p><a class='btn' href='" + html.escape(outcome.verify_path) + "'>Confirmar agora</a></p>" if APP_ENV != "prod" else "<p>Verifique sua caixa de entrada para continuar.</p>")}
-        </main></body></html>
-        """
-        return HTMLResponse(html_doc)
+        manual = (
+            f"<p><a class='btn' href='{html.escape(outcome.verify_path)}'>Confirmar agora</a></p>"
+            if APP_ENV != "prod"
+            else "<p>Verifique sua caixa de entrada para continuar.</p>"
+        )
+        body_html = (
+            "<p class='muted'>Ainda nao identificamos a confirmacao do seu endereco.</p>"
+            + f"<p>Reenviamos o link de verificacao para <b>{html.escape(outcome.email)}</b>.</p>"
+            + manual
+        )
+        templates = _templates(request)
+        return templates.TemplateResponse(
+            "confirm_email.html",
+            {
+                "request": request,
+                "title": "Confirme seu email",
+                "heading": "Confirme seu email",
+                "body_html": body_html,
+            },
+        )
     dest = f"/{outcome.target_slug}" if outcome.target_slug else "/"
     resp = RedirectResponse(dest, status_code=303)
     resp.set_cookie("session", outcome.session_token, httponly=True, samesite="lax")
