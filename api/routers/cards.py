@@ -200,10 +200,17 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       .banner.bad{{background:#3a1717;border-color:#5c2323;color:#f5b8b8}}
       .edit-sections{{display:flex;flex-direction:column;gap:18px;margin-top:12px}}
       .edit-section{{background:#111114;border:1px solid #242427;border-radius:16px;padding:18px}}
+      .collapsible-head{{display:flex;flex-direction:row;align-items:flex-start;justify-content:space-between;gap:12px}}
+      .collapsible-head > div{{flex:1}}
       .section-kicker{{text-transform:uppercase;font-size:11px;letter-spacing:.3px;color:#9aa0a6;margin:0 0 6px}}
       .section-head{{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}}
       .section-title{{margin:0;font-size:20px}}
       .section-desc{{margin:0;font-size:13px;color:#9aa0a6}}
+      .collapsible-body{{margin-top:12px}}
+      .collapsible-body.is-collapsed{{display:none}}
+      .collapse-btn{{background:transparent;border:1px solid #2a2a2a;color:#eaeaea;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;cursor:pointer}}
+      .collapse-btn .collapse-icon{{transition:transform .2s}}
+      .collapse-btn.is-collapsed .collapse-icon{{transform:rotate(-90deg)}}
       .section-grid{{display:grid;gap:14px}}
       .section-grid.two-col{{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}}
       .form-control{{display:flex;flex-direction:column;gap:6px}}
@@ -272,6 +279,122 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             show: requestShow,
             hide: function(){{ setState(false); }}
           }};
+        }})();
+        window.soomeiRequestTracker = (function(){{
+          var pending = 0;
+          var visibleSince = 0;
+          var hideTimer = null;
+          var MIN_VISIBLE_MS = 300;
+          function cancelHide(){{
+            if (hideTimer){{
+              clearTimeout(hideTimer);
+              hideTimer = null;
+            }}
+          }}
+          function ensureShown(){{
+            cancelHide();
+            visibleSince = Date.now();
+            if (window.soomeiLoader && window.soomeiLoader.show){{
+              window.soomeiLoader.show();
+            }}
+          }}
+          function ensureHidden(){{
+            cancelHide();
+            var elapsed = Date.now() - visibleSince;
+            var delay = Math.max(0, MIN_VISIBLE_MS - elapsed);
+            hideTimer = setTimeout(function(){{
+              hideTimer = null;
+              if (pending === 0 && window.soomeiLoader && window.soomeiLoader.hide){{
+                window.soomeiLoader.hide();
+              }}
+            }}, delay);
+          }}
+          function start(){{
+            pending += 1;
+            if (pending === 1){{
+              ensureShown();
+            }}
+          }}
+          function end(){{
+            if (pending === 0){{
+              return;
+            }}
+            pending -= 1;
+            if (pending === 0){{
+              ensureHidden();
+            }}
+          }}
+          return {{
+            start: start,
+            end: end
+          }};
+        }})();
+        (function(){{
+          var tracker = window.soomeiRequestTracker;
+          if (!tracker) return;
+          if (window.fetch && !window._soomeiFetchWrapped){{
+            var originalFetch = window.fetch;
+            window.fetch = function(){{
+              tracker.start();
+              var response;
+              try {{
+                response = originalFetch.apply(this, arguments);
+              }} catch (err) {{
+                tracker.end();
+                throw err;
+              }}
+              if (response && typeof response.then === 'function'){{
+                return response.then(function(res){{
+                  tracker.end();
+                  return res;
+                }}, function(err){{
+                  tracker.end();
+                  throw err;
+                }});
+              }}
+              tracker.end();
+              return response;
+            }};
+            window._soomeiFetchWrapped = true;
+          }}
+          if (window.XMLHttpRequest && !window._soomeiXHRWrapped){{
+            var origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send = function(){{
+              var ended = false;
+              var finish = function(){{
+                if (ended) return;
+                ended = true;
+                tracker.end();
+              }};
+              tracker.start();
+              this.addEventListener('loadend', finish);
+              try{{
+                return origSend.apply(this, arguments);
+              }} catch (err){{
+                finish();
+                throw err;
+              }}
+            }};
+            window._soomeiXHRWrapped = true;
+          }}
+        }})();
+        (function(){{
+          function globalShow(){{
+            if (window.soomeiLoader && window.soomeiLoader.show){{
+              window.soomeiLoader.show();
+            }}
+          }}
+          document.addEventListener('submit', function(ev){{
+            var target = ev.target;
+            if (!target || target.hasAttribute('data-skip-global-loading')) return;
+            setTimeout(function(){{
+              if (ev.defaultPrevented) return;
+              globalShow();
+            }}, 0);
+          }}, true);
+          window.addEventListener('beforeunload', function(){{
+            globalShow();
+          }});
         }})();
       </script>
       <main class='wrap'>
@@ -366,7 +489,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               Para salvar, informe nome, cargo e pelo menos um contato (WhatsApp ou email).
             </div>
           </section>
-          <section class='edit-section'>
+          <section class='edit-section' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Integrações</p>
             <div class='section-head'>
               <h2 class='section-title'>Pix, slug e avaliações</h2>
@@ -456,7 +579,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           </a>
         </div>
           </section>
-          <section class='edit-section'>
+          <section class='edit-section' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Presença digital</p>
             <div class='section-head'>
               <h2 class='section-title'>Links em destaque</h2>
@@ -497,7 +620,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               </div>
             </div>
           </section>
-          <section class='edit-section'>
+          <section class='edit-section' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Segurança</p>
             <div class='section-head'>
               <h2 class='section-title'>Senha e acesso</h2>
@@ -537,6 +660,56 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               window.location.href='/{html.escape(slug)}';
             }});
           }}
+          var collapseIndex = 0;
+          var collapseSections = document.querySelectorAll(".edit-section[data-collapsible='1']");
+          collapseSections.forEach(function(section){{
+            var head = section.querySelector('.section-head');
+            if (!head) return;
+            collapseIndex += 1;
+            section.classList.add('collapsible');
+            head.classList.add('collapsible-head');
+            var kicker = section.querySelector('.section-kicker');
+            if (kicker && kicker.parentElement === section && !head.contains(kicker)){{
+              head.insertBefore(kicker, head.firstChild);
+            }}
+            var targetId = 'collapse-section-' + collapseIndex;
+            var body = document.createElement('div');
+            body.className = 'collapsible-body';
+            body.id = targetId;
+            while (head.nextSibling){{
+              body.appendChild(head.nextSibling);
+            }}
+            section.appendChild(body);
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'collapse-btn';
+            btn.setAttribute('aria-expanded','true');
+            btn.setAttribute('data-target', targetId);
+            btn.innerHTML = "<span class='collapse-label'>Ocultar</span><span class='collapse-icon' aria-hidden='true'>&#9662;</span>";
+            head.appendChild(btn);
+            function setState(open){{
+              if (open){{
+                body.classList.remove('is-collapsed');
+                btn.classList.remove('is-collapsed');
+                btn.setAttribute('aria-expanded','true');
+                var label = btn.querySelector('.collapse-label');
+                if (label) label.textContent = 'Ocultar';
+              }} else {{
+                body.classList.add('is-collapsed');
+                btn.classList.add('is-collapsed');
+                btn.setAttribute('aria-expanded','false');
+                var label = btn.querySelector('.collapse-label');
+                if (label) label.textContent = 'Expandir';
+              }}
+            }}
+            btn.addEventListener('click', function(ev){{
+              ev.preventDefault();
+              var open = btn.getAttribute('aria-expanded') !== 'true';
+              setState(open);
+            }});
+            var startCollapsed = section.getAttribute('data-collapsed') === '1';
+            setState(!startCollapsed);
+          }});
           var form = document.getElementById('editForm');
           var saveBtn = document.getElementById('saveBtn');
           var primaryHint = document.getElementById('primaryInfoHint');
