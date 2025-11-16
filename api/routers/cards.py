@@ -246,7 +246,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     </head>
     <body>
       <div class='loading-overlay' id='formLoading' aria-hidden='true' role='status' aria-live='polite' aria-label='Processando'>
-        <img src='/static/img/loading.gif' alt='Processando...' class='loading-spinner'>
+        <img src='/static/img/soomei_loading.gif' alt='Processando...' class='loading-spinner'>
       </div>
       <script>
         window.soomeiLoader = (function(){{
