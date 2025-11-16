@@ -209,6 +209,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       .form-control{{display:flex;flex-direction:column;gap:6px}}
       .form-control label{{font-weight:600;font-size:13px;color:#eaeaea}}
       .form-control input{{border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea;padding:10px;border-radius:10px}}
+      .required-pill{{display:inline-flex;align-items:center;background:#2f1c1c;color:#f8baba;font-size:10px;text-transform:uppercase;letter-spacing:.3px;padding:1px 6px;border-radius:999px;margin-left:8px}}
+      .primary-required-hint{{font-size:12px;color:#9aa0a6;margin-top:6px}}
+      .primary-required-hint.is-error{{color:#f8baba}}
+      .btn[disabled]{{opacity:.55;cursor:not-allowed}}
       .form-control.full{{grid-column:1 / -1}}
       .visual-grid{{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}}
       .cover-preview{{width:100%;height:150px;border:1px dashed #2a2a2a;border-radius:12px;background:#0f0f10;display:flex;align-items:center;justify-content:center;overflow:hidden}}
@@ -334,19 +338,19 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <div class='section-grid two-col'>
               <div class='form-control'>
-                <label>Nome</label>
+                <label>Nome <span class='required-pill'>Obrigatorio</span></label>
                 <input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome completo' required>
               </div>
               <div class='form-control'>
-                <label>Cargo | Empresa</label>
-                <input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei'>
+                <label>Cargo | Empresa <span class='required-pill'>Obrigatorio</span></label>
+                <input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei' required>
               </div>
               <div class='form-control'>
-                <label>WhatsApp</label>
+                <label>WhatsApp <span class='required-pill'>Obrigatorio</span></label>
                 <input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19'>
               </div>
               <div class='form-control'>
-                <label>Email público</label>
+                <label>Email público <span class='required-pill'>Obrigatorio</span></label>
                 <input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}' placeholder='contato@exemplo.com'>
               </div>
               <div class='form-control'>
@@ -357,6 +361,9 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <label>Endereço</label>
                 <input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF'>
               </div>
+            </div>
+            <div id='primaryInfoHint' class='primary-required-hint' role='status' aria-live='polite' tabindex='-1'>
+              Para salvar, informe nome, cargo e pelo menos um contato (WhatsApp ou email).
             </div>
           </section>
           <section class='edit-section'>
@@ -498,6 +505,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <button type='button' class='btn ghost' id='togglePassword' aria-expanded='false'>Alterar senha</button>
             <div id='passwordFields' class='password-fields is-hidden'>
+              <input type='hidden' name='password_mode' id='passwordMode' value='0'>
               <div class='form-control'>
                 <label>Senha atual</label>
                 <input type='password' name='current_password' autocomplete='current-password' placeholder='Digite sua senha atual'>
@@ -529,20 +537,77 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               window.location.href='/{html.escape(slug)}';
             }});
           }}
+          var form = document.getElementById('editForm');
+          var saveBtn = document.getElementById('saveBtn');
+          var primaryHint = document.getElementById('primaryInfoHint');
+          var requiredName = document.querySelector("input[name='full_name']");
+          var requiredTitle = document.querySelector("input[name='title']");
+          var whatsappInput = document.getElementById('whatsapp');
+          var emailInput = document.querySelector("input[name='email_public']");
+          function hasValue(el){{
+            return !!(el && typeof el.value === 'string' && el.value.trim());
+          }}
+          function hasWhatsapp(){{
+            if (!whatsappInput) return false;
+            return (whatsappInput.value || '').replace(/\D/g,'').length > 0;
+          }}
+          function hasEmail(){{
+            if (!emailInput) return false;
+            return !!(emailInput.value || '').trim();
+          }}
+          function updatePrimaryState(){{
+            var ok = hasValue(requiredName) && hasValue(requiredTitle) && (hasWhatsapp() || hasEmail());
+            if (saveBtn){{
+              if (!ok){{
+                saveBtn.disabled = true;
+                saveBtn.setAttribute('aria-disabled','true');
+                saveBtn.setAttribute('data-primary-lock','1');
+              }} else if (saveBtn.getAttribute('data-primary-lock') === '1'){{
+                saveBtn.disabled = false;
+                saveBtn.removeAttribute('aria-disabled');
+                saveBtn.removeAttribute('data-primary-lock');
+              }}
+            }}
+            if (primaryHint){{
+              primaryHint.classList.toggle('is-error', !ok);
+            }}
+            return ok;
+          }}
+          [requiredName, requiredTitle, whatsappInput, emailInput].forEach(function(input){{
+            if (!input) return;
+            input.addEventListener('input', updatePrimaryState);
+            input.addEventListener('blur', updatePrimaryState);
+          }});
+          updatePrimaryState();
+          if (form){{
+            form.addEventListener('submit', function(e){{
+              if (!updatePrimaryState()){{
+                e.preventDefault();
+                e.stopPropagation();
+                if (primaryHint){{
+                  try{{ primaryHint.focus(); }}catch(_e){{}}
+                  try{{ primaryHint.scrollIntoView({{behavior:'smooth', block:'center'}}); }}catch(_e){{}}
+                }}
+              }}
+            }});
+          }}
           var togglePwd = document.getElementById('togglePassword');
           var pwdFields = document.getElementById('passwordFields');
+          var pwdMode = document.getElementById('passwordMode');
           if (togglePwd && pwdFields){{
             function setState(open){{
               if (open){{
                 pwdFields.classList.remove('is-hidden');
-                togglePwd.textContent = 'Cancelar alteração de senha';
+                togglePwd.textContent = 'Cancelar alteracao de senha';
                 togglePwd.setAttribute('aria-expanded','true');
+                if (pwdMode){{ pwdMode.value = '1'; }}
               }} else {{
                 pwdFields.classList.add('is-hidden');
                 togglePwd.textContent = 'Alterar senha';
                 togglePwd.setAttribute('aria-expanded','false');
                 var inputs = pwdFields.querySelectorAll('input');
                 Array.prototype.forEach.call(inputs, function(inp){{ inp.value = ''; }});
+                if (pwdMode){{ pwdMode.value = '0'; }}
               }}
             }}
             togglePwd.addEventListener('click', function(e){{
@@ -1118,6 +1183,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                current_password: str = Form(""),
                new_password: str = Form(""),
                confirm_password: str = Form(""),
+               password_mode: str = Form("0"),
                cover_remove: str = Form("0"),
                photo: UploadFile | None = File(None),
                cover: UploadFile | None = File(None)):
@@ -1170,7 +1236,9 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     current_password = (current_password or "").strip()
     new_password = (new_password or "").strip()
     confirm_password = (confirm_password or "").strip()
-    if current_password or new_password or confirm_password:
+    password_mode = (password_mode or "").strip()
+    wants_pwd = password_mode == "1"
+    if wants_pwd:
         if not (current_password and new_password and confirm_password):
             return redirect_error("Preencha todos os campos de senha.")
         if len(new_password) < 8:
@@ -2513,12 +2581,19 @@ def custom_domain_root(request: Request):
     host = _request_host(request)
     db, uid, card = find_card_by_custom_domain(host)
     base_host = (PUBLIC_BASE_HOST or "").strip().lower()
+    fallback_public_host = ""
+    if not base_host and PUBLIC_BASE:
+        try:
+            fallback_public_host = (urlparse.urlparse(PUBLIC_BASE).hostname or "").strip().lower()
+        except ValueError:
+            fallback_public_host = ""
     host_value = (host or "").strip().lower()
-    is_default_host = (
-        (not host_value)
-        or (base_host and host_value == base_host)
-        or (host_value in DEFAULT_LOCAL_ROOTS)
-    )
+    default_hosts = set(DEFAULT_LOCAL_ROOTS)
+    if base_host:
+        default_hosts.add(base_host)
+    if fallback_public_host:
+        default_hosts.add(fallback_public_host)
+    is_default_host = (not host_value) or (host_value in default_hosts)
     if not card:
         if is_default_host:
             user = current_user_email(request)
