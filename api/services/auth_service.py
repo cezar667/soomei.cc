@@ -11,7 +11,7 @@ import time
 
 from api.core.config import get_settings
 from api.core.mailer import send_email
-from api.core.security import hash_password
+from api.core.security import hash_password, verify_password
 from api.core.utils import absolute_url
 from api.domain.slugs import is_valid_slug, slug_in_use
 from api.repositories.json_storage import load, save, db_defaults
@@ -169,8 +169,12 @@ class AuthService:
             raise InvalidCredentialsError("Credenciais invalidas")
         db = db_defaults(load())
         user = db.get("users", {}).get(raw_email)
-        if not user or user.get("pwd") != hash_password(password):
+        if not user or not verify_password(password, user.get("pwd")):
             raise InvalidCredentialsError("Credenciais invalidas")
+        if user.get("pwd") and not str(user.get("pwd", "")).startswith("argon2$"):
+            user["pwd"] = hash_password(password)
+            db.setdefault("users", {})[raw_email] = user
+            save(db)
 
         if not user.get("email_verified_at"):
             token = self._ensure_verify_token(db, raw_email)

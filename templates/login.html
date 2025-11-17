@@ -8,6 +8,7 @@
         <h1>Entrar na Soomei</h1>
         <p class="muted">Acesse seu painel e atualize seu cartão digital.</p>
         <form method="post" action="/auth/login" class="login-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="uid" value="{{ uid }}">
           <label>Email</label>
           <input name="email" type="email" required placeholder="voce@empresa.com">

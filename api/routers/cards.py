@@ -10,6 +10,7 @@ import urllib.parse as urlparse
 import qrcode
 from fastapi import APIRouter, HTTPException, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from api.core import csrf
 from api.core.config import get_settings
 from api.core.security import hash_password
 from api.repositories.json_storage import db_defaults, load, save
@@ -68,8 +69,58 @@ def _templates(request: Request):
     if tpl:
         return tpl
     raise RuntimeError("Templates nao configurados")
-def _apply_brand_footer(html_doc: str) -> str:
-    return BRAND_FOOTER(html_doc) if BRAND_FOOTER else html_doc
+_FOOTER_SLOT = "<span id='footerActionSlot' class='footer-auth-slot'></span>"
+_FOOTER_PLACEHOLDER = "{footer_action_html}"
+
+
+def _apply_brand_footer(html_doc: str, action_html: str | None = None) -> str:
+    footer_html = BRAND_FOOTER(html_doc) if BRAND_FOOTER else html_doc
+    if _FOOTER_PLACEHOLDER in footer_html:
+        replacement = action_html or ""
+        return footer_html.replace(_FOOTER_PLACEHOLDER, replacement, 1)
+    if _FOOTER_SLOT not in footer_html and "footer-auth-slot" not in footer_html:
+        marker = "</footer>"
+        if marker in footer_html:
+            footer_html = footer_html.replace(marker, f"{_FOOTER_SLOT}{marker}", 1)
+    if action_html:
+        footer_html = footer_html.replace(
+            _FOOTER_SLOT,
+            f"<span id='footerActionSlot' class='footer-auth-slot'>{action_html}</span>",
+            1,
+        )
+    return footer_html
+
+
+def _footer_action_markup(*, is_owner: bool, slug: str, csrf_token_html: str = "") -> str:
+    slug_safe = html.escape(slug)
+    if is_owner:
+        return (
+            "<form method='post' action='/auth/logout' class='logout-inline' data-skip-global-loading='true'>"
+            f"<input type='hidden' name='csrf_token' value='{csrf_token_html}'>"
+            f"<input type='hidden' name='next' value='/{slug_safe}'>"
+            "<button type='submit' class='muted link-btn' style='background:none;border:0;padding:0;margin:0;cursor:pointer'>Sair</button>"
+            "</form>"
+        )
+    return "<a href='/login' class='muted'>Entrar</a>"
+
+
+def _footer_action_context(
+    request: Request | None,
+    *,
+    is_owner: bool,
+    slug: str,
+    csrf_token_value: str | None = None,
+) -> tuple[str, str]:
+    token_value = csrf_token_value or ""
+    if is_owner and request and not token_value:
+        token_value = csrf.ensure_csrf_token(request)
+    csrf_token_html = html.escape(token_value) if token_value else ""
+    action_html = _footer_action_markup(
+        is_owner=is_owner,
+        slug=slug,
+        csrf_token_html=csrf_token_html,
+    )
+    return action_html, token_value
 def _get_settings():
     return SETTINGS or get_settings()
 def _save_resized_image(data: bytes, filename: str, max_size: tuple[int, int]) -> str:
@@ -185,6 +236,15 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     if pwd_flag:
         banners.append("<div class='banner ok'>Senha atualizada com sucesso.</div>")
     notice = "".join(banners)
+    csrf_token_value = csrf.ensure_csrf_token(request)
+    csrf_token_html = html.escape(csrf_token_value)
+    csrf_token_js = json.dumps(csrf_token_value)
+    footer_action_html, _ = _footer_action_context(
+        request,
+        is_owner=True,
+        slug=slug,
+        csrf_token_value=csrf_token_value,
+    )
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -400,6 +460,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       <main class='wrap'>
       {notice}
       <form id='editForm' method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
+        <input type='hidden' name='csrf_token' value='{csrf_token_html}'>
         <div class='topbar'>
           <h1 class='page-title'>Editar Perfil</h1>
         </div>
@@ -827,6 +888,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             }});
           }}
           const UID = "{html.escape(uid)}";
+          var csrfValue = {csrf_token_js};
+          window.soomeiCsrfToken = csrfValue;
           var el = document.getElementById('whatsapp');
           var form = document.getElementById('editForm');
           if (!el) return;
@@ -1005,8 +1068,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               try{{
                 var resp = await fetch('/slug/select/'+encodeURIComponent(UID), {{
                   method: 'POST',
-                  headers: {{'Content-Type':'application/x-www-form-urlencoded'}},
-                  body: 'value='+encodeURIComponent(v)
+                  headers: {{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token': csrfValue}},
+                  body: 'value='+encodeURIComponent(v)+'&csrf_token='+encodeURIComponent(csrfValue)
                 }});
                 if (resp.ok){{
                   window.location.href = '/edit/'+encodeURIComponent(v);
@@ -1028,8 +1091,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           async function salvarSlug(novo) {{
             return fetch("/slug/select/" + encodeURIComponent(UID), {{
               method: "POST",
-              headers: {{ "Content-Type": "application/x-www-form-urlencoded" }},
-              body: "value=" + encodeURIComponent(novo)
+              headers: {{ "Content-Type": "application/x-www-form-urlencoded", "X-CSRF-Token": csrfValue }},
+              body: "value=" + encodeURIComponent(novo) + "&csrf_token=" + encodeURIComponent(csrfValue)
             }});
           }}
         }})();
@@ -1329,10 +1392,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
         }}
       }})();
       </script>
-      <p><a class='muted' href='/auth/logout?next=/{html.escape(slug)}'>Sair</a></p>
     </main></body></html>
     """
-    response = HTMLResponse(_apply_brand_footer(html_form))
+    response = HTMLResponse(_apply_brand_footer(html_form, footer_action_html))
+    csrf.set_csrf_cookie(response, csrf_token_value)
     if saved_cookie:
         response.delete_cookie("flash_edit_saved", path="/edit")
     if pwd_cookie:
@@ -1461,6 +1524,11 @@ def visitor_public_card(
     card: dict | None = None,
     request: Request | None = None,
 ):
+    footer_action_html, csrf_token_value = _footer_action_context(
+        request,
+        is_owner=is_owner,
+        slug=slug,
+    )
     raw_photo = (prof.get("photo_url", "") or "") if prof else ""
     raw_cover = (prof.get("cover_url", "") or "") if prof else ""
     photo_src = resolve_photo(raw_photo)
@@ -2309,59 +2377,31 @@ def visitor_public_card(
       {scripts}
       <script>
       (function(){{
-        var isOwner = { 'true' if is_owner else 'false' };
-        var slugId = "{html.escape(slug)}";
-        var ft = document.querySelector('footer');
-        if (ft) {{
-          ft.innerHTML = isOwner ? ("<a href='/auth/logout?next=/" + slugId + "' class='muted'>Sair</a>") : "<a href='/login' class='muted'>Entrar</a>";        // Ajusta link do Maps conforme dispositivo
-          (function(){{
-            var mapsBtn = document.getElementById('mapsBtn');
-            var mapsAddr = "{html.escape(address_text)}";
-            if (mapsBtn && mapsAddr){{
-              mapsBtn.addEventListener('click', function(e){{
-                try {{
-                  var ua = navigator.userAgent || '';
-                  var href = '';
-                  if (/iPhone|iPad|iPod/i.test(ua)){{
-                    href = 'http://maps.apple.com/?q=' + encodeURIComponent(mapsAddr);
-                  }} else if (/Android/i.test(ua)){{
-                    href = 'geo:0,0?q=' + encodeURIComponent(mapsAddr);
-                  }} else {{
-                    href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(mapsAddr);
-                  }}
-                  mapsBtn.setAttribute('href', href);
-                }} catch(_e){{}}
-              }}, {{ passive: true }});
-            }}
-          }})();
+        var off = document.getElementById('offlineBtn');
+        var sec = document.getElementById('offlineSection');
+        if (!off || !sec) return;
+        off.setAttribute('aria-controls', 'offlineSection');
+        off.setAttribute('aria-expanded', 'false');
+        function isVisible(el){{
+          var cs = window.getComputedStyle(el);
+          return cs.display !== 'none';
         }}
-        // Toggle subseção Modo Offline sem navegar (versão robusta)
-        (function(){{
-          var off = document.getElementById('offlineBtn');
-          var sec = document.getElementById('offlineSection');
-          if (!off || !sec) return;
-          off.setAttribute('aria-controls', 'offlineSection');
-          off.setAttribute('aria-expanded', 'false');
-          function isVisible(el){{
-            // visibilidade real, não apenas style inline
-            var cs = window.getComputedStyle(el);
-            return cs.display !== 'none';
+        off.addEventListener('click', function(e){{
+          e.preventDefault();
+          var willHide = isVisible(sec);
+          sec.classList.toggle('is-hidden', willHide);
+          off.setAttribute('aria-expanded', (!willHide).toString());
+          if (!willHide) {{
+            try {{ sec.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }} catch(_e){{}}
           }}
-          off.addEventListener('click', function(e){{
-            e.preventDefault();
-            var willHide = isVisible(sec);
-            sec.classList.toggle('is-hidden', willHide);
-            off.setAttribute('aria-expanded', (!willHide).toString());
-            if (!willHide) {{
-              try {{ sec.scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }} catch(_e){{}}
-            }}
-          }});
-        }})();
+        }});
       }})();
       </script>
-      <footer>{("<a href='/auth/logout?next=/" + html.escape(slug) + "' class='muted'>Sair</a>") if is_owner else ("<a href='/login' class='muted'>Entrar</a>")}</footer>
     </main></body></html>"""
-    return HTMLResponse(_apply_brand_footer(html_doc))
+    response = HTMLResponse(_apply_brand_footer(html_doc, footer_action_html))
+    if request and csrf_token_value:
+        csrf.set_csrf_cookie(response, csrf_token_value)
+    return response
 @router.get("/u/{slug}", response_class=HTMLResponse)
 def public_card(slug: str, request: Request):
     db, uid, card = find_card_by_slug(slug)
@@ -2572,7 +2612,15 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
         </main>
         </body></html>
         """
-        return HTMLResponse(_apply_brand_footer(off_page))
+        footer_action_html, footer_token = _footer_action_context(
+            request,
+            is_owner=is_owner,
+            slug=slug,
+        )
+        response = HTMLResponse(_apply_brand_footer(off_page, footer_action_html))
+        if footer_token:
+            csrf.set_csrf_cookie(response, footer_token)
+        return response
     if who == owner and not card.get("vanity"):
         return RedirectResponse(f"/slug/select/{html.escape(uid)}", status_code=302)
     if is_owner and not profile_complete(prof):
@@ -2640,7 +2688,15 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
             }})();
             </script>
             """
-            return HTMLResponse(_apply_brand_footer(amt_page))
+            footer_action_html, footer_token = _footer_action_context(
+                request,
+                is_owner=is_owner,
+                slug=slug,
+            )
+            response = HTMLResponse(_apply_brand_footer(amt_page, footer_action_html))
+            if footer_token:
+                csrf.set_csrf_cookie(response, footer_token)
+            return response
         elif pix_mode == "qr":
             raw_v = (request.query_params.get("v", "0") or "0").replace(",", ".")
             try:
@@ -2734,7 +2790,15 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
             </script>
             </body></html>
             """
-            return HTMLResponse(_apply_brand_footer(page))
+            footer_action_html, footer_token = _footer_action_context(
+                request,
+                is_owner=is_owner,
+                slug=slug,
+            )
+            response = HTMLResponse(_apply_brand_footer(page, footer_action_html))
+            if footer_token:
+                csrf.set_csrf_cookie(response, footer_token)
+            return response
     if is_owner:
         view_count = get_card_view_count(uid)
     else:

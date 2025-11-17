@@ -24,6 +24,7 @@ class Settings:
     smtp_from: str
     password_reset_ttl: int
     custom_domains_enabled: bool
+    session_ttl_seconds: int
 
 
 @lru_cache
@@ -50,4 +51,5 @@ def get_settings() -> Settings:
         smtp_from=os.getenv("SMTP_FROM", os.getenv("SMTP_USER", "")),
         password_reset_ttl=_int(os.getenv("PASSWORD_RESET_TTL", "86400"), 86400),
         custom_domains_enabled=_bool(os.getenv("CUSTOM_DOMAINS_ENABLED"), False),
+        session_ttl_seconds=_int(os.getenv("SESSION_TTL_SECONDS", "86400"), 86400),
     )

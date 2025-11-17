@@ -115,6 +115,8 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .featured-cta__hint{font-size:12px;color:rgba(0,0,0,.55);text-align:left}
 .featured-cta__icon{width:42px;height:42px;border-radius:999px;background:rgba(var(--featured-shadow-rgb,0,0,0),.30);display:inline-flex;align-items:center;justify-content:center;color:var(--featured-text,#2b1600);flex-shrink:0;transition:transform .2s ease,background .2s ease;position:relative;z-index:1}
 .featured-cta:hover .featured-cta__icon{transform:translateX(4px);background:rgba(var(--featured-shadow-rgb,0,0,0),.28)}
+.edit-footer{margin-top:32px;display:flex;}
+.edit-footer form{margin:0}
 @-webkit-keyframes featuredHalo{
 0%,100%{box-shadow:0 10px 24px rgba(var(--featured-shadow-rgb,255,180,115),.3),0 0 0 0 rgba(var(--featured-shadow-rgb,255,180,115),0)}
 50%{box-shadow:0 16px 36px rgba(var(--featured-shadow-rgb,255,180,115),.45),0 0 12px 3px rgba(var(--featured-shadow-rgb,255,180,115),.35)}

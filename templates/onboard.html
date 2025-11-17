@@ -30,6 +30,7 @@
     <p>UID: <b>{{ uid }}</b></p>
     <div id="formAlert" class="banner" role="alert" aria-live="polite" style="display:{% if error and error|trim %}block{% else %}none{% endif %}">{{ error }}</div>
     <form id="onbForm" method="post" action="/auth/register">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="uid" value="{{ uid }}">
       <label>Email</label>
       <input id="emailInput" name="email" type="email" required value="{{ email }}" autocapitalize="none" autocomplete="email" autocorrect="off">

@@ -101,8 +101,12 @@ def favicon():
     return Response(status_code=204)
 
 def _brand_footer_inject(html_doc: str) -> str:
-    snippet = "\n    <footer class='muted' style='text-align:center'>&copy; 2025 Soomei"+ ((" - " + PUBLIC_VERSION) if PUBLIC_VERSION else "") + "</footer>\n  "
-    return html_doc.replace("</body>", snippet + "</body>", 1) if "</body>" in html_doc else (html_doc + snippet)
+    snippet = (
+        "\n    <div class='edit-footer'>\n"
+        "        {footer_action_html}\n"
+        "      </div>\n  "
+    )
+    return html_doc.replace("</main>", snippet + "</main>", 1) if "</main>" in html_doc else (html_doc + snippet)
 
 
 cards_router.set_brand_footer(_brand_footer_inject)

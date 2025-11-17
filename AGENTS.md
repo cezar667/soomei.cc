@@ -37,7 +37,7 @@ Este documento orienta agentes e contribuidores em todo o repositório. Foca em 
   - Regras: LGPD aceito, PIN correto, senha ≥ 8, slug válido/único
   - E-mail: `GET /auth/verify?token=...` confirma
 - Sessão: `POST /auth/login` → cookie `session`
-  - Logout: `GET/POST /auth/logout`
+- Logout: `POST /auth/logout`
 - Público: `GET /u/{slug}`; vCard/QR: `GET /v/{slug}.vcf`, `GET /q/{slug}.png`
 - Edição: `GET/POST /edit/{slug}` (nome, cargo, links, whatsapp, foto)
 - Slug: `GET /slug/check?value=...` e `GET/POST /slug/select/{id}`
