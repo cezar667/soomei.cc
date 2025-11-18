@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request, Form
 from urllib.parse import urlparse, quote as url_quote, unquote as url_unquote
 from fastapi.responses import HTMLResponse, RedirectResponse
-import os, json, time, secrets, hashlib, html
+import os, json, time, secrets, html
+
+from api.core.security import hash_password, verify_password
 
 
 # --- Minimal, self-contained admin app (MVP) ---
@@ -17,6 +19,24 @@ CUSTOM_DOMAIN_STATUS_PENDING = "pending"
 CUSTOM_DOMAIN_STATUS_ACTIVE = "active"
 CUSTOM_DOMAIN_STATUS_REJECTED = "rejected"
 CUSTOM_DOMAIN_STATUS_DISABLED = "disabled"
+
+
+def _env_int(value: str | None, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+DEFAULT_ADMIN_SESSION_TTL = 12 * 3600
+ADMIN_SESSION_TTL_SECONDS = max(600, _env_int(os.getenv("ADMIN_SESSION_TTL_SECONDS"), DEFAULT_ADMIN_SESSION_TTL))
+ADMIN_COOKIE_SECURE = _env_bool(os.getenv("ADMIN_COOKIE_SECURE"), (os.getenv("APP_ENV") or "dev").lower() == "prod")
 
 
 def load_db():
@@ -41,11 +61,6 @@ def save_db(db):
         json.dump(db, f, ensure_ascii=False, indent=2)
 
 
-def h(p: str) -> str:
-    # Hash compatível com app público (scrypt)
-    return hashlib.scrypt(p.encode(), salt=b"soomei", n=2**14, r=8, p=1).hex()
-
-
 def _admin_allowed(email: str) -> bool:
     allow = (os.getenv("ADMIN_EMAILS", "") or "").strip()
     if allow:
@@ -58,7 +73,8 @@ def _admin_allowed(email: str) -> bool:
 def _issue_admin_session(db, email: str) -> str:
     token = secrets.token_urlsafe(32)
     csrf = secrets.token_urlsafe(32)
-    db["sessions_admin"][token] = {"email": email, "ts": int(time.time()), "csrf": csrf}
+    now = int(time.time())
+    db["sessions_admin"][token] = {"email": email, "ts": now, "csrf": csrf, "exp": now + ADMIN_SESSION_TTL_SECONDS}
     save_db(db)
     return token
 
@@ -139,12 +155,26 @@ def _domain_in_use(db, host: str, exclude_uid: str | None = None) -> bool:
     return False
 
 
+def _load_admin_session(token: str | None):
+    if not token:
+        return None, None
+    db = load_db()
+    meta = db.get("sessions_admin", {}).get(token)
+    if not isinstance(meta, dict):
+        return db, None
+    exp = int(meta.get("exp") or 0)
+    if exp and exp < int(time.time()):
+        db["sessions_admin"].pop(token, None)
+        save_db(db)
+        return db, None
+    return db, meta
+
+
 def _current_admin_email(request: Request):
     tok = request.cookies.get("admin_session")
     if not tok:
         return None
-    db = load_db()
-    meta = db.get("sessions_admin", {}).get(tok)
+    _, meta = _load_admin_session(tok)
     return meta.get("email") if meta else None
 
 
@@ -152,8 +182,9 @@ def _current_admin_session(request: Request):
     tok = request.cookies.get("admin_session")
     if not tok:
         return None, None
-    db = load_db()
-    meta = db.get("sessions_admin", {}).get(tok)
+    db, meta = _load_admin_session(tok)
+    if not meta:
+        return None, None
     # Auto-seed CSRF for legacy sessions (created antes da proteção CSRF)
     if isinstance(meta, dict) and not meta.get("csrf"):
         meta["csrf"] = secrets.token_urlsafe(32)
@@ -260,8 +291,13 @@ def do_login(request: Request, email: str = Form(...), password: str = Form(...)
         return RedirectResponse("/login?error=credenciais", status_code=303)
     db = load_db()
     u = db.get("users", {}).get(email)
-    if not u or u.get("pwd") != h(password):
+    stored_hash = u.get("pwd") if u else ""
+    if not u or not verify_password(password, stored_hash):
         return RedirectResponse("/login?error=credenciais", status_code=303)
+    if stored_hash and not str(stored_hash).startswith("argon2$"):
+        u["pwd"] = hash_password(password)
+        db["users"][email] = u
+        save_db(db)
     if not u.get("email_verified_at"):
         return RedirectResponse("/login?error=nao_verificado", status_code=303)
     if not _admin_allowed(email):
@@ -272,9 +308,9 @@ def do_login(request: Request, email: str = Form(...), password: str = Form(...)
         "admin_session",
         value=tok,
         httponly=True,
-        samesite="lax",
-        secure=False,
-        max_age=7 * 24 * 3600,
+        samesite="strict",
+        secure=ADMIN_COOKIE_SECURE,
+        max_age=ADMIN_SESSION_TTL_SECONDS,
         path="/",
     )
     return resp
@@ -926,7 +962,7 @@ def admin_reset_password(email: str, request: Request, new_password: str = Form(
     user = db.get("users", {}).get(decoded_email)
     if not user:
         raise HTTPException(404, "Usuário não encontrado")
-    user["pwd"] = h(new_password)
+    user["pwd"] = hash_password(new_password)
     save_db(db)
     return RedirectResponse(f"/users/{url_quote(decoded_email, safe='')}?ok=pwd", status_code=303)
 @app.post("/domains/{uid}/approve")

@@ -1403,11 +1403,11 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     return response
 @router.post("/edit/{slug}")
 async def save_edit(slug: str, request: Request, full_name: str = Form(""), title: str = Form(""),
-               whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
-               google_review_url: str = Form(""),
-               google_review_show: str = Form(""),
-               featured_label: str = Form(""),
-               featured_url: str = Form(""),
+                whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
+                google_review_url: str = Form(""),
+                google_review_show: str = Form(""),
+                featured_label: str = Form(""),
+                featured_url: str = Form(""),
                featured_color: str = Form("#FFB473"),
                featured_enabled: str = Form(""),
                label1: str = Form(""), href1: str = Form(""),
@@ -1420,9 +1420,10 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                new_password: str = Form(""),
                confirm_password: str = Form(""),
                password_mode: str = Form("0"),
-               cover_remove: str = Form("0"),
-               photo: UploadFile | None = File(None),
-               cover: UploadFile | None = File(None)):
+                cover_remove: str = Form("0"),
+                photo: UploadFile | None = File(None),
+                cover: UploadFile | None = File(None),
+                csrf_token: str = Form("")):
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
@@ -1430,6 +1431,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     who = current_user_email(request)
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
+    csrf.validate_csrf(request, csrf_token)
     db2 = db_defaults(load())
     def redirect_error(msg: str):
         return RedirectResponse(f"/edit/{slug}?error={urlparse.quote_plus(msg)}", status_code=303)
@@ -1975,73 +1977,187 @@ def visitor_public_card(
 
       })();
 
-      var editForm = document.getElementById('editForm');
+    var editForm = document.getElementById('editForm');
 
-      var loaderCtrl = window.soomeiLoader || null;
+    var loaderCtrl = window.soomeiLoader || null;
 
-      if (editForm) {
+    if (editForm) {
 
-        var saveBtn = document.getElementById('saveBtn');
+      var saveBtn = document.getElementById('saveBtn');
 
-        var loaderEl = document.getElementById('formLoading');
+      var loaderEl = document.getElementById('formLoading');
 
-        var submitted = false;
+      var submitted = false;
 
-        editForm.addEventListener('submit', function(ev){
+      var originalBtnText = saveBtn ? saveBtn.textContent : '';
 
-          if (submitted) { return; }
+      var canAsyncSubmit = typeof window.fetch === 'function' && typeof window.FormData !== 'undefined';
 
-          if (typeof editForm.reportValidity === 'function') {
+      var showLoader = function(){
 
-            if (!editForm.reportValidity()) { return; }
+        if (loaderCtrl && loaderCtrl.show) {
 
-          } else if (typeof editForm.checkValidity === 'function' && !editForm.checkValidity()) {
+          loaderCtrl.show();
 
-            return;
+        } else if (loaderEl) {
 
-          }
+          loaderEl.classList.add('show');
 
-          ev.preventDefault();
+          loaderEl.setAttribute('aria-hidden','false');
 
-          submitted = true;
+        }
 
-          if (loaderCtrl && loaderCtrl.show) {
+      };
 
-            loaderCtrl.show();
+      var hideLoader = function(){
 
-          } else if (loaderEl) {
+        if (loaderCtrl && loaderCtrl.hide) {
 
-            loaderEl.classList.add('show');
+          loaderCtrl.hide();
 
-            loaderEl.setAttribute('aria-hidden','false');
+        } else if (loaderEl) {
 
-          }
+          loaderEl.classList.remove('show');
 
-          if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
+          loaderEl.setAttribute('aria-hidden','true');
 
-          var submitAfterPaint = function(){
+        }
 
-            if (window.requestAnimationFrame) {
+      };
 
-              window.requestAnimationFrame(function(){
+      var resetSubmission = function(message){
 
-                window.requestAnimationFrame(function(){ editForm.submit(); });
+        submitted = false;
 
-              });
+        hideLoader();
 
-            } else {
+        if (saveBtn) {
 
-              setTimeout(function(){ editForm.submit(); }, 16);
+          saveBtn.disabled = false;
+
+          saveBtn.textContent = originalBtnText || 'Salvar alterações';
+
+        }
+
+        if (message) {
+
+          alert(message);
+
+        }
+
+      };
+
+      editForm.addEventListener('submit', function(ev){
+
+        if (submitted) { return; }
+
+        if (typeof editForm.reportValidity === 'function') {
+
+          if (!editForm.reportValidity()) { return; }
+
+        } else if (typeof editForm.checkValidity === 'function' && !editForm.checkValidity()) {
+
+          return;
+
+        }
+
+        ev.preventDefault();
+
+        submitted = true;
+
+        showLoader();
+
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
+
+        if (canAsyncSubmit) {
+
+          var formData = new FormData(editForm);
+
+          fetch(editForm.action, {
+
+            method: 'POST',
+
+            body: formData,
+
+            credentials: 'same-origin',
+
+          }).then(function(response){
+
+            if (response.type === 'opaqueredirect') {
+
+              window.location.assign(editForm.action);
+
+              return;
 
             }
 
-          };
+            if (response.redirected) {
 
-          submitAfterPaint();
+              window.location.assign(response.url);
 
-        });
+              return;
 
-      }
+            }
+
+            if (response.ok) {
+
+              return response.text().then(function(html){
+
+                document.open('text/html','replace');
+
+                document.write(html);
+
+                document.close();
+
+              });
+
+            }
+
+            return response.text().then(function(body){
+
+              var clean = (body || '').replace(/<[^>]+>/g, '').trim();
+
+              throw new Error(clean || 'Erro ao salvar. Tente novamente.');
+
+            });
+
+          }).catch(function(err){
+
+            console.error('Falha ao salvar edicao', err);
+
+            var msg = (err && err.message) || 'Não foi possível salvar. Verifique sua conexão e tente novamente.';
+
+            resetSubmission(msg);
+
+          });
+
+          return;
+
+        }
+
+        var submitAfterPaint = function(){
+
+          if (window.requestAnimationFrame) {
+
+            window.requestAnimationFrame(function(){
+
+              window.requestAnimationFrame(function(){ editForm.submit(); });
+
+            });
+
+          } else {
+
+            setTimeout(function(){ editForm.submit(); }, 16);
+
+          }
+
+        };
+
+        submitAfterPaint();
+
+      });
+
+    }
 
     })();
 

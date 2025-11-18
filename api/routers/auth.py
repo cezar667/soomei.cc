@@ -245,11 +245,12 @@ def do_login(request: Request, uid: str = Form(""), email: str = Form(...), pass
             if APP_ENV != "prod"
             else "<p>Verifique sua caixa de entrada para continuar.</p>"
         )
-        body_html = (
-            "<p class='muted'>Ainda nao identificamos a confirmacao do seu endereco.</p>"
-            + f"<p>Reenviamos o link de verificacao para <b>{html.escape(outcome.email)}</b>.</p>"
-            + manual
+        delivery = (
+            f"<p>Reenviamos o link de verificacao para <b>{html.escape(outcome.email)}</b>.</p>"
+            if outcome.email_sent
+            else f"<p>Ja enviamos recentemente um link para <b>{html.escape(outcome.email)}</b>. Verifique sua caixa de entrada (e o spam) ou aguarde alguns minutos antes de solicitar novamente.</p>"
         )
+        body_html = "<p class='muted'>Ainda nao identificamos a confirmacao do seu endereco.</p>" + delivery + manual
         templates = _templates(request)
         response = templates.TemplateResponse(
             "confirm_email.html",

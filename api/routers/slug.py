@@ -41,6 +41,7 @@ def _redirect_to_card(card: dict, uid: str) -> RedirectResponse:
 
 @router.get("/check")
 def slug_check(request: Request, value: str = ""):
+    rate_limit_ip(request, "slug:check", limit=20, window_seconds=60)
     svc = _get_slug_service(request)
     return {"available": svc.is_available(value)}
 
