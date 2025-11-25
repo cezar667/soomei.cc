@@ -1,156 +1,68 @@
 #!/usr/bin/env python3
 """
-scripts/reset_card.py — Reinicia um cartão pelo UID, removendo dados
-relacionados e recriando o cartão em estado "pending" com novo PIN.
+Resetar um cartao (UID) no Postgres: limpa dono/vanity/domínio, zera views e define novo PIN.
 
 Uso:
   python scripts/reset_card.py --uid abc123 [--new-pin 654321]
-
-O que faz:
-  - Remove o cartão do UID informado, apaga foto relacionada (web/uploads/{uid}.jpg|.png).
-  - Desvincula o usuário; se ele não possuir outros cartões, remove o perfil,
-    sessões e tokens de verificação, e também o usuário.
-  - Recria o cartão {uid} com status "pending" e PIN informado (ou aleatório).
 """
+from __future__ import annotations
 
 import argparse
-import json
-import os
 import secrets
-from typing import Tuple
+import sys
 
-BASE = os.path.dirname(__file__)
-DATA = os.path.join(BASE, "..", "api", "data.json")
-WEB = os.path.join(BASE, "..", "web")
-UPLOADS_DIR = os.path.join(WEB, "uploads")
+from api.repositories.sql_repository import SQLRepository
 
 
-def load_db():
-    if os.path.exists(DATA):
-        with open(DATA, "r", encoding="utf-8") as f:
-            try:
-                db = json.load(f)
-            except Exception:
-                db = {}
-    else:
-        db = {}
-    db.setdefault("users", {})
-    db.setdefault("cards", {})
-    db.setdefault("profiles", {})
-    db.setdefault("sessions", {})
-    db.setdefault("verify_tokens", {})
-    return db
-
-
-def save_db(db):
-    with open(DATA, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False, indent=2)
-
-
-def gen_pin(length=6):
+def gen_pin(length: int = 6) -> str:
     digits = "0123456789"
     return "".join(secrets.choice(digits) for _ in range(length))
 
 
-def count_cards_of_user(db, email: str) -> int:
-    c = 0
-    for _, card in db.get("cards", {}).items():
-        if card.get("user") == email:
-            c += 1
-    return c
+def cleanup_user_if_orphan(repo: SQLRepository, email: str, uid: str) -> None:
+    others = [c for c in repo.get_cards_by_owner(email) if c.uid != uid]
+    if others:
+        return
+    repo.delete_profile(email)
+    repo.delete_user_sessions(email)
+    repo.delete_verify_tokens_for_email(email)
+    repo.delete_reset_tokens_for_email(email)
+    repo.delete_user(email)
 
 
-def delete_photo(uid: str) -> Tuple[bool, str]:
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-    removed = False
-    last = ""
-    for ext in (".jpg", ".png"):
-        path = os.path.join(UPLOADS_DIR, f"{uid}{ext}")
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-                removed = True
-                last = path
-            except Exception:
-                pass
-    return removed, last
-
-
-def main():
-    ap = argparse.ArgumentParser(description="Reiniciar cartão pelo UID")
-    ap.add_argument("--uid", required=True, help="UID do cartão a reiniciar")
-    ap.add_argument("--new-pin", help="Novo PIN do cartão (numérico). Default: aleatório de 6 dígitos")
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Resetar cartao no Postgres")
+    ap.add_argument("--uid", required=True, help="UID do cartao a resetar")
+    ap.add_argument("--new-pin", help="Novo PIN numerico (default: aleatorio de 6 digitos)")
     args = ap.parse_args()
 
-    uid = args.uid.strip()
+    repo = SQLRepository()
+    uid = (args.uid or "").strip()
     if not uid:
-        raise SystemExit("UID inválido")
-
-    db = load_db()
-    card = db["cards"].get(uid)
+        raise SystemExit("UID invalido")
+    card = repo.get_card_by_uid(uid)
     if not card:
-        print(f"Aviso: UID '{uid}' não existia. Será criado do zero.")
-        owner = None
-    else:
-        owner = card.get("user")
+        raise SystemExit(f"UID '{uid}' nao encontrado")
+    owner = card.owner_email
 
-    # Remove cartão
-    if uid in db["cards"]:
-        del db["cards"][uid]
+    pin = (args.new_pin or "").strip() or gen_pin()
+    if not pin.isdigit():
+        raise SystemExit("PIN deve ser numerico")
 
-    # Remove foto do cartão
-    photo_removed, photo_path = delete_photo(uid)
-
-    # Se havia dono, checa se é órfão (sem outros cartões)
-    removed_user = False
-    removed_profile = False
-    removed_sessions = 0
-    removed_tokens = 0
+    repo.reset_card(uid, new_pin=pin, clear_owner=True, clear_vanity=True, clear_custom_domain=True)
     if owner:
-        others = count_cards_of_user(db, owner)
-        if others == 0:
-            # remove perfil
-            if owner in db["profiles"]:
-                del db["profiles"][owner]
-                removed_profile = True
-            # remove usuário
-            if owner in db["users"]:
-                del db["users"][owner]
-                removed_user = True
-            # remove sessões do usuário
-            for token, meta in list(db.get("sessions", {}).items()):
-                if meta.get("email") == owner:
-                    del db["sessions"][token]
-                    removed_sessions += 1
-            # remove tokens de verificação
-            for token, meta in list(db.get("verify_tokens", {}).items()):
-                if meta.get("email") == owner:
-                    del db["verify_tokens"][token]
-                    removed_tokens += 1
+        cleanup_user_if_orphan(repo, owner, uid)
 
-    # Recria cartão pendente com novo PIN
-    new_pin = (args.new_pin.strip() if args.new_pin else gen_pin())
-    if not new_pin.isdigit():
-        raise SystemExit("--new-pin deve ser numérico")
-    db["cards"][uid] = {"uid": uid, "status": "pending", "pin": new_pin}
-
-    save_db(db)
-
-    print("OK: cartão reiniciado")
+    print("OK: cartao resetado")
     print(f"  UID: {uid}")
-    print(f"  Novo PIN: {new_pin}")
+    print(f"  Novo PIN: {pin}")
     if owner:
-        print(f"  Antigo dono: {owner}")
-    if photo_removed:
-        print(f"  Foto removida: {photo_path}")
-    print("  Remoções relacionadas:")
-    print(f"    Usuário removido: {'sim' if removed_user else 'não'}")
-    print(f"    Perfil removido: {'sim' if removed_profile else 'não'}")
-    print(f"    Sessões removidas: {removed_sessions}")
-    print(f"    Tokens de verificação removidos: {removed_tokens}")
-    print(f"Arquivo salvo: {os.path.abspath(DATA)}")
+        print(f"  Antigo dono removido: {owner}")
 
 
 if __name__ == "__main__":
-    main()
-
+    try:
+        main()
+    except Exception as exc:  # pragma: no cover
+        sys.stderr.write(f"Erro: {exc}\n")
+        raise SystemExit(1)

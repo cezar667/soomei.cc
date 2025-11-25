@@ -177,6 +177,13 @@ Checklist de Segurança em Produção
 - `scripts/reset_card.py` — reseta cartão, remove dados, recria como `pending`
 - `scripts/write_tags.py` — grava URLs NFC (ajustar domínio conforme ambiente)
 
+## Notas recentes (dev)
+- Verificação de e-mail: tokens guardados em timezone offset agora são normalizados para UTC antes do TTL (evita 400 no `/auth/verify`).
+- Troca de e-mail pendente atualiza o botão de confirmação (dev) com o novo `verify_path` e retorna erro específico de PIN.
+- Página `/auth/pending` usa o mesmo conteúdo de confirmação que o cadastro e reenvia o e-mail ao entrar.
+- Público: visitante só vê “cartão em construção” se o perfil estiver incompleto, pendente ou dono não verificado; caso contrário, exibe o cartão.
+- Testes: adicionado coverage para `_token_expired` e `change_pending_email` (SQLite temporário).
+
 ## Convenções de Código
 - PT-BR nos rótulos/mensagens. UTF-8.
 - Ao embutir JS em f-strings, sempre escapar `{`/`}` como `{{`/`}}` (especialmente em template literals).
@@ -189,14 +196,31 @@ Checklist de Segurança em Produção
 - Respeitar rotas estáveis; se quebrar, documentar migração.
 
 ### Modularizacao em andamento
-- Dados/adapters: `api.repositories.json_storage` centraliza `load/save/db_defaults` para o JSON enquanto não migramos para Postgres/D1.
-- Domínio: `api.domain.slugs` concentra regras de slug/nomes reservados e é reutilizado pelos serviços.
-- Serviços:
-  - `api.services.slug_service` (checagem e atribuição de slug), `session_service` (emissão/lookup de sessões) e `auth_service` (cadastro/login/verify/password reset).
-  - `api.services.card_service` (lookup de cartões) e `card_display` (renderização, métricas, normalizações de links/Pix).
-  - `api.services.custom_domain_service` expõe fluxo de request/withdraw/remove para domínios personalizados (`CUSTOM_DOMAINS_ENABLED=1` habilita o router) sobre a base compartilhada de `api.services.domain_service` (normalize/lookup/registry reutilizado por outros módulos).
-- Core cross-cutting: `api.core.config`, `security` (argon2), `csrf`, `rate_limiter`, `mailer` e `utils` encapsulam concerns compartilhados.
+- Dados/adapters:
+  - Camada SQL (Postgres) em `api.db`: `session.py` (engine/session), `models.py` (users, cards, profiles, tokens, sessões, domínios) e script `api.db.create_tables`.
+  - `api.repositories.sql_repository` oferece operações sobre o banco (CRUD de usuários/tokens, consulta/atualização de cards, perfis e domínios, sincronização com JSON legada). A migração completa do `data.json` pode ser feita via `python -m scripts.migrate_to_postgres` (carrega usuários, cards, perfis, tokens, sessões e domínios para o Postgres).
+- Domínio/Serviços:
+  - `api.domain.slugs` continua responsável pelas regras de slug/reservados.
+  - `api.services.slug_service` agora consulta e sincroniza com o Postgres (checagem de disponibilidade e atribuição de vanity slug passam pelo repositório SQL, com fallback no JSON enquanto routers não migram).
+  - `api.services.card_service` consulta o Postgres e sincroniza o dicionário JSON (função `find_card_by_slug` mantém a assinatura atual, mas abastece o banco via `sync_card_from_json`).
+  - `api.services.session_service` emite/valida sessões via tabela `users_sessions`, com fallback para o JSON durante a transição.
+  - `api.services.auth_service` usa o repositório SQL para registro/login (hash e verificação de e-mail no Postgres), ainda que perfis/cartões permaneçam em JSON.
+  - `api.services.custom_domain_service` continua sobre `domain_service` (normalize/lookup) e ainda depende do JSON até os routers migrarem.
+- Core cross-cutting: `api.core.config`, `security` (argon2), `csrf`, `rate_limiter`, `mailer` e `utils` seguem encapsulando concerns compartilhados.
 - Routers FastAPI:
-  - `api.routers.auth`, `slug`, `custom_domain`, `pages` (onboard/login/terms) e `hooks` já estão isolados; `api.routers.card_edit` cuida da edição fora do monólito.
-  - `api.routers.cards` continua grande e concentra renderização pública, QR, vCard e onboarding; próxima etapa é quebrá-lo em módulos menores (público vs métricas) sem depender de templates inline.
+  - `api.routers.auth`, `slug`, `custom_domain`, `pages` (onboard/login/terms), `hooks`, `card_edit` e `cards` já usam o Postgres como fonte principal para usuários, cards, perfis, sessões e métricas; o fallback para `data.json` foi removido.
+  - Inicialização: `api.app:create_app()` e `api.admin_app:create_admin_app()` são as fábricas; `api.app_factory` expõe ambos (`public_app`, `admin_app`). Uvicorn: `uvicorn api.app:create_app` (público) e `uvicorn api.admin_app:create_admin_app` (admin).
+  - `SQLRepository` ganhou helpers para sessões admin, contagem/CRUD de cartões e operações de status/billing, preparando a migração do admin.
+  - `api.admin_app.py` foi migrado para Postgres (login admin, sessões admin, dashboard, CRUD/reset de cartões, domínio personalizado, usuários) usando `SQLRepository`.
+  - Scripts `scripts/add_card.py` e `scripts/reset_card.py` agora operam sobre Postgres; `data.json` pode ser mantido apenas para migração legada via `scripts/migrate_to_postgres.py`.
+
+### Próximas etapas de migração para Postgres
+1. **Admin / Custom domains**
+   - Criar operações no `SQLRepository` para tudo o que o admin faz hoje (criar/resetar cartões, sessions admin, aprovar/reprovar domínios, limpar perfis/fotos, métricas).
+   - Refatorar `api.services.custom_domain_service` (já sincroniza meta, mas falta mover conflitos/registro por completo) e o router `/custom-domain` para usarem apenas o Postgres.
+   - Migrar `api/admin_app.py` em blocos: login/sessões admin, dashboard/listas, CRUD de cartões, perfis/uploads, e fluxo de domínios.
+   - Atualizar scripts utilitários (`scripts/add_card.py`, `scripts/reset_card.py`) para usar o repositório SQL.
+2. **Remoção do JSON**
+   - JSON e `json_storage` removidos; Postgres é a única fonte de dados. `scripts/migrate_to_postgres.py` permanece como utilitário para importar um `data.json` legado, mas o runtime não depende mais dele. Flag `USE_JSON_FALLBACK` removida.
+  - `api.routers.cards` continua grande e concentra renderização pública, QR, vCard e onboarding. A migração para Postgres será feita por partes (lookup de cards, custom-domain, perfis, métricas), sincronizando com o repositório SQL a cada etapa.
 

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from api.domain.slugs import is_valid_slug, slug_in_use
-from api.repositories.json_storage import db_defaults, load, save
+from api.domain.slugs import is_valid_slug
+from api.repositories.sql_repository import SQLRepository
 
 
 class SlugError(Exception):
@@ -24,9 +22,11 @@ class CardNotFoundError(SlugError):
     """Raised when trying to update a slug for a non-existent card."""
 
 
-@dataclass
 class SlugService:
     """Provides slug availability checks and assignment helpers."""
+
+    def __init__(self) -> None:
+        self.repository = SQLRepository()
 
     def normalize(self, value: str | None) -> str:
         return (value or "").strip()
@@ -35,23 +35,22 @@ class SlugService:
         candidate = self.normalize(value)
         if not is_valid_slug(candidate):
             return False
-        db = db_defaults(load())
-        return not slug_in_use(db, candidate)
+        # Prefer SQL as fonte de verdade
+        if self.repository.slug_exists(candidate):
+            return False
+        return True
 
     def assign_slug(self, uid: str, slug: str) -> str:
         candidate = self.normalize(slug)
         if not is_valid_slug(candidate):
             raise InvalidSlugError("Slug invalido")
-        db = db_defaults(load())
-        card = db.get("cards", {}).get(uid)
-        if not card:
+        entity = self.repository.get_card_by_uid(uid)
+        if not entity:
             raise CardNotFoundError(f"Card {uid} not found")
-        current = (card.get("vanity") or "").strip()
+        current = (entity.vanity or "").strip()
         if candidate == current:
             return candidate
-        if slug_in_use(db, candidate):
+        if self.repository.slug_exists(candidate):
             raise SlugUnavailableError("Slug indisponivel")
-        card["vanity"] = candidate
-        db["cards"][uid] = card
-        save(db)
+        self.repository.update_card_slug(uid, candidate)
         return candidate

@@ -8,10 +8,11 @@ from typing import Optional
 
 from fastapi import Request
 
-from api.repositories.json_storage import db_defaults, load, save
+from api.repositories.sql_repository import SQLRepository
 from api.services.domain_service import active_custom_domain_host
 
 PUBLIC_BASE = ""
+_repo = SQLRepository()
 
 
 def configure_public_base(base_url: str) -> None:
@@ -229,24 +230,16 @@ def _int_or_zero(value, default: int = 0) -> int:
         return default
 
 def get_card_view_count(uid: str) -> int:
-    db = db_defaults(load())
-    card = db.get("cards", {}).get(uid) or {}
-    metrics = card.get("metrics") or {}
-    return _int_or_zero(metrics.get("views"), 0)
+    entity = _repo.get_card_by_uid(uid)
+    if entity:
+        return _int_or_zero(entity.metrics_views, 0)
+    return 0
 
 def increment_card_view(uid: str) -> int:
-    db = db_defaults(load())
-    card = db.get("cards", {}).get(uid)
-    if not card:
-        return 0
-    metrics = card.setdefault("metrics", {})
-    current = _int_or_zero(metrics.get("views"), 0) + 1
-    metrics["views"] = current
-    try:
-        save(db)
-    except Exception:
-        pass
-    return current
+    updated = _repo.increment_card_views(uid)
+    if updated:
+        return updated
+    return 0
 
 def should_track_view(request: Request, slug: str) -> bool:
     if request.method.upper() != "GET":

@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from api.core import csrf
 from api.core.config import get_settings
 from api.core.rate_limiter import rate_limit_ip
-from api.repositories.json_storage import db_defaults, load
+from api.repositories.sql_repository import SQLRepository
 from api.services.auth_service import (
     AuthService,
     RegistrationError,
@@ -18,12 +18,13 @@ from api.services.auth_service import (
     LoginVerificationRequired,
     TokenInvalidError,
 )
-from api.services.session_service import clear_session_cookie, set_session_cookie
+from api.services.session_service import clear_session_cookie, current_user_email, set_session_cookie
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 auth_service = AuthService()
 settings = get_settings()
 APP_ENV = settings.app_env
+_sql_repo = SQLRepository()
 
 
 def _css_href(request: Request) -> str:
@@ -36,6 +37,25 @@ def _templates(request: Request):
     if tpl:
         return tpl
     raise RuntimeError("Templates nao configurados")
+
+
+def _confirm_email_page(request: Request, *, title: str, heading: str, body_html: str, extra_context: dict | None = None):
+    templates = _templates(request)
+    token = csrf.ensure_csrf_token(request)
+    context = {
+        "request": request,
+        "title": title,
+        "heading": heading,
+        "body_html": body_html,
+        "csrf_token": token,
+        "app_env": APP_ENV,
+        "dev_verify_path": "",
+    }
+    if extra_context:
+        context.update(extra_context)
+    response = templates.TemplateResponse("confirm_email.html", context)
+    csrf.set_csrf_cookie(response, token)
+    return response
 
 
 def _banner(content: str, css_class: str) -> str:
@@ -174,10 +194,8 @@ def check_email(value: str = ""):
     """
     Valida se um e-mail já está cadastrado. Reaproveita o mesmo caminho utilizado no front.
     """
-    db = db_defaults(load())
-    normalized = (value or "").strip().lower()
-    available = bool(normalized) and normalized not in db.get("users", {})
-    return {"available": available}
+    # Para evitar bloqueio indevido no onboarding, respondemos sempre disponível.
+    return {"available": True}
 
 
 @router.post("/register")
@@ -217,18 +235,13 @@ def register(
         + manual_link
         + f"<p>Depois de confirmar, voce sera direcionado ao cartao <code>/{html.escape(result.dest_slug)}</code>.</p>"
     )
-    templates = _templates(request)
-    response = templates.TemplateResponse(
-        "confirm_email.html",
-        {
-            "request": request,
-            "title": "Confirme seu email",
-            "heading": "Confirme seu email",
-            "body_html": body_html,
-        },
+    return _confirm_email_page(
+        request,
+        title="Confirme seu email",
+        heading="Confirme seu email",
+        body_html=body_html,
+        extra_context={"uid": result.uid, "email": result.email, "dev_verify_path": result.verify_path},
     )
-    csrf.set_csrf_cookie(response, csrf.ensure_csrf_token(request))
-    return response
 
 
 @router.post("/login")
@@ -251,18 +264,13 @@ def do_login(request: Request, uid: str = Form(""), email: str = Form(...), pass
             else f"<p>Ja enviamos recentemente um link para <b>{html.escape(outcome.email)}</b>. Verifique sua caixa de entrada (e o spam) ou aguarde alguns minutos antes de solicitar novamente.</p>"
         )
         body_html = "<p class='muted'>Ainda nao identificamos a confirmacao do seu endereco.</p>" + delivery + manual
-        templates = _templates(request)
-        response = templates.TemplateResponse(
-            "confirm_email.html",
-            {
-                "request": request,
-                "title": "Confirme seu email",
-                "heading": "Confirme seu email",
-                "body_html": body_html,
-            },
+        return _confirm_email_page(
+            request,
+            title="Confirme seu email",
+            heading="Confirme seu email",
+            body_html=body_html,
+            extra_context={"email": outcome.email, "dev_verify_path": outcome.verify_path},
         )
-        csrf.set_csrf_cookie(response, csrf.ensure_csrf_token(request))
-        return response
     dest = f"/{outcome.target_slug}" if outcome.target_slug else "/"
     resp = RedirectResponse(dest, status_code=303)
     set_session_cookie(resp, outcome.session_token)
@@ -284,13 +292,109 @@ def verify_email(request: Request, token: str):
     return resp
 
 
+@router.get("/pending", response_class=HTMLResponse)
+def pending(request: Request, uid: str = "", pin: str = ""):
+    uid_value = (uid or "").strip()
+    pin_value = (pin or "").strip()
+    cookie_pin = None
+    raw_cookie = request.cookies.get("pending_pin") or ""
+    if raw_cookie and ":" in raw_cookie:
+        cookie_uid, cookie_pin_val = raw_cookie.split(":", 1)
+        if cookie_uid == uid_value:
+            cookie_pin = cookie_pin_val
+    if not pin_value:
+        pin_value = cookie_pin or ""
+    card = _sql_repo.get_card_by_uid(uid_value)
+    if not card:
+        resp = RedirectResponse("/invalid", status_code=302)
+        resp.delete_cookie("pending_pin", path="/auth")
+        return resp
+    if str(card.pin or "").strip() != pin_value:
+        resp = RedirectResponse(f"/onboard/{html.escape(uid_value)}/pin?error=PIN%20incorreto", status_code=303)
+        resp.delete_cookie("pending_pin", path="/auth")
+        return resp
+    owner = (card.owner_email or "").strip()
+    if not owner:
+        resp = RedirectResponse(f"/onboard/{html.escape(uid_value)}", status_code=303)
+        resp.delete_cookie("pending_pin", path="/auth")
+        return resp
+    user = _sql_repo.get_user(owner)
+    if not user:
+        # Garante que o token possa ser validado mesmo que o usuario ainda nao exista (ex.: migracao/cadastro incompleto)
+        _sql_repo.upsert_user(owner, password_hash="")
+        user = _sql_repo.get_user(owner)
+    if user and user.email_verified_at:
+        resp = RedirectResponse(f"/{html.escape(card.vanity or uid_value)}", status_code=303)
+        resp.delete_cookie("pending_pin", path="/auth")
+        return resp
+    email_sent = auth_service.resend_verification(owner)
+    verify_token, _created = auth_service._ensure_verify_token(owner, force_new=False)  # reutiliza ou cria token
+    verify_path = f"/auth/verify?token={verify_token}"
+    dest_slug = card.vanity or uid_value
+    dev_hint = ""
+    if APP_ENV != "prod":
+        dev_hint = (
+            f"<p class='muted'>Ambiente de desenvolvimento: voce tambem pode confirmar clicando <a class='btn' href='{html.escape(verify_path)}'>aqui</a>.</p>"
+        )
+    delivery = (
+        f"<p>Enviamos um link de verificacao para <b>{html.escape(owner)}</b>. Confira sua caixa de entrada.</p>"
+        if email_sent
+        else "<p class='banner bad'>Nao foi possivel enviar o e-mail de confirmacao automaticamente. Use o link abaixo para confirmar:</p>"
+    )
+    manual_link = "" if email_sent else f"<p><a class='btn' href='{html.escape(verify_path)}'>Confirmar email</a></p>"
+    body_html = (
+        delivery
+        + dev_hint
+        + manual_link
+        + f"<p>Depois de confirmar, voce sera direcionado ao cartao <code>/{html.escape(dest_slug)}</code>.</p>"
+    )
+    response = _confirm_email_page(
+        request,
+        title="Confirme seu email",
+        heading="Confirme seu email",
+        body_html=body_html,
+        extra_context={"uid": uid_value, "email": owner, "dev_verify_path": verify_path},
+    )
+    response.delete_cookie("pending_pin", path="/auth")
+    return response
+
+
 @router.post("/logout")
-def logout(request: Request, next: str = "/", csrf_token: str = Form("")):
+def logout(request: Request, next: str = Form(None), csrf_token: str = Form("")):
     csrf.validate_csrf(request, csrf_token)
     auth_service.logout(request.cookies.get("session"))
-    dest = next or request.headers.get("referer") or "/"
+    dest = (next or "").strip()
+    if not dest or dest == "/":
+        ref = request.headers.get("referer") or ""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(ref)
+            dest = (parsed.path or "").strip() or "/login"
+        except Exception:
+            dest = "/login"
     if not isinstance(dest, str) or not dest.startswith("/"):
-        dest = "/"
+        dest = "/login"
     resp = RedirectResponse(dest, status_code=303)
     clear_session_cookie(resp)
     return resp
+
+
+@router.post("/resend_verify")
+def resend_verify(request: Request, email: str = Form(""), csrf_token: str = Form("")):
+    csrf.validate_csrf(request, csrf_token)
+    ok = auth_service.resend_verification(email)
+    return {"ok": ok}
+
+
+@router.post("/resend_verify_pending")
+def resend_verify_pending(request: Request, uid: str = Form(""), pin: str = Form(""), csrf_token: str = Form("")):
+    csrf.validate_csrf(request, csrf_token)
+    ok = auth_service.resend_verification_for_card(uid, pin)
+    return {"ok": ok}
+
+
+@router.post("/change_email_pending")
+def change_email_pending(request: Request, uid: str = Form(""), pin: str = Form(""), new_email: str = Form(""), csrf_token: str = Form("")):
+    csrf.validate_csrf(request, csrf_token)
+    updated, verify_path, reason = auth_service.change_pending_email(uid, pin, new_email)
+    return {"ok": bool(updated), "email": updated or "", "verify_path": verify_path or "", "reason": reason or ""}

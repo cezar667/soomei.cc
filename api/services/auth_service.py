@@ -5,17 +5,17 @@ Authentication and identity related use cases.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
-import secrets
 import time
 
 from api.core.config import get_settings
 from api.core.mailer import send_email
 from api.core.security import hash_password, verify_password
 from api.core.utils import absolute_url
-from api.domain.slugs import is_valid_slug, slug_in_use
-from api.repositories.json_storage import load, save, db_defaults
-from api.services.session_service import issue_session
+from api.domain.slugs import is_valid_slug
+from api.repositories.sql_repository import SQLRepository
+from api.services.session_service import delete_session, issue_session
 
 
 class AuthError(Exception):
@@ -42,6 +42,7 @@ class TokenInvalidError(AuthError):
 
 @dataclass
 class RegisterResult:
+    uid: str
     email: str
     verify_path: str
     verify_url: str
@@ -77,41 +78,127 @@ class AuthService:
 
     def __post_init__(self):
         self.settings = get_settings()
+        self.repository = SQLRepository()
 
     # -------------------------------------- helpers --------------------------------------
     def _now(self) -> int:
         return int(time.time())
 
-    def _token_expired(self, created_at: int | None, now: int) -> bool:
-        ttl = self.settings.email_verification_ttl_seconds
+    def _token_expired(self, created_at: datetime | int | None, now: int, *, ttl_seconds: int | None = None) -> bool:
+        ttl = ttl_seconds if ttl_seconds is not None else self.settings.email_verification_ttl_seconds
         if ttl <= 0:
             return False
-        created = int(created_at or 0)
-        if not created:
+        created_ts = 0
+        if isinstance(created_at, datetime):
+            # Normalize aware datetimes to UTC to avoid misreading offsets (ex.: -03:00) as UTC timestamps.
+            normalized = created_at.astimezone(timezone.utc) if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
+            created_ts = int(normalized.timestamp())
+        else:
+            created_ts = int(created_at or 0)
+        if not created_ts:
             return True
-        return (created + ttl) < now
+        return (created_ts + ttl) < now
 
-    def _resolve_target_slug(self, db: dict, email: str, uid_hint: Optional[str]) -> Optional[str]:
-        cards = db.get("cards", {})
-        if uid_hint and uid_hint in cards:
-            return cards[uid_hint].get("vanity", uid_hint)
-        for uid, card in cards.items():
-            if card.get("user") == email:
-                return card.get("vanity", uid)
+    def _resolve_target_slug(self, email: str, uid_hint: Optional[str]) -> Optional[str]:
+        if uid_hint:
+            card = self.repository.get_card_by_uid(uid_hint)
+            if card and (card.owner_email == email):
+                return card.vanity or uid_hint
+        for card in self.repository.get_cards_by_owner(email):
+            return card.vanity or card.uid
         return None
 
-    def _ensure_verify_token(self, db: dict, email: str, force_new: bool = False) -> tuple[str, bool]:
-        tokens = db.setdefault("verify_tokens", {})
+    def _cleanup_unverified_account(self, email: str) -> None:
+        """Remove dados de uma conta não verificada (tokens, sessões, perfil e usuário)."""
+        if not email:
+            return
+        self.repository.delete_verify_tokens_for_email(email)
+        self.repository.delete_reset_tokens_for_email(email)
+        self.repository.delete_user_sessions(email)
+        self.repository.delete_profile(email)
+        self.repository.delete_user(email)
+
+    def _ensure_verify_token(self, email: str, force_new: bool = False) -> tuple[str, bool]:
         now = self._now()
-        for token, meta in list(tokens.items()):
-            if self._token_expired(meta.get("created_at"), now):
-                tokens.pop(token, None)
-                continue
-            if not force_new and meta.get("email") == email:
-                return token, False
-        token = secrets.token_urlsafe(24)
-        tokens[token] = {"email": email, "created_at": now}
+        existing = self.repository.get_verify_token_for_email(email)
+        if existing and not force_new and not self._token_expired(existing.created_at, now):
+            return existing.token, False
+        if existing and (force_new or self._token_expired(existing.created_at, now)):
+            self.repository.delete_verify_tokens_for_email(email)
+        token = self.repository.create_verify_token(email)
         return token, True
+
+    def resend_verification(self, email: str) -> bool:
+        email = (email or "").strip()
+        if not email:
+            return False
+        user = self.repository.get_user(email)
+        if not user or user.email_verified_at:
+            return False
+        token, created = self._ensure_verify_token(email, force_new=False)
+        verify_path = f"/auth/verify?token={token}"
+        verify_url = absolute_url(verify_path)
+        send_email(
+            "Confirme seu e-mail - Soomei",
+            email,
+            self._verify_email_html(verify_url, "Para concluir seu acesso, confirme seu e-mail clicando no botão abaixo:"),
+            f"Confirme seu e-mail: {verify_url}",
+        )
+        return True
+
+    def resend_verification_for_card(self, uid: str, pin: str) -> bool:
+        card = self.repository.get_card_by_uid(uid)
+        if not card or (card.status or "").lower() != "active":
+            return False
+        if str(pin or "").strip() != str(card.pin or "").strip():
+            return False
+        owner = (card.owner_email or "").strip()
+        if not owner:
+            return False
+        user = self.repository.get_user(owner)
+        if not user or user.email_verified_at:
+            return False
+        return self.resend_verification(owner)
+
+    def change_pending_email(self, uid: str, pin: str, new_email: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        Atualiza o e-mail de um cartao pendente de verificacao.
+        Retorna (novo_email, verify_path, erro) onde erro pode indicar motivo especifico.
+        """
+        card = self.repository.get_card_by_uid(uid)
+        if not card or (card.status or "").lower() != "active":
+            return None, None, "card_not_found"
+        if str(pin or "").strip() != str(card.pin or "").strip():
+            return None, None, "invalid_pin"
+        owner = (card.owner_email or "").strip()
+        if not owner:
+            return None, None, "no_owner"
+        user = self.repository.get_user(owner)
+        if user and user.email_verified_at:
+            return None, None, "already_verified"
+        new_addr = (new_email or "").strip()
+        if not new_addr:
+            return None, None, "invalid_email"
+        existing_new = self.repository.get_user(new_addr)
+        if existing_new and existing_new.email_verified_at:
+            return None, None, "email_in_use"
+        old_profile = self.repository.get_profile(owner) or {}
+        # clean old unverified
+        self._cleanup_unverified_account(owner)
+        pwd_placeholder = user.password_hash if user else ""
+        self.repository.upsert_user(new_addr, password_hash=pwd_placeholder)
+        self.repository.assign_card_owner(uid, new_addr, status="active", billing_status=card.billing_status, vanity=card.vanity)
+        self.repository.upsert_profile(new_addr, old_profile)
+        token, _ = self._ensure_verify_token(new_addr, force_new=True)
+        verify_path = f"/auth/verify?token={token}"
+        verify_url = absolute_url(verify_path)
+        send_email(
+            "Confirme seu e-mail - Soomei",
+            new_addr,
+            self._verify_email_html(verify_url, "Use o botao abaixo para confirmar seu e-mail e ativar o seu cartao digital:"),
+            f"Ola! Confirme seu e-mail acessando: {verify_url}",
+        )
+        return new_addr, verify_path, None
 
     def _verify_email_html(self, verify_url: str, prompt: str) -> str:
         return f"""
@@ -130,69 +217,64 @@ class AuthService:
         raw_email = (email or "").strip()
         if not raw_email:
             raise RegistrationError("Email obrigatorio")
-        db = db_defaults(load())
         vanity_value = (vanity or "").strip()
         if vanity_value:
             if not is_valid_slug(vanity_value):
                 raise RegistrationError("Slug invalido. Use 3-30 caracteres [a-z0-9-]")
-            if slug_in_use(db, vanity_value):
+            if self.repository.slug_exists(vanity_value):
                 raise RegistrationError("Slug indisponivel, tente outro")
-        card = db.get("cards", {}).get(uid)
-        if not card:
+        card_entity = self.repository.get_card_by_uid(uid)
+        if not card_entity:
             raise RegistrationError("Cartao nao encontrado para ativacao")
-        if pin != card.get("pin", "123456"):
+        if pin != (card_entity.pin or "123456"):
             raise RegistrationError("PIN incorreto. Verifique e tente novamente")
         if len(password or "") < 8:
             raise RegistrationError("Senha muito curta. Use no minimo 8 caracteres")
-        if raw_email in db.get("users", {}):
+        existing_owner = (card_entity.owner_email or "").strip()
+        existing_user = self.repository.get_user(raw_email)
+        if existing_user and existing_user.email_verified_at:
+            # Conta já existe e verificada
             raise AccountExistsError("Conta ja existe")
+        if existing_owner and existing_owner != raw_email:
+            owner_user = self.repository.get_user(existing_owner)
+            if owner_user and owner_user.email_verified_at:
+                raise AccountExistsError("Cartao ja foi ativado com outro email.")
+            # Limpa dono anterior não verificado para permitir correção de e-mail
+            self._cleanup_unverified_account(existing_owner)
 
-        db.setdefault("users", {})[raw_email] = {"email": raw_email, "pwd": hash_password(password), "email_verified_at": None}
-        card.update({"status": "active", "billing_status": "ok", "user": raw_email})
-        if vanity_value:
-            card["vanity"] = vanity_value
-        db.setdefault("cards", {})[uid] = card
-        db.setdefault("profiles", {})[raw_email] = {
-            "full_name": "",
-            "title": "",
-            "links": [],
-            "whatsapp": "",
-            "pix_key": "",
-            "email_public": "",
-            "site_url": "",
-            "photo_url": "",
-            "cover_url": "",
-        }
-        token, _ = self._ensure_verify_token(db, raw_email, force_new=True)
-        save(db)
+        password_hash = hash_password(password)
+        self.repository.upsert_user(raw_email, password_hash=password_hash)
+        self.repository.assign_card_owner(uid, raw_email, status="active", billing_status="ok", vanity=vanity_value or None)
+        self.repository.upsert_profile(
+            raw_email,
+            {"full_name": "", "title": "", "links": [], "whatsapp": "", "pix_key": "", "email_public": "", "site_url": "", "photo_url": "", "cover_url": ""},
+        )
+        token, _ = self._ensure_verify_token(raw_email, force_new=True)
         verify_path = f"/auth/verify?token={token}"
         verify_url = absolute_url(verify_path)
-        dest_slug = card.get("vanity", uid)
+        dest_slug = vanity_value or uid
         email_sent = send_email(
             "Confirme seu e-mail - Soomei",
             raw_email,
             self._verify_email_html(verify_url, "Use o botão abaixo para confirmar seu e-mail e ativar o seu cartão digital:"),
             f"Olá! Confirme seu e-mail acessando: {verify_url}",
         )
-        return RegisterResult(email=raw_email, verify_path=verify_path, verify_url=verify_url, dest_slug=dest_slug, email_sent=email_sent)
+        return RegisterResult(uid=uid, email=raw_email, verify_path=verify_path, verify_url=verify_url, dest_slug=dest_slug, email_sent=email_sent)
 
     # -------------------------------------- login --------------------------------------
     def login(self, uid_hint: str, email: str, password: str) -> LoginSuccess | LoginVerificationRequired:
         raw_email = (email or "").strip()
         if not raw_email:
             raise InvalidCredentialsError("Credenciais invalidas")
-        db = db_defaults(load())
-        user = db.get("users", {}).get(raw_email)
-        if not user or not verify_password(password, user.get("pwd")):
+        user = self.repository.get_user(raw_email)
+        if not user or not verify_password(password, user.password_hash):
             raise InvalidCredentialsError("Credenciais invalidas")
-        if user.get("pwd") and not str(user.get("pwd", "")).startswith("argon2$"):
-            user["pwd"] = hash_password(password)
-            db.setdefault("users", {})[raw_email] = user
-            save(db)
+        if user.password_hash and not str(user.password_hash).startswith("argon2$"):
+            new_hash = hash_password(password)
+            self.repository.update_user_password(raw_email, new_hash)
 
-        if not user.get("email_verified_at"):
-            token, created = self._ensure_verify_token(db, raw_email)
-            save(db)
+        if not user.email_verified_at:
+            token, created = self._ensure_verify_token(raw_email)
             verify_path = f"/auth/verify?token={token}"
             verify_url = absolute_url(verify_path)
             email_sent = False
@@ -205,8 +287,8 @@ class AuthService:
                 )
             return LoginVerificationRequired(email=raw_email, verify_path=verify_path, verify_url=verify_url, email_sent=email_sent)
 
-        target = self._resolve_target_slug(db, raw_email, uid_hint)
-        token = issue_session(db, raw_email)
+        target = self._resolve_target_slug(raw_email, uid_hint)
+        token = issue_session(raw_email)
         return LoginSuccess(email=raw_email, session_token=token, target_slug=target)
 
     # -------------------------------------- verificação --------------------------------------
@@ -214,44 +296,38 @@ class AuthService:
         token_value = (token or "").strip()
         if not token_value:
             raise TokenInvalidError("Token invalido ou expirado.")
-        db = db_defaults(load())
-        meta = db.get("verify_tokens", {}).pop(token_value, None)
-        if not meta:
+        entity = self.repository.get_verify_token(token_value)
+        now = self._now()
+        if not entity or self._token_expired(entity.created_at, now):
+            if entity:
+                self.repository.delete_verify_token(token_value)
             raise TokenInvalidError("Token invalido ou expirado.")
-        if self._token_expired(meta.get("created_at"), self._now()):
-            save(db)
-            raise TokenInvalidError("Token invalido ou expirado.")
-        email = meta.get("email")
-        if not email or email not in db.get("users", {}):
-            save(db)
+        email = entity.email or ""
+        user = self.repository.get_user(email)
+        if not user:
+            self.repository.delete_verify_token(token_value)
             raise TokenInvalidError("Usuario nao encontrado para este token.")
-        db["users"][email]["email_verified_at"] = self._now()
-        save(db)
-        target = self._resolve_target_slug(db, email, None)
-        session_token = issue_session(db, email)
+        self.repository.set_user_verified(email)
+        self.repository.delete_verify_tokens_for_email(email)
+        target = self._resolve_target_slug(email, None)
+        session_token = issue_session(email)
         return VerifyResult(email=email, session_token=session_token, target_slug=target)
 
     def logout(self, session_token: Optional[str]):
         if not session_token:
             return
-        db = db_defaults(load())
-        sessions = db.get("sessions", {})
-        if session_token in sessions:
-            sessions.pop(session_token, None)
-            save(db)
+        delete_session(session_token)
 
     # -------------------------------------- reset de senha --------------------------------------
     def issue_password_reset(self, email: str) -> bool:
-        addr = (email or "").strip().lower()
-        if not addr:
+        raw = (email or "").strip()
+        if not raw:
             return False
-        db = db_defaults(load())
-        users = {k.lower(): k for k in db.get("users", {}).keys()}
-        if addr not in users:
+        user = self.repository.get_user(raw)
+        if not user:
             return False
-        token = secrets.token_urlsafe(32)
-        db.setdefault("reset_tokens", {})[token] = {"email": users[addr], "created_at": self._now()}
-        save(db)
+        self.repository.delete_reset_tokens_for_email(raw)
+        token = self.repository.create_reset_token(raw)
         reset_url = absolute_url(f"/auth/reset?token={token}")
         html_body = f"""
         <p>Olá!</p>
@@ -259,43 +335,41 @@ class AuthService:
         <p><a href="{reset_url}" style="background:#0ea5e9;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;">Redefinir senha</a></p>
         <p>Se não foi você, ignore esta mensagem.</p>
         """
-        send_email("Redefina sua senha - Soomei", users[addr], html_body, f"Use este link para redefinir sua senha: {reset_url}")
+        send_email("Redefina sua senha - Soomei", raw, html_body, f"Use este link para redefinir sua senha: {reset_url}")
         return True
 
     def validate_reset_token(self, token: str) -> dict | None:
         token = (token or "").strip()
         if not token:
             return None
-        db = db_defaults(load())
-        meta = db.get("reset_tokens", {}).get(token)
-        if not meta:
+        entity = self.repository.get_reset_token(token)
+        if not entity:
             return None
-        created = int(meta.get("created_at") or 0)
-        if created < self._now() - self.settings.password_reset_ttl:
-            db["reset_tokens"].pop(token, None)
-            save(db)
+        now = self._now()
+        if self._token_expired(entity.created_at, now, ttl_seconds=self.settings.password_reset_ttl):
+            self.repository.delete_reset_token(token)
             return None
-        return {"token": token, "email": meta.get("email", "")}
+        return {"token": token, "email": entity.email}
 
     def reset_password(self, token: str, password: str) -> str | None:
         token = (token or "").strip()
-        db = db_defaults(load())
-        meta = db.get("reset_tokens", {}).get(token)
-        if not meta:
+        if not token:
             return None
-        created = int(meta.get("created_at") or 0)
-        if created < self._now() - self.settings.password_reset_ttl:
-            db["reset_tokens"].pop(token, None)
-            save(db)
+        entity = self.repository.get_reset_token(token)
+        if not entity:
             return None
-        email = (meta.get("email") or "").strip()
-        user = db.get("users", {}).get(email)
+        now = self._now()
+        if self._token_expired(entity.created_at, now, ttl_seconds=self.settings.password_reset_ttl):
+            self.repository.delete_reset_token(token)
+            return None
+        email = (entity.email or "").strip()
+        if not email:
+            self.repository.delete_reset_token(token)
+            return None
+        user = self.repository.get_user(email)
         if not user:
-            db["reset_tokens"].pop(token, None)
-            save(db)
+            self.repository.delete_reset_token(token)
             return None
-        user["pwd"] = hash_password(password)
-        db["users"][email] = user
-        db["reset_tokens"].pop(token, None)
-        save(db)
+        self.repository.update_user_password(email, hash_password(password))
+        self.repository.delete_reset_token(token)
         return email

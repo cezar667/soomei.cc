@@ -13,7 +13,13 @@
         {% endif %}
         <p class="muted">Volte em breve e encontre todas as informacoes completas por aqui.</p>
         <div class="status-actions">
-          <a class="btn primary" href="/login">Sou o dono? Entrar</a>
+        {% if cta_url %}
+            <a class="btn primary" href="{{ cta_url }}">{{ cta_label or "Sou o dono? Entrar" }}</a>
+        {% elif uid %}
+            <a class="btn primary" href="/onboard/{{ uid }}">Sou o dono? Finalizar ativacao</a>
+        {% else %}
+            <a class="btn primary" href="/login">Sou o dono? Entrar</a>
+        {% endif %}
           <a class="btn ghost" href="/">Voltar</a>
         </div>
       </div>
@@ -36,4 +42,20 @@
     .btn.ghost:hover{border-color:#fff;color:#fff}
     @media(min-width:768px){.status-card{display:flex;flex-direction:column}}
   </style>
+  <script>
+    (function(){
+      var btn = document.getElementById('ctaBtn');
+      if (!btn) return;
+      var href = btn.getAttribute('href');
+      var isOnboard = href && href.indexOf('/onboard/') === 0;
+      if (!isOnboard) return;
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        var pin = window.prompt('Informe o PIN da carta para continuar:');
+        if (pin === null) return;
+        pin = (pin || '').replace(/\\D/g,'');
+        window.location.href = href + (href.indexOf('?') === -1 ? '?' : '&') + 'pin=' + encodeURIComponent(pin);
+      });
+    })();
+  </script>
 {% endblock %}

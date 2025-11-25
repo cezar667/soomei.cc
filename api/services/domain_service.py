@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from api.repositories.json_storage import db_defaults, load, save
+from api.repositories.sql_repository import SQLRepository
 
 DOMAIN_RE = re.compile(r"^(?=.{4,253}$)(?!-)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
@@ -21,9 +21,11 @@ CUSTOM_DOMAIN_STATUS_DISABLED = "disabled"
 class DomainRecord:
     """Typed view returned by DomainService when looking up a host."""
 
-    db: dict
     uid: Optional[str]
     card: Optional[dict]
+
+
+_sql_repo = SQLRepository()
 
 
 class DomainService:
@@ -71,25 +73,26 @@ class DomainService:
         host_norm = self.normalize(host)
         if not host_norm:
             return
-        db.setdefault("custom_domains", {})[host_norm] = {"uid": uid}
+        _sql_repo.register_custom_domain(host_norm, uid)
 
     def unregister(self, db: dict, host: str) -> None:
         host_norm = self.normalize(host)
         if not host_norm:
             return
-        db.setdefault("custom_domains", {}).pop(host_norm, None)
+        _sql_repo.unregister_custom_domain(host_norm)
 
     def has_conflict(self, db: dict, host: str, *, exclude_uid: Optional[str] = None) -> bool:
         host_norm = self.normalize(host)
         if not host_norm:
             return False
-        entry = db.get("custom_domains", {}).get(host_norm)
-        if entry and entry.get("uid") != exclude_uid:
+        entry = _sql_repo.get_custom_domain(host_norm)
+        if entry and entry.card_uid != exclude_uid:
             return True
-        for uid, card in db.get("cards", {}).items():
-            if uid == exclude_uid:
+        cards = _sql_repo.get_cards_for_domain_checks()
+        for card in cards:
+            if exclude_uid and card.uid == exclude_uid:
                 continue
-            meta = card.get("custom_domain") or {}
+            meta = card.custom_domain_meta or {}
             active_host = self.normalize(meta.get("active_host", ""))
             requested_host = self.normalize(meta.get("requested_host", ""))
             status = (meta.get("status") or "").lower()
@@ -100,26 +103,23 @@ class DomainService:
         return False
 
     def find_card_by_host(self, host: str) -> DomainRecord:
-        db = db_defaults(load())
         host_norm = self.normalize(host)
         if not host_norm:
-            return DomainRecord(db=db, uid=None, card=None)
-        entry = db.get("custom_domains", {}).get(host_norm)
-        if not entry:
-            for uid, card in db.get("cards", {}).items():
-                meta = card.get("custom_domain") or {}
-                if self.normalize(meta.get("active_host", "")) == host_norm:
-                    db.setdefault("custom_domains", {})[host_norm] = {"uid": uid}
-                    save(db)
-                    return DomainRecord(db=db, uid=uid, card=card)
-            return DomainRecord(db=db, uid=None, card=None)
-        uid = entry.get("uid")
-        card = db.get("cards", {}).get(uid)
-        if not card:
-            db.get("custom_domains", {}).pop(host_norm, None)
-            save(db)
-            return DomainRecord(db=db, uid=None, card=None)
-        return DomainRecord(db=db, uid=uid, card=card)
+            return DomainRecord(uid=None, card=None)
+        entity = _sql_repo.get_card_by_custom_domain(host_norm)
+        if entity:
+            card_dict = {
+                "uid": entity.uid,
+                "status": entity.status,
+                "pin": entity.pin,
+                "billing_status": entity.billing_status,
+                "user": entity.owner_email or "",
+                "vanity": entity.vanity or entity.uid,
+                "metrics": {"views": int(entity.metrics_views or 0)},
+                "custom_domain": entity.custom_domain_meta or {},
+            }
+            return DomainRecord(uid=entity.uid, card=card_dict)
+        return DomainRecord(uid=None, card=None)
 
 
 # Singleton-style helper reused across modules
@@ -160,4 +160,4 @@ def custom_domain_conflict(db: dict, host: str, exclude_uid: Optional[str] = Non
 
 def find_card_by_custom_domain(host: str) -> Tuple[dict, Optional[str], Optional[dict]]:
     record = domain_service.find_card_by_host(host)
-    return record.db, record.uid, record.card
+    return {}, record.uid, record.card

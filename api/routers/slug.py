@@ -14,10 +14,12 @@ from api.services.slug_service import (
     SlugUnavailableError,
     CardNotFoundError,
 )
-from api.services.card_service import find_card_by_slug
 from api.services.session_service import current_user_email
+from api.services.card_service import find_card_by_slug
+from api.repositories.sql_repository import SQLRepository
 
 router = APIRouter(prefix="/slug", tags=["slug"])
+_sql_repo = SQLRepository()
 
 
 def _get_slug_service(request: Request) -> SlugService:
@@ -39,6 +41,18 @@ def _redirect_to_card(card: dict, uid: str) -> RedirectResponse:
     return RedirectResponse(f"/{html.escape(dest)}", status_code=303)
 
 
+def _find_card_context(card_id: str) -> tuple[str | None, dict | None]:
+    entity = _sql_repo.get_card_by_vanity(card_id) or _sql_repo.get_card_by_uid(card_id)
+    if entity:
+        card_data = {
+            "user": (entity.owner_email or "").strip(),
+            "vanity": (entity.vanity or entity.uid or "").strip(),
+        }
+        return entity.uid, card_data
+    _, uid, card = find_card_by_slug(card_id)
+    return uid, card
+
+
 @router.get("/check")
 def slug_check(request: Request, value: str = ""):
     rate_limit_ip(request, "slug:check", limit=20, window_seconds=60)
@@ -48,7 +62,7 @@ def slug_check(request: Request, value: str = ""):
 
 @router.get("/select/{card_id}", response_class=HTMLResponse)
 def slug_select(card_id: str, request: Request):
-    _, uid, card = find_card_by_slug(card_id)
+    uid, card = _find_card_context(card_id)
     if not card or not uid:
         raise HTTPException(404, "Cartao nao encontrado")
     owner = card.get("user", "")
@@ -69,7 +83,7 @@ def slug_select(card_id: str, request: Request):
 
 @router.post("/select/{card_id}")
 def slug_select_post(card_id: str, request: Request, value: str = Form(""), csrf_token: str = Form("")):
-    _, uid, card = find_card_by_slug(card_id)
+    uid, card = _find_card_context(card_id)
     if not card or not uid:
         raise HTTPException(404, "Cartao nao encontrado")
     owner = card.get("user", "")
