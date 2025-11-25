@@ -171,10 +171,12 @@ card_edit_router.configure_environment(
     public_base_host=PUBLIC_BASE_HOST,
     uploads_dir=UPLOADS,
 )
+legal_default = os.path.abspath(os.path.join(BASE, "..", "legal", "terms_v1.md"))
+legal_terms_path = os.getenv("LEGAL_TERMS_PATH", legal_default)
 pages_router.configure_pages(
     css_href=CSS_HREF,
     brand_footer=_brand_footer_inject,
-    legal_terms_path=os.path.join(BASE, "..", "legal", "terms_v1.md"),
+    legal_terms_path=legal_terms_path,
 )
 
 def create_app() -> FastAPI:

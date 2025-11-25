@@ -117,18 +117,23 @@ def reset_form(request: Request, token: str = "", error: str = ""):
     meta = auth_service.validate_reset_token(token)
     if not meta:
         css = _css_href(request)
-        return HTMLResponse(
-            f"""
-            <!doctype html><html lang='pt-br'><head>
-              <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-              <link rel='stylesheet' href='{css}'><title>Link invalido</title>
-            </head><body><main class='wrap'>
+        html_doc = f"""
+        <!doctype html><html lang='pt-br'><head>
+          <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+          <link rel='stylesheet' href='{css}'><title>Link invalido</title>
+        </head><body>
+          <main class='wrap'>
+            <section class='card card-public carbon card-center'>
               <h1>Link invalido ou expirado</h1>
-              <p><a href='/auth/forgot'>Solicitar novamente</a></p>
-            </main></body></html>
-            """,
-            status_code=400,
-        )
+              <p>Solicite um novo link para redefinir sua senha.</p>
+              <div style='margin-top:12px'>
+                <a class='btn' href='/auth/forgot'>Solicitar novamente</a>
+              </div>
+            </section>
+          </main>
+        </body></html>
+        """
+        return HTMLResponse(html_doc, status_code=400)
     css = _css_href(request)
     csrf_token = csrf.ensure_csrf_token(request)
     token_value = html.escape(token or "")
@@ -137,19 +142,25 @@ def reset_form(request: Request, token: str = "", error: str = ""):
     <!doctype html><html lang='pt-br'><head>
       <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
       <link rel='stylesheet' href='{css}'><title>Definir nova senha</title>
-    </head><body><main class='wrap'>
-      <h1>Definir nova senha</h1>
-      <form method='post' action='/auth/reset' class='grid'>
-        <input type='hidden' name='token' value='{token_value}'>
-        <input type='hidden' name='csrf_token' value='{csrf_html}'>
-        <label>Nova senha</label>
-        <input name='password' type='password' minlength='8' required>
-        <label>Confirme a senha</label>
-        <input name='confirm' type='password' minlength='8' required>
-        <button class='btn'>Atualizar</button>
-      </form>
-      {_banner(error, "bad")}
-    </main></body></html>
+    </head><body>
+      <main class='wrap'>
+        <section class='card card-public carbon card-center'>
+          <h1>Definir nova senha</h1>
+          <p>Crie uma nova senha para continuar acessando sua conta.</p>
+          <form method='post' action='/auth/reset' class='grid'>
+            <input type='hidden' name='token' value='{token_value}'>
+            <input type='hidden' name='csrf_token' value='{csrf_html}'>
+            <label>Nova senha</label>
+            <input name='password' type='password' minlength='8' required autocomplete='new-password'>
+            <label>Confirme a senha</label>
+            <input name='confirm' type='password' minlength='8' required autocomplete='new-password'>
+            <button class='btn'>Atualizar</button>
+          </form>
+          {_banner(error, "bad")}
+          <p class='muted' style='margin-top:10px'><a href='/auth/forgot'>Solicitar outro link</a></p>
+        </section>
+      </main>
+    </body></html>
     """
     response = HTMLResponse(html_doc)
     csrf.set_csrf_cookie(response, csrf_token)

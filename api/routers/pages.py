@@ -128,9 +128,10 @@ def legal_terms(request: Request):
         txt = handle.read()
     safe = html.escape(txt).replace("\n", "<br>")
     templates = _templates(request)
-    return templates.TemplateResponse(
-        "legal_terms.html", {"request": request, "safe": safe}
-    )
+    response = templates.TemplateResponse("legal_terms.html", {"request": request, "safe": safe})
+    # Permite iframe same-origin para exibir os termos no onboarding.
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return response
 
 
 @router.post("/auth/register")
