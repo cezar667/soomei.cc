@@ -189,11 +189,17 @@ def reset_password(request: Request, token: str = Form(""), password: str = Form
     <!doctype html><html lang='pt-br'><head>
       <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
       <link rel='stylesheet' href='{css}'><title>Senha atualizada</title>
-    </head><body><main class='wrap'>
-      <h1>Senha atualizada</h1>
-      <p>Senha redefinida com sucesso para <b>{html.escape(email)}</b>.</p>
-      <p><a class='btn' href='/login'>Voltar ao login</a></p>
-    </main></body></html>
+    </head><body>
+      <main class='wrap'>
+        <section class='card card-public carbon card-center'>
+          <h1>Senha atualizada</h1>
+          <p>Senha redefinida com sucesso para <b>{html.escape(email)}</b>.</p>
+          <div style='margin-top:12px'>
+            <a class='btn' href='/login'>Voltar ao login</a>
+          </div>
+        </section>
+      </main>
+    </body></html>
     """
     response = HTMLResponse(html_doc)
     csrf.set_csrf_cookie(response, csrf.ensure_csrf_token(request))
