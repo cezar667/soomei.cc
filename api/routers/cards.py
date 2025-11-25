@@ -2321,7 +2321,7 @@ def visitor_public_card(
                   <path fill='#fff' d='M10.3 28.36A14.5 14.5 0 0 1 9.5 24c0-1.53.26-3.02.74-4.36l-7.9-6.14A23.74 23.74 0 0 0 0 24c0 3.83.93 7.46 2.54 10.64l7.76-6.28z'/>
                   <path fill='#fff' d='M24 48c6.48 0 11.92-2.13 15.89-5.8l-7.9-6.14C29.8 37.75 27.06 38.5 24 38.5c-6.37 0-11.88-3.82-14.7-9.86l-7.9 6.14C6.36 42.6 14.5 48 24 48z'/>
                 </svg>
-                ÔÿàÔÿàÔÿàÔÿàÔÿà Avaliar no Google
+                ★★★★★ Avaliar no Google
               </a>
             </div>
           """ if google_review_url and google_review_show else ""}
