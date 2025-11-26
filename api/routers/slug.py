@@ -6,6 +6,8 @@ from fastapi import APIRouter, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from api.core import csrf
+from api.core.rate_limiter import rate_limit_ip
 from api.services.slug_service import (
     SlugService,
     InvalidSlugError,
@@ -39,6 +41,7 @@ def _redirect_to_card(card: dict, uid: str) -> RedirectResponse:
 
 @router.get("/check")
 def slug_check(request: Request, value: str = ""):
+    rate_limit_ip(request, "slug:check", limit=20, window_seconds=60)
     svc = _get_slug_service(request)
     return {"available": svc.is_available(value)}
 
@@ -55,14 +58,17 @@ def slug_select(card_id: str, request: Request):
     templates = _get_templates(request)
     current = card.get("vanity", "") or ""
     back_slug = card.get("vanity", uid)
-    return templates.TemplateResponse(
+    token = csrf.ensure_csrf_token(request)
+    response = templates.TemplateResponse(
         "slug_select.html",
-        {"request": request, "uid": uid, "current": current, "back_slug": back_slug},
+        {"request": request, "uid": uid, "current": current, "back_slug": back_slug, "csrf_token": token},
     )
+    csrf.set_csrf_cookie(response, token)
+    return response
 
 
 @router.post("/select/{card_id}")
-def slug_select_post(card_id: str, request: Request, value: str = Form("")):
+def slug_select_post(card_id: str, request: Request, value: str = Form(""), csrf_token: str = Form("")):
     _, uid, card = find_card_by_slug(card_id)
     if not card or not uid:
         raise HTTPException(404, "Cartao nao encontrado")
@@ -70,6 +76,8 @@ def slug_select_post(card_id: str, request: Request, value: str = Form("")):
     who = current_user_email(request)
     if who != owner:
         return _redirect_to_card(card, uid)
+    csrf.validate_csrf(request, csrf_token)
+    rate_limit_ip(request, "slug:update", limit=10, window_seconds=60)
     svc = _get_slug_service(request)
     try:
         new_slug = svc.assign_slug(uid, value)

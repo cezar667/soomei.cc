@@ -11,7 +11,7 @@ import time
 
 from api.core.config import get_settings
 from api.core.mailer import send_email
-from api.core.security import hash_password
+from api.core.security import hash_password, verify_password
 from api.core.utils import absolute_url
 from api.domain.slugs import is_valid_slug, slug_in_use
 from api.repositories.json_storage import load, save, db_defaults
@@ -61,6 +61,7 @@ class LoginVerificationRequired:
     email: str
     verify_path: str
     verify_url: str
+    email_sent: bool
 
 
 @dataclass
@@ -81,6 +82,15 @@ class AuthService:
     def _now(self) -> int:
         return int(time.time())
 
+    def _token_expired(self, created_at: int | None, now: int) -> bool:
+        ttl = self.settings.email_verification_ttl_seconds
+        if ttl <= 0:
+            return False
+        created = int(created_at or 0)
+        if not created:
+            return True
+        return (created + ttl) < now
+
     def _resolve_target_slug(self, db: dict, email: str, uid_hint: Optional[str]) -> Optional[str]:
         cards = db.get("cards", {})
         if uid_hint and uid_hint in cards:
@@ -90,13 +100,18 @@ class AuthService:
                 return card.get("vanity", uid)
         return None
 
-    def _ensure_verify_token(self, db: dict, email: str) -> str:
-        for token, meta in db.get("verify_tokens", {}).items():
-            if meta.get("email") == email:
-                return token
+    def _ensure_verify_token(self, db: dict, email: str, force_new: bool = False) -> tuple[str, bool]:
+        tokens = db.setdefault("verify_tokens", {})
+        now = self._now()
+        for token, meta in list(tokens.items()):
+            if self._token_expired(meta.get("created_at"), now):
+                tokens.pop(token, None)
+                continue
+            if not force_new and meta.get("email") == email:
+                return token, False
         token = secrets.token_urlsafe(24)
-        db.setdefault("verify_tokens", {})[token] = {"email": email, "created_at": self._now()}
-        return token
+        tokens[token] = {"email": email, "created_at": now}
+        return token, True
 
     def _verify_email_html(self, verify_url: str, prompt: str) -> str:
         return f"""
@@ -148,8 +163,7 @@ class AuthService:
             "photo_url": "",
             "cover_url": "",
         }
-        token = secrets.token_urlsafe(24)
-        db.setdefault("verify_tokens", {})[token] = {"email": raw_email, "created_at": self._now()}
+        token, _ = self._ensure_verify_token(db, raw_email, force_new=True)
         save(db)
         verify_path = f"/auth/verify?token={token}"
         verify_url = absolute_url(verify_path)
@@ -169,21 +183,27 @@ class AuthService:
             raise InvalidCredentialsError("Credenciais invalidas")
         db = db_defaults(load())
         user = db.get("users", {}).get(raw_email)
-        if not user or user.get("pwd") != hash_password(password):
+        if not user or not verify_password(password, user.get("pwd")):
             raise InvalidCredentialsError("Credenciais invalidas")
+        if user.get("pwd") and not str(user.get("pwd", "")).startswith("argon2$"):
+            user["pwd"] = hash_password(password)
+            db.setdefault("users", {})[raw_email] = user
+            save(db)
 
         if not user.get("email_verified_at"):
-            token = self._ensure_verify_token(db, raw_email)
+            token, created = self._ensure_verify_token(db, raw_email)
             save(db)
             verify_path = f"/auth/verify?token={token}"
             verify_url = absolute_url(verify_path)
-            send_email(
-                "Confirme seu e-mail - Soomei",
-                raw_email,
-                self._verify_email_html(verify_url, "Para concluir seu acesso, confirme seu e-mail clicando no botão abaixo:"),
-                f"Confirme seu e-mail: {verify_url}",
-            )
-            return LoginVerificationRequired(email=raw_email, verify_path=verify_path, verify_url=verify_url)
+            email_sent = False
+            if created:
+                email_sent = send_email(
+                    "Confirme seu e-mail - Soomei",
+                    raw_email,
+                    self._verify_email_html(verify_url, "Para concluir seu acesso, confirme seu e-mail clicando no botão abaixo:"),
+                    f"Confirme seu e-mail: {verify_url}",
+                )
+            return LoginVerificationRequired(email=raw_email, verify_path=verify_path, verify_url=verify_url, email_sent=email_sent)
 
         target = self._resolve_target_slug(db, raw_email, uid_hint)
         token = issue_session(db, raw_email)
@@ -197,6 +217,9 @@ class AuthService:
         db = db_defaults(load())
         meta = db.get("verify_tokens", {}).pop(token_value, None)
         if not meta:
+            raise TokenInvalidError("Token invalido ou expirado.")
+        if self._token_expired(meta.get("created_at"), self._now()):
+            save(db)
             raise TokenInvalidError("Token invalido ou expirado.")
         email = meta.get("email")
         if not email or email not in db.get("users", {}):

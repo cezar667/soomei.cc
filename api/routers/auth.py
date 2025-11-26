@@ -6,7 +6,9 @@ from urllib.parse import quote, quote_plus
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from api.core import csrf
 from api.core.config import get_settings
+from api.core.rate_limiter import rate_limit_ip
 from api.repositories.json_storage import db_defaults, load
 from api.services.auth_service import (
     AuthService,
@@ -16,6 +18,7 @@ from api.services.auth_service import (
     LoginVerificationRequired,
     TokenInvalidError,
 )
+from api.services.session_service import clear_session_cookie, set_session_cookie
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 auth_service = AuthService()
@@ -54,6 +57,8 @@ def _redirect_back(uid: str, email: str, vanity: str, err: str):
 @router.get("/forgot", response_class=HTMLResponse)
 def forgot_password(request: Request, message: str = "", error: str = ""):
     css = _css_href(request)
+    token = csrf.ensure_csrf_token(request)
+    token_html = html.escape(token)
     html_doc = f"""
     <!doctype html><html lang='pt-br'><head>
       <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -62,6 +67,7 @@ def forgot_password(request: Request, message: str = "", error: str = ""):
       <h1>Recuperar senha</h1>
       <p>Informe o e-mail cadastrado para receber o link de redefinicao.</p>
       <form method='post' action='/auth/forgot' class='grid'>
+        <input type='hidden' name='csrf_token' value='{token_html}'>
         <input name='email' type='email' placeholder='voce@exemplo.com' required>
         <button class='btn'>Enviar link</button>
       </form>
@@ -70,11 +76,15 @@ def forgot_password(request: Request, message: str = "", error: str = ""):
       <p><a class='muted' href='/login'>Voltar ao login</a></p>
     </main></body></html>
     """
-    return HTMLResponse(html_doc)
+    response = HTMLResponse(html_doc)
+    csrf.set_csrf_cookie(response, token)
+    return response
 
 
 @router.post("/forgot")
-def forgot_password_submit(email: str = Form("")):
+def forgot_password_submit(request: Request, email: str = Form(""), csrf_token: str = Form("")):
+    rate_limit_ip(request, "auth:forgot", limit=5, window_seconds=300)
+    csrf.validate_csrf(request, csrf_token)
     auth_service.issue_password_reset(email)
     return RedirectResponse(
         "/auth/forgot?message=Se%20o%20email%20estiver%20cadastrado,%20enviaremos%20o%20link%20em%20instantes.",
@@ -100,7 +110,9 @@ def reset_form(request: Request, token: str = "", error: str = ""):
             status_code=400,
         )
     css = _css_href(request)
+    csrf_token = csrf.ensure_csrf_token(request)
     token_value = html.escape(token or "")
+    csrf_html = html.escape(csrf_token)
     html_doc = f"""
     <!doctype html><html lang='pt-br'><head>
       <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -109,6 +121,7 @@ def reset_form(request: Request, token: str = "", error: str = ""):
       <h1>Definir nova senha</h1>
       <form method='post' action='/auth/reset' class='grid'>
         <input type='hidden' name='token' value='{token_value}'>
+        <input type='hidden' name='csrf_token' value='{csrf_html}'>
         <label>Nova senha</label>
         <input name='password' type='password' minlength='8' required>
         <label>Confirme a senha</label>
@@ -118,11 +131,14 @@ def reset_form(request: Request, token: str = "", error: str = ""):
       {_banner(error, "bad")}
     </main></body></html>
     """
-    return HTMLResponse(html_doc)
+    response = HTMLResponse(html_doc)
+    csrf.set_csrf_cookie(response, csrf_token)
+    return response
 
 
 @router.post("/reset")
-def reset_password(request: Request, token: str = Form(""), password: str = Form(""), confirm: str = Form("")):
+def reset_password(request: Request, token: str = Form(""), password: str = Form(""), confirm: str = Form(""), csrf_token: str = Form("")):
+    csrf.validate_csrf(request, csrf_token)
     validation_error = None
     if len(password or "") < 8:
         validation_error = "Senha deve ter no minimo 8 caracteres."
@@ -148,7 +164,9 @@ def reset_password(request: Request, token: str = Form(""), password: str = Form
       <p><a class='btn' href='/login'>Voltar ao login</a></p>
     </main></body></html>
     """
-    return HTMLResponse(html_doc)
+    response = HTMLResponse(html_doc)
+    csrf.set_csrf_cookie(response, csrf.ensure_csrf_token(request))
+    return response
 
 
 @router.get("/check_email")
@@ -171,7 +189,10 @@ def register(
     password: str = Form(...),
     vanity: str = Form(""),
     lgpd: str = Form(None),
+    csrf_token: str = Form(""),
 ):
+    rate_limit_ip(request, "auth:register", limit=3, window_seconds=300)
+    csrf.validate_csrf(request, csrf_token)
     try:
         result = auth_service.register(uid, email, pin, password, vanity, accepted_terms=bool(lgpd))
     except AccountExistsError:
@@ -197,7 +218,7 @@ def register(
         + f"<p>Depois de confirmar, voce sera direcionado ao cartao <code>/{html.escape(result.dest_slug)}</code>.</p>"
     )
     templates = _templates(request)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "confirm_email.html",
         {
             "request": request,
@@ -206,10 +227,14 @@ def register(
             "body_html": body_html,
         },
     )
+    csrf.set_csrf_cookie(response, csrf.ensure_csrf_token(request))
+    return response
 
 
 @router.post("/login")
-def do_login(request: Request, uid: str = Form(""), email: str = Form(...), password: str = Form(...)):
+def do_login(request: Request, uid: str = Form(""), email: str = Form(...), password: str = Form(...), csrf_token: str = Form("")):
+    rate_limit_ip(request, "auth:login", limit=5, window_seconds=60)
+    csrf.validate_csrf(request, csrf_token)
     try:
         outcome = auth_service.login(uid, email, password)
     except InvalidCredentialsError:
@@ -220,13 +245,14 @@ def do_login(request: Request, uid: str = Form(""), email: str = Form(...), pass
             if APP_ENV != "prod"
             else "<p>Verifique sua caixa de entrada para continuar.</p>"
         )
-        body_html = (
-            "<p class='muted'>Ainda nao identificamos a confirmacao do seu endereco.</p>"
-            + f"<p>Reenviamos o link de verificacao para <b>{html.escape(outcome.email)}</b>.</p>"
-            + manual
+        delivery = (
+            f"<p>Reenviamos o link de verificacao para <b>{html.escape(outcome.email)}</b>.</p>"
+            if outcome.email_sent
+            else f"<p>Ja enviamos recentemente um link para <b>{html.escape(outcome.email)}</b>. Verifique sua caixa de entrada (e o spam) ou aguarde alguns minutos antes de solicitar novamente.</p>"
         )
+        body_html = "<p class='muted'>Ainda nao identificamos a confirmacao do seu endereco.</p>" + delivery + manual
         templates = _templates(request)
-        return templates.TemplateResponse(
+        response = templates.TemplateResponse(
             "confirm_email.html",
             {
                 "request": request,
@@ -235,30 +261,36 @@ def do_login(request: Request, uid: str = Form(""), email: str = Form(...), pass
                 "body_html": body_html,
             },
         )
+        csrf.set_csrf_cookie(response, csrf.ensure_csrf_token(request))
+        return response
     dest = f"/{outcome.target_slug}" if outcome.target_slug else "/"
     resp = RedirectResponse(dest, status_code=303)
-    resp.set_cookie("session", outcome.session_token, httponly=True, samesite="lax")
+    set_session_cookie(resp, outcome.session_token)
+    csrf.set_csrf_cookie(resp, csrf.ensure_csrf_token(request))
     return resp
 
 
 @router.get("/verify")
-def verify_email(token: str):
+def verify_email(request: Request, token: str):
     try:
         result = auth_service.verify_email(token)
     except TokenInvalidError as exc:
         return HTMLResponse(str(exc), status_code=400)
     dest = f"/{result.target_slug}" if result.target_slug else "/"
     resp = RedirectResponse(dest, status_code=303)
-    resp.set_cookie("session", result.session_token, httponly=True, samesite="lax")
+    set_session_cookie(resp, result.session_token)
+    csrf_token = csrf.ensure_csrf_token(request)
+    csrf.set_csrf_cookie(resp, csrf_token)
     return resp
 
 
-@router.api_route("/logout", methods=["GET", "POST"])
-def logout(request: Request, next: str = "/"):
+@router.post("/logout")
+def logout(request: Request, next: str = "/", csrf_token: str = Form("")):
+    csrf.validate_csrf(request, csrf_token)
     auth_service.logout(request.cookies.get("session"))
     dest = next or request.headers.get("referer") or "/"
     if not isinstance(dest, str) or not dest.startswith("/"):
         dest = "/"
     resp = RedirectResponse(dest, status_code=303)
-    resp.delete_cookie("session")
+    clear_session_cookie(resp)
     return resp

@@ -3,7 +3,9 @@
 from fastapi import APIRouter, Form, Request, HTTPException
 from fastapi.responses import JSONResponse
 
+from api.core import csrf
 from api.core.config import get_settings
+from api.core.rate_limiter import rate_limit_ip
 from api.services.custom_domain_service import (
     CustomDomainService,
     CustomDomainError,
@@ -37,10 +39,12 @@ def _ok_response(state: CustomDomainState) -> JSONResponse:
 
 
 @router.post("/request/{slug}")
-async def request_custom_domain(slug: str, request: Request, host: str = Form("")):
+async def request_custom_domain(slug: str, request: Request, host: str = Form(""), csrf_token: str = Form("")):
     if not settings.custom_domains_enabled:
         return _feature_disabled()
     user = current_user_email(request)
+    rate_limit_ip(request, "custom-domain:request", limit=5, window_seconds=60)
+    csrf.validate_csrf(request, csrf_token)
     try:
         state = service.request(slug, user, host)
     except CustomDomainError as exc:
@@ -51,10 +55,12 @@ async def request_custom_domain(slug: str, request: Request, host: str = Form(""
 
 
 @router.post("/withdraw/{slug}")
-async def withdraw_custom_domain(slug: str, request: Request):
+async def withdraw_custom_domain(slug: str, request: Request, csrf_token: str = Form("")):
     if not settings.custom_domains_enabled:
         return _feature_disabled()
     user = current_user_email(request)
+    rate_limit_ip(request, "custom-domain:withdraw", limit=5, window_seconds=60)
+    csrf.validate_csrf(request, csrf_token)
     try:
         state = service.withdraw(slug, user)
     except CustomDomainError as exc:
@@ -65,10 +71,12 @@ async def withdraw_custom_domain(slug: str, request: Request):
 
 
 @router.post("/remove/{slug}")
-async def remove_custom_domain(slug: str, request: Request):
+async def remove_custom_domain(slug: str, request: Request, csrf_token: str = Form("")):
     if not settings.custom_domains_enabled:
         return _feature_disabled()
     user = current_user_email(request)
+    rate_limit_ip(request, "custom-domain:remove", limit=5, window_seconds=60)
+    csrf.validate_csrf(request, csrf_token)
     try:
         state = service.remove(slug, user)
     except CustomDomainError as exc:

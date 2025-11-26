@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import Request
 
 from api.repositories.json_storage import db_defaults, load, save
-from api.services.custom_domain_service import active_custom_domain_host
+from api.services.domain_service import active_custom_domain_host
 
 PUBLIC_BASE = ""
 

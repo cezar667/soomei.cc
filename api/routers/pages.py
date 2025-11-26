@@ -6,6 +6,7 @@ import os
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
+from api.core import csrf
 from api.repositories.json_storage import db_defaults, load
 
 router = APIRouter(prefix="", tags=["pages"])
@@ -31,7 +32,12 @@ def _templates(request: Request):
 
 
 def _apply_brand_footer(content: str) -> str:
-    return BRAND_FOOTER(content) if BRAND_FOOTER else content
+    footer_html = BRAND_FOOTER(content) if BRAND_FOOTER else content
+    marker = "</footer>"
+    if marker in footer_html:
+        action = "<span class='footer-auth-slot'></span>"
+        footer_html = footer_html.replace(marker, f"{action}{marker}", 1)
+    return footer_html
 
 
 @router.get("/onboard/{uid}", response_class=HTMLResponse)
@@ -48,6 +54,7 @@ def onboard(request: Request, uid: str, email: str = "", vanity: str = "", error
     if status == "blocked":
         return RedirectResponse("/blocked", status_code=302)
     templates = _templates(request)
+    csrf_token = csrf.ensure_csrf_token(request)
     context = {
         "request": request,
         "uid": uid,
@@ -56,15 +63,21 @@ def onboard(request: Request, uid: str, email: str = "", vanity: str = "", error
         "error": error,
         "uid_exists": uid_exists,
         "show_welcome": True,
+        "csrf_token": csrf_token,
     }
-    return templates.TemplateResponse("onboard.html", context)
+    response = templates.TemplateResponse("onboard.html", context)
+    csrf.set_csrf_cookie(response, csrf_token)
+    return response
 
 @router.get("/login", response_class=HTMLResponse)
 def login(request: Request, uid: str = "", error: str = ""):
     templates = _templates(request)
-    return templates.TemplateResponse(
-        "login.html", {"request": request, "uid": uid, "error": error}
+    csrf_token = csrf.ensure_csrf_token(request)
+    response = templates.TemplateResponse(
+        "login.html", {"request": request, "uid": uid, "error": error, "csrf_token": csrf_token}
     )
+    csrf.set_csrf_cookie(response, csrf_token)
+    return response
 
 
 @router.get("/invalid", response_class=HTMLResponse)
