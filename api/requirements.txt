@@ -5,3 +5,5 @@ pillow>=10.0.0
 python-multipart==0.0.9
 Jinja2==3.1.4
 argon2-cffi>=23.1.0
+SQLAlchemy>=2.0.32
+psycopg[binary]>=3.2.1

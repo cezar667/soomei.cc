@@ -24,7 +24,13 @@
     .modal iframe{width:100%;height:70vh;border:0;background:#0b0b0c}
     .legal{line-height:1.5;margin-bottom:10px}
     .legal ol{padding-left:20px}
+    .loading-overlay{position:fixed;inset:0;background:rgba(11,11,12,.8);display:none;align-items:center;justify-content:center;z-index:2000}
+    .loading-overlay.show{display:flex}
+    .loading-spinner{width:96px;height:96px;object-fit:contain;pointer-events:none}
   </style>
+  <div class="loading-overlay" id="onboardLoading" aria-hidden="true" role="status" aria-live="polite" aria-label="Processando">
+    <img src="/static/img/loading.gif" alt="Processando..." class="loading-spinner">
+  </div>
   <section class="card card-public carbon">
     <h1>Ativar cartao</h1>
     <p>UID: <b>{{ uid }}</b></p>
@@ -142,10 +148,18 @@
       var emailMsg = document.getElementById('emailMsg');
       var slugEl = document.getElementById('vanityInput');
       var slugMsg = document.getElementById('slugMsg');
+      var loading = document.getElementById('onboardLoading');
+      function showLoading(){
+        if (loading){ loading.classList.add('show'); loading.setAttribute('aria-hidden','false'); }
+      }
+      function hideLoading(){
+        if (loading){ loading.classList.remove('show'); loading.setAttribute('aria-hidden','true'); }
+      }
       (function(){
         var form = document.getElementById('onbForm');
         if (!(form && emailEl && emailMsg)) return;
         form.addEventListener('submit', function(e){
+          if (form.dataset.submitting === '1'){ return; }
           var alertBox = document.getElementById('formAlert');
           function fail(msg, focusEl){
             try{ e.preventDefault(); e.stopImmediatePropagation(); }catch(_e){}
@@ -172,10 +186,15 @@
           emailMsg.innerHTML = '';
           var btn = form.querySelector('button');
           if (btn) btn.disabled = true;
+          function allowSubmit(){
+            form.dataset.submitting = '1';
+            showLoading();
+            form.submit();
+          }
           fetch('/auth/check_email?value='+encodeURIComponent(vEmail))
             .then(function(r){ return r.json(); })
             .then(function(j){
-              if (j && j.available){ form.submit(); }
+              if (j && j.available){ allowSubmit(); }
               else {
                 setMsg(emailMsg, false, 'E-mail ja cadastrado');
                 if (btn) btn.disabled = false;
@@ -184,23 +203,29 @@
             })
             .catch(function(){
               if (btn) btn.disabled = false;
-              form.submit();
+              allowSubmit();
             });
         }, true);
       })();
       var form = document.getElementById('onbForm');
       if (form && emailEl && emailMsg){
         form.addEventListener('submit', function(e){
+          if (form.dataset.submitting === '1'){ return; }
           var v = (emailEl.value||'').trim();
           if (!v) return;
           e.preventDefault();
           emailMsg.innerHTML = '';
           var btn = form.querySelector('button');
           if (btn) btn.disabled = true;
+          function allowSubmit(){
+            form.dataset.submitting = '1';
+            showLoading();
+            form.submit();
+          }
           fetch('/auth/check_email?value='+encodeURIComponent(v))
             .then(function(r){ return r.json(); })
             .then(function(j){
-              if (j && j.available){ form.submit(); }
+              if (j && j.available){ allowSubmit(); }
               else {
                 setMsg(emailMsg, false, 'E-mail ja cadastrado');
                 if (btn) btn.disabled = false;
@@ -209,7 +234,7 @@
             })
             .catch(function(){
               if (btn) btn.disabled = false;
-              form.submit();
+              allowSubmit();
             });
         });
       }

@@ -3,22 +3,27 @@ from __future__ import annotations
 
 import secrets
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Request, Response
 
 from api.core.config import get_settings
-from api.repositories.json_storage import load, save, db_defaults
+from api.db.models import UserSession
+from api.db.session import get_session
 
 SESSION_COOKIE_NAME = "session"
 
 
-def issue_session(db: dict, email: str) -> str:
-    """Create a new session token and persist it in the JSON store."""
+def issue_session(email: str) -> str:
+    """Create a new session token and persist it in the SQL store (optionally JSON fallback)."""
     token = secrets.token_urlsafe(32)
     settings = get_settings()
-    expires_at = int(time.time()) + max(60, settings.session_ttl_seconds)
-    db.setdefault("sessions", {})[token] = {"email": email, "exp": expires_at}
-    save(db)
+    ttl = max(60, settings.session_ttl_seconds)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+
+    with get_session() as session:
+        session.add(UserSession(token=token, user_email=email, expires_at=expires_at))
+        session.commit()
     return token
 
 
@@ -27,19 +32,18 @@ def current_user_email(request: Request) -> str | None:
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         return None
-    db = db_defaults(load())
-    session = db.get("sessions", {}).get(token)
-    if not session:
-        return None
-    exp = int(session.get("exp") or 0)
-    if exp and exp < time.time():
-        db["sessions"].pop(token, None)
-        try:
-            save(db)
-        except Exception:
-            pass
-        return None
-    return session.get("email")
+
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        db_session = session.get(UserSession, token)
+        if db_session:
+            if db_session.expires_at and db_session.expires_at < now:
+                session.delete(db_session)
+                session.commit()
+                return None
+            return db_session.user_email
+
+    return None
 
 
 def set_session_cookie(response: Response, token: str) -> None:
@@ -58,3 +62,14 @@ def set_session_cookie(response: Response, token: str) -> None:
 
 def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+
+
+def delete_session(token: str) -> None:
+    """Remove a session token from persistent stores."""
+    if not token:
+        return
+    with get_session() as session:
+        entity = session.get(UserSession, token)
+        if entity:
+            session.delete(entity)
+            session.commit()

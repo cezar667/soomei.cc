@@ -12,8 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from api.core import csrf
 from api.core.config import get_settings
-from api.core.security import hash_password
-from api.repositories.json_storage import db_defaults, load, save
+from api.core.security import hash_password, verify_password
 from api.services.card_service import find_card_by_slug
 from api.services.card_display import (
     DEFAULT_AVATAR,
@@ -44,6 +43,7 @@ from api.services.custom_domain_service import (
     find_card_by_custom_domain,
 )
 from api.services.session_service import current_user_email
+from api.repositories.sql_repository import SQLRepository
 router = APIRouter(prefix="", tags=["cards"])
 CSS_HREF = "/static/card.css"
 BRAND_FOOTER = lambda html_doc: html_doc
@@ -52,6 +52,7 @@ PUBLIC_BASE = ""
 PUBLIC_BASE_HOST = ""
 UPLOADS_DIR = ""
 DEFAULT_LOCAL_ROOTS = {"localhost", "127.0.0.1", "::1"}
+_sql_repo = SQLRepository()
 def set_css_href(value: str) -> None:
     global CSS_HREF
     CSS_HREF = value or "/static/card.css"
@@ -64,6 +65,13 @@ def configure_environment(*, settings, public_base: str, public_base_host: str, 
     PUBLIC_BASE = public_base or ""
     PUBLIC_BASE_HOST = (public_base_host or "").strip()
     UPLOADS_DIR = uploads_dir or ""
+
+
+def _find_card_with_sync(slug: str):
+    db, uid, card = find_card_by_slug(slug)
+    if uid and card:
+        _sql_repo.sync_card_from_json(uid, card)
+    return db, uid, card
 def _templates(request: Request):
     tpl = getattr(getattr(request.app, "state", None), "templates", None)
     if tpl:
@@ -150,14 +158,14 @@ def _save_resized_image(data: bytes, filename: str, max_size: tuple[int, int]) -
     return f"/static/uploads/{filename}?v={etag}"
 @router.get("/edit/{slug}", response_class=HTMLResponse)
 def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd: str = ""):
-    db, uid, card = find_card_by_slug(slug)
+    db, uid, card = _find_card_with_sync(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
-    prof = load()["profiles"].get(owner, {})
+    prof = _sql_repo.get_profile(owner) or {}
     saved_cookie = request.cookies.get("flash_edit_saved")
     pwd_cookie = request.cookies.get("flash_edit_pwd")
     saved_flag = bool(saved_cookie or str(saved) == "1")
@@ -510,7 +518,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <div class='form-control'>
                 <label>Cor do cartão</label>
                 <input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 48px'>
-                <span class='muted hint'>Essa cor ├® usada em bot├Áes e cart├Áes auxiliares.</span>
+                <span class='muted hint'>Essa cor é usada em bot├Áes e cart├Áes auxiliares.</span>
               </div>
             </div>
           </section>
@@ -554,7 +562,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <p class='section-kicker'>Integrações</p>
             <div class='section-head'>
               <h2 class='section-title'>Pix, slug e avaliações</h2>
-              <p class='section-desc'>Configure como as pessoas chegam at├® você e como pagam por seus serviços.</p>
+              <p class='section-desc'>Configure como as pessoas chegam até você e como pagam por seus serviços.</p>
             </div>
             <div class='cta-row'>
               <div class='cta-card'>
@@ -644,7 +652,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <p class='section-kicker'>Presença digital</p>
             <div class='section-head'>
               <h2 class='section-title'>Links em destaque</h2>
-              <p class='section-desc'>Adicione at├® quatro links personalizados.</p>
+              <p class='section-desc'>Adicione até quatro links personalizados.</p>
             </div>
             <div class='links-grid-edit'>
               <div class='form-control'>
@@ -959,11 +967,11 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             '      <label for="slugInput">Novo slug</label>'+
             '      <div class="slug-input-row">'+
             '        <input id="slugInput" placeholder="seu-nome" pattern="[a-z0-9-]{{3,30}}" inputmode="url" autocomplete="off" style="text-transform:lowercase;background:#0b0b0c;color:#eaeaea;border:1px solid #2a2a2a;border-radius:10px;padding:10px;width:100%">'+
-            '        <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que ├® um slug?" title="O que ├® um slug?">i</button>'+
-            '        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">Slug ├® o endereço curto da sua URL pública. Use 3-30 caracteres minúsculos, números ou hífen. Ex.: seu-nome</div>'+
+            '        <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que é um slug?" title="O que é um slug?">i</button>'+
+            '        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">Slug é o endereço curto da sua URL pública. Use 3-30 caracteres minúsculos, números ou hífen. Ex.: seu-nome</div>'+
             '      </div>'+
             '      <div id="slugMsg" class="hint"></div>'+
-            '      <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span class="muted">Pr├®via:</span> <code id="slugPreview">/'+(CURRENT||'')+'</code></div>'+
+            '      <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span class="muted">Prévia:</span> <code id="slugPreview">/'+(CURRENT||'')+'</code></div>'+
             '      <div style="text-align:right;margin-top:12px"><button class="btn" id="slugSave">Salvar</button></div>'+
             '    </div>'+
             '  </div>'+
@@ -1424,7 +1432,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 photo: UploadFile | None = File(None),
                 cover: UploadFile | None = File(None),
                 csrf_token: str = Form("")):
-    db, uid, card = find_card_by_slug(slug)
+    db, uid, card = _find_card_with_sync(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     owner = card.get("user", "")
@@ -1432,10 +1440,9 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
     csrf.validate_csrf(request, csrf_token)
-    db2 = db_defaults(load())
     def redirect_error(msg: str):
         return RedirectResponse(f"/edit/{slug}?error={urlparse.quote_plus(msg)}", status_code=303)
-    prof = db2["profiles"].get(owner, {})
+    prof = _sql_repo.get_profile(owner) or {}
     prof.update({
         "full_name": full_name.strip(),
         "title": title.strip(),
@@ -1483,11 +1490,10 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
             return redirect_error("Nova senha deve ter no minimo 8 caracteres.")
         if new_password != confirm_password:
             return redirect_error("As senhas nao conferem.")
-        user = db2["users"].get(owner)
-        if not user or user.get("pwd") != hash_password(current_password):
+        user = _sql_repo.get_user(owner)
+        if not user or not verify_password(current_password, user.password_hash):
             return redirect_error("Senha atual incorreta.")
-        user["pwd"] = hash_password(new_password)
-        db2["users"][owner] = user
+        _sql_repo.update_user_password(owner, hash_password(new_password))
         pwd_changed = True
     allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
     if photo and photo.filename:
@@ -1508,15 +1514,8 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         if not data:
             return HTMLResponse("Imagem vazia.", status_code=400)
         prof["cover_url"] = _save_resized_image(data, f"{uid}_cover.jpg", (1600, 900))
-    db2["profiles"][owner] = prof
-    save(db2)
-    # Se perfil ainda estiver incompleto ou senha foi alterada, mantem usuario na edicao com aviso
-    if not profile_complete(prof) or pwd_changed:
-        resp = RedirectResponse(f"/edit/{slug}", status_code=303)
-        resp.set_cookie("flash_edit_saved", "1", max_age=15, path="/edit", httponly=True, samesite="lax")
-        if pwd_changed:
-            resp.set_cookie("flash_edit_pwd", "1", max_age=15, path="/edit", httponly=True, samesite="lax")
-        return resp
+    _sql_repo.upsert_profile(owner, prof)
+    # Redireciona sempre para a página pública após salvar
     return RedirectResponse(f"/{slug}", status_code=303)
 def visitor_public_card(
     prof: dict,
@@ -1591,7 +1590,7 @@ def visitor_public_card(
     share_url = _card_share_url(card, slug, request)
     card_base = _card_public_base(card, request)
     share_text = urlparse.quote_plus(f"Ola! Vim pelo seu cartao da Soomei.")
-    share_base_message = "Este ├® o meu Cartão de Visita Digital"
+    share_base_message = "Este é o meu Cartão de Visita Digital"
     share_base_message_js = json.dumps(share_base_message)
     cover_block = (
         "<div class='card-cover'>"
@@ -2169,7 +2168,7 @@ def visitor_public_card(
     if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
         theme_base = "#000000"
     bg_hex = theme_base + "30"
-    # vCard offline QR pr├®-gerado para subseção inline
+    # vCard offline QR pré-gerado para subseção inline
     try:
         off_full_name = (prof.get("full_name", "") or slug) if prof else slug
         off_title = prof.get("title", "") if prof else ""
@@ -2322,7 +2321,7 @@ def visitor_public_card(
                   <path fill='#fff' d='M10.3 28.36A14.5 14.5 0 0 1 9.5 24c0-1.53.26-3.02.74-4.36l-7.9-6.14A23.74 23.74 0 0 0 0 24c0 3.83.93 7.46 2.54 10.64l7.76-6.28z'/>
                   <path fill='#fff' d='M24 48c6.48 0 11.92-2.13 15.89-5.8l-7.9-6.14C29.8 37.75 27.06 38.5 24 38.5c-6.37 0-11.88-3.82-14.7-9.86l-7.9 6.14C6.36 42.6 14.5 48 24 48z'/>
                 </svg>
-                ÔÿàÔÿàÔÿàÔÿàÔÿà Avaliar no Google
+                ★★★★★ Avaliar no Google
               </a>
             </div>
           """ if google_review_url and google_review_show else ""}
@@ -2520,11 +2519,12 @@ def visitor_public_card(
     return response
 @router.get("/u/{slug}", response_class=HTMLResponse)
 def public_card(slug: str, request: Request):
-    db, uid, card = find_card_by_slug(slug)
+    db, uid, card = _find_card_with_sync(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
+    templates = _templates(request)
     owner = card.get("user", "")
-    prof = db["profiles"].get(owner, {})
+    prof = _sql_repo.get_profile(owner) or {}
     who = current_user_email(request)
     is_owner = bool(owner and who == owner)
     if is_owner:
@@ -2534,7 +2534,7 @@ def public_card(slug: str, request: Request):
     return visitor_public_card(prof, slug, is_owner, view_count, card=card, request=request)
 @router.get("/q/{slug}.png")
 def qr(slug: str, request: Request):
-    db, uid, card = find_card_by_slug(slug)
+    db, uid, card = _find_card_with_sync(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     slug_value = card.get("vanity") or slug
@@ -2546,10 +2546,10 @@ def qr(slug: str, request: Request):
     return StreamingResponse(buf, media_type="image/png")
 @router.get("/v/{slug}.vcf")
 def vcard(slug: str, request: Request):
-    db, uid, card = find_card_by_slug(slug)
+    db, uid, card = _find_card_with_sync(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
-    prof = db["profiles"].get(card.get("user", ""), {})
+    prof = _sql_repo.get_profile(card.get("user", "")) or {}
     name = prof.get("full_name", "")
     tel = prof.get("whatsapp", "")
     email = prof.get("email_public", "")
@@ -2602,7 +2602,7 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
     if prefetched:
         db, uid, card = prefetched
     else:
-        db, uid, card = find_card_by_slug(slug)
+        db, uid, card = _find_card_with_sync(slug)
     if card and card.get("vanity") and slug != card.get("vanity"):
         return RedirectResponse(f"/{html.escape(card.get('vanity'))}", status_code=302)
     if not card:
@@ -2611,8 +2611,9 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
         return RedirectResponse(f"/onboard/{html.escape(uid)}", status_code=302)
     if card.get("status") == "blocked":
         return RedirectResponse("/blocked", status_code=302)
+    templates = _templates(request)
     owner = card.get("user", "")
-    prof = db.get("profiles", {}).get(owner, {})
+    prof = _sql_repo.get_profile(owner) or {}
     who = current_user_email(request)
     is_owner = bool(owner and who == owner)
     slug = (card.get("vanity") or slug or uid)
@@ -2739,8 +2740,6 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
         return response
     if who == owner and not card.get("vanity"):
         return RedirectResponse(f"/slug/select/{html.escape(uid)}", status_code=302)
-    if is_owner and not profile_complete(prof):
-        return RedirectResponse(f"/edit/{html.escape(slug)}", status_code=302)
     pix_mode = request.query_params.get("pix", "")
     if pix_mode:
         pix_key = (prof.get("pix_key", "") or "").strip()
@@ -2920,19 +2919,34 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
     else:
         view_count = increment_card_view(uid) if should_track_view(request, slug) else get_card_view_count(uid)
     if not is_owner:
-        if not profile_complete(prof):
-            templates = _templates(request)
-            owner_name = (prof.get("full_name") or "").strip() if isinstance(prof, dict) else ""
+        owner_name = (prof.get("full_name") or "").strip() if isinstance(prof, dict) else ""
+        status = (card.get("status") or "").lower()
+        owner_email = card.get("user", "")
+        owner_user = _sql_repo.get_user(owner_email) if owner_email else None
+        is_unverified_owner = owner_user is not None and not owner_user.email_verified_at
+        needs_blocked_view = (
+            (not profile_complete(prof))
+            or (not owner_email)
+            or status == "pending"
+            or is_unverified_owner
+        )
+        if needs_blocked_view:
+            if (not owner_email) or status == "pending" or is_unverified_owner:
+                cta_url = f"/onboard/{uid}/pin"
+                cta_label = "Sou o dono? Finalizar ativacao"
+            else:
+                cta_url = f"/login?uid={uid}"
+                cta_label = "Sou o dono? Entrar"
             return templates.TemplateResponse(
                 "card_under_construction.html",
-                {"request": request, "slug": slug, "owner_name": owner_name},
+                {"request": request, "slug": slug, "owner_name": owner_name, "uid": uid, "cta_url": cta_url, "cta_label": cta_label},
             )
         return visitor_public_card(prof, slug, False, view_count, card=card, request=request)
     return visitor_public_card(prof, slug, True, view_count, card=card, request=request)
 @router.get("/", response_class=HTMLResponse)
 def custom_domain_root(request: Request):
     host = _request_host(request)
-    db, uid, card = find_card_by_custom_domain(host)
+    _, uid, card = find_card_by_custom_domain(host)
     base_host = (PUBLIC_BASE_HOST or "").strip().lower()
     fallback_public_host = ""
     if not base_host and PUBLIC_BASE:
@@ -2941,37 +2955,37 @@ def custom_domain_root(request: Request):
         except ValueError:
             fallback_public_host = ""
     host_value = (host or "").strip().lower()
+    host_noport = host_value.split(":", 1)[0] if ":" in host_value else host_value
     default_hosts = set(DEFAULT_LOCAL_ROOTS)
     if base_host:
         default_hosts.add(base_host)
     if fallback_public_host:
         default_hosts.add(fallback_public_host)
-    is_default_host = (not host_value) or (host_value in default_hosts)
+    is_default_host = (not host_value) or (host_value in default_hosts) or (host_noport in default_hosts)
     if not card:
         if is_default_host:
             user = current_user_email(request)
-            if not user:
-                return RedirectResponse("/login", status_code=303)
-            cards = [(cid, data) for cid, data in (db.get("cards") or {}).items() if data.get("user") == user]
-            pending_uid = None
-            has_blocked = False
-            for cid, data in cards:
-                status = (data.get("status") or "").lower()
-                if status == "active":
-                    dest = data.get("vanity") or cid
-                    return RedirectResponse(f"/{dest}", status_code=303)
-                if status == "blocked":
-                    has_blocked = True
-                if status in ("", "pending") and not pending_uid:
-                    pending_uid = cid
-            if pending_uid:
-                return RedirectResponse(f"/onboard/{pending_uid}", status_code=303)
-            if has_blocked:
-                return RedirectResponse("/blocked", status_code=303)
+            if user:
+                pending_uid = None
+                has_blocked = False
+                for entity in _sql_repo.get_cards_by_owner(user):
+                    status = (entity.status or "").lower()
+                    if status == "active":
+                        dest = entity.vanity or entity.uid
+                        return RedirectResponse(f"/{dest}", status_code=303)
+                    if status == "blocked":
+                        has_blocked = True
+                    if status in ("", "pending") and not pending_uid:
+                        pending_uid = entity.uid
+                if pending_uid:
+                    return RedirectResponse(f"/onboard/{pending_uid}", status_code=303)
+                if has_blocked:
+                    return RedirectResponse("/blocked", status_code=303)
             return RedirectResponse("/login", status_code=303)
         return HTMLResponse("Pagina nao encontrada", status_code=404)
     slug = card.get("vanity") or uid
-    return _serve_slug(slug, request, (db, uid, card))
+    # _find_card_with_sync já retorna perfis/estado necessários; passamos apenas uid/card
+    return _serve_slug(slug, request, ({}, uid, card))
 @router.get("/{slug}", response_class=HTMLResponse)
 def root_slug(slug: str, request: Request):
     return _serve_slug(slug, request)

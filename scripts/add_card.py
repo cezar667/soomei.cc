@@ -1,96 +1,68 @@
 #!/usr/bin/env python3
 """
-scripts/add_card.py — cadastra um novo cartão (UID) para onboarding.
+Cadastrar um novo cartao (UID) diretamente no Postgres.
 
 Uso:
-  python scripts/add_card.py --uid abc123 [--pin 654321] [--vanity meu-slug]
-
-Comportamento:
-  - Atualiza api/data.json adicionando o UID com status "pending" e PIN informado
-    (ou gera PIN numérico aleatório de 6 dígitos).
-  - Não sobrescreve cartões existentes com o mesmo UID.
+  python scripts/add_card.py --uid abc123 [--pin 654321] [--vanity meu-slug] [--owner email@dominio]
 """
+from __future__ import annotations
 
 import argparse
-import json
-import os
 import secrets
+import sys
 
-BASE = os.path.dirname(__file__)
-DATA = os.path.join(BASE, "..", "api", "data.json")
-
-
-def load_db():
-    if os.path.exists(DATA):
-        with open(DATA, "r", encoding="utf-8") as f:
-            try:
-                db = json.load(f)
-            except Exception:
-                db = {}
-    else:
-        db = {}
-    # garante chaves padrão
-    db.setdefault("users", {})
-    db.setdefault("cards", {})
-    db.setdefault("profiles", {})
-    db.setdefault("sessions", {})
-    db.setdefault("verify_tokens", {})
-    return db
+from api.domain.slugs import is_valid_slug
+from api.repositories.sql_repository import SQLRepository
 
 
-def save_db(db):
-    with open(DATA, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False, indent=2)
-
-
-def gen_pin(length=6):
+def gen_pin(length: int = 6) -> str:
     digits = "0123456789"
     return "".join(secrets.choice(digits) for _ in range(length))
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Cadastrar novo cartão para onboarding")
-    ap.add_argument("--uid", required=True, help="UID do cartão (ex.: abc123)")
-    ap.add_argument("--pin", help="PIN numérico (default: aleatório de 6 dígitos)")
-    ap.add_argument("--vanity", help="Slug personalizado opcional (ex.: meu-nome)")
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Cadastrar cartao no Postgres")
+    ap.add_argument("--uid", required=True, help="UID do cartao (ex.: abc123)")
+    ap.add_argument("--pin", help="PIN numerico (default: aleatorio de 6 digitos)")
+    ap.add_argument("--vanity", help="Slug opcional (ex.: meu-nome)")
+    ap.add_argument("--owner", help="Email do dono (deve existir em users)")
     args = ap.parse_args()
 
-    db = load_db()
-
-    uid = args.uid.strip()
+    repo = SQLRepository()
+    uid = (args.uid or "").strip()
     if not uid:
-        raise SystemExit("UID inválido")
+        raise SystemExit("UID invalido")
+    if repo.get_card_by_uid(uid):
+        raise SystemExit(f"UID '{uid}' ja existe no banco")
+    vanity = (args.vanity or "").strip()
+    if vanity:
+        if not is_valid_slug(vanity):
+            raise SystemExit("Slug invalido (use 3-30 chars [a-z0-9-])")
+        if repo.slug_exists(vanity):
+            raise SystemExit(f"Slug '{vanity}' ja esta em uso")
+    owner = (args.owner or "").strip() or None
+    if owner and not repo.get_user(owner):
+        raise SystemExit(f"Usuario '{owner}' nao existe")
 
-    if uid in db["cards"]:
-        raise SystemExit(f"UID '{uid}' já existe em cards")
-
-    pin = args.pin.strip() if args.pin else gen_pin()
+    pin = (args.pin or "").strip() or gen_pin()
     if not pin.isdigit():
-        raise SystemExit("PIN deve ser numérico")
+        raise SystemExit("PIN deve ser numerico")
 
-    card = {
-        "uid": uid,
-        "status": "pending",
-        "pin": pin,
-    }
-    if args.vanity:
-        # checa se vanity já está em uso por outro cartão
-        for _, c in db["cards"].items():
-            if c.get("vanity") == args.vanity:
-                raise SystemExit(f"Vanity '{args.vanity}' já está em uso")
-        card["vanity"] = args.vanity
-
-    db["cards"][uid] = card
-    save_db(db)
-
-    print("OK: cartão cadastrado")
+    repo.create_card(uid, pin, vanity or None, owner)
+    if owner:
+        repo.assign_card_owner(uid, owner, status="pending")
+    print("OK: cartao cadastrado")
     print(f"  UID: {uid}")
     print(f"  PIN: {pin}")
-    if "vanity" in card:
-        print(f"  Vanity: {card['vanity']}")
-    print(f"Arquivo salvo: {os.path.abspath(DATA)}")
+    if vanity:
+        print(f"  Vanity: {vanity}")
+    if owner:
+        print(f"  Dono: {owner}")
 
 
 if __name__ == "__main__":
-    main()
-
+    try:
+        main()
+    except Exception as exc:  # pragma: no cover - uso CLI
+        sys.stderr.write(f"Erro: {exc}\n")
+        raise SystemExit(1)

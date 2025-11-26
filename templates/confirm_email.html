@@ -5,6 +5,124 @@
     <h1>{{ heading|default("Confirme seu email") }}</h1>
     <div class="card-text">
       {{ body_html|safe }}
+      {% if email %}
+        <p class="muted">E-mail atual: <strong id="currentEmail">{{ email }}</strong></p>
+      {% endif %}
+      {% if app_env != "prod" and dev_verify_path %}
+        <p style="margin-top:10px"><a class="btn" id="devVerifyLink" href="{{ dev_verify_path }}">Confirmar e-mail agora (dev)</a></p>
+      {% endif %}
+      {% if uid %}
+      <div style="margin-top:12px">
+        <button id="openPendingEmail" class="btn">Corrigir ou reenviar e-mail</button>
+        <div id="pendingEmailCard" class="card" style="margin-top:10px; display:none">
+          <h3>Corrigir e reenviar</h3>
+          <form id="pendingEmailForm">
+            <input type="hidden" name="uid" value="{{ uid }}">
+            <label>Novo e-mail</label>
+            <input type="email" name="new_email" required>
+            <label>PIN da carta</label>
+            <input type="password" name="pin" inputmode="numeric" pattern="[0-9]*" required>
+            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
+              <button class="btn" type="submit">Corrigir e reenviar</button>
+              <button class="secondary" type="button" id="resendPendingBtn">Reenviar para <span id="resendEmailLabel">{{ email }}</span></button>
+            </div>
+            <p id="pendingEmailMsg" class="muted" style="margin-top:8px"></p>
+          </form>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (function(){
+      var form = document.getElementById('pendingEmailForm');
+      var msg = document.getElementById('pendingEmailMsg');
+      var resendBtn = document.getElementById('resendPendingBtn');
+      var openCard = document.getElementById('openPendingEmail');
+      var card = document.getElementById('pendingEmailCard');
+      var currentEmail = document.getElementById('currentEmail');
+      var resendEmailLabel = document.getElementById('resendEmailLabel');
+      var devVerifyLink = document.getElementById('devVerifyLink');
+      function setMsg(ok, text){
+        if (!msg) return;
+        msg.textContent = text || '';
+        msg.style.color = ok ? '#7bd88f' : '#f88';
+      }
+      function updateEmailLabel(val){
+        if (currentEmail){ currentEmail.textContent = val; }
+        if (resendEmailLabel){ resendEmailLabel.textContent = val; }
+      }
+      if (openCard && card){
+        openCard.addEventListener('click', function(e){
+          e.preventDefault();
+          card.style.display = 'block';
+          openCard.setAttribute('aria-expanded','true');
+          openCard.disabled = true;
+        });
+      }
+      if (form){
+        form.addEventListener('submit', function(e){
+          e.preventDefault();
+          var data = new URLSearchParams(new FormData(form));
+          data.append('csrf_token', '{{ csrf_token }}');
+          fetch('/auth/change_email_pending', {
+            method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:data.toString()
+          }).then(r=>r.json()).then(function(j){
+            if (j && j.ok){
+              var newEmail = j.email || '';
+              if (newEmail){ updateEmailLabel(newEmail); }
+              if (devVerifyLink && j.verify_path){
+                devVerifyLink.href = j.verify_path;
+                devVerifyLink.style.display = 'inline-block';
+              }
+              setMsg(true, 'E-mail atualizado e link reenviado para ' + (newEmail || ''));
+              form.reset();
+            } else {
+              var reason = (j && j.reason) || '';
+              if (reason === 'email_in_use'){
+                setMsg(false, 'Este e-mail ja esta confirmado em outro cartao.');
+              } else if (reason === 'invalid_pin'){
+                setMsg(false, 'PIN incorreto. Confira e tente novamente.');
+              } else {
+                setMsg(false, 'Nao foi possivel atualizar o e-mail. Confira os dados e tente novamente.');
+              }
+            }
+          }).catch(function(){ setMsg(false, 'Erro ao reenviar agora. Tente novamente.'); });
+        });
+      }
+      if (resendBtn && form){
+        resendBtn.addEventListener('click', function(e){
+          e.preventDefault();
+          var pinInput = form.querySelector('input[name=\"pin\"]');
+          var pin = (pinInput && pinInput.value || '').replace(/\\D/g,'');
+          if (!pin){
+            setMsg(false, 'Informe o PIN da carta para reenviar.');
+            if (pinInput){ pinInput.focus(); }
+            return;
+          }
+          var data = new URLSearchParams();
+          data.append('uid', '{{ uid }}');
+          data.append('pin', pin);
+          data.append('csrf_token', '{{ csrf_token }}');
+          fetch('/auth/resend_verify_pending', {
+            method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:data.toString()
+          }).then(r=>r.json()).then(function(j){
+            if (j && j.ok){
+              var emailLabel = resendEmailLabel ? resendEmailLabel.textContent : '{{ email }}';
+              setMsg(true, 'Reenviamos o link para ' + emailLabel + '.');
+            } else {
+              setMsg(false, 'Nao foi possivel reenviar. Confira o PIN.');
+            }
+          }).catch(function(){ setMsg(false, 'Erro ao reenviar agora.'); });
+        });
+      }
+    })();
+  </script>
 {% endblock %}

@@ -49,7 +49,14 @@ Todas as mudanças notáveis do projeto serão documentadas aqui.
 
 ## [Unreleased]
 
-- ...
+### Changed
+- `/auth/pending` passa a reutilizar o mesmo conteúdo e botões da confirmação pós-cadastro, reenviando o e-mail ao entrar.
+- Visitantes só veem “cartão em construção” se o perfil estiver incompleto/pendente ou o dono não tiver verificação concluída; caso contrário, exibimos o cartão.
+- Verificação de e-mail agora normaliza o timestamp do token para UTC ao checar expiração (evita erros 400 ao confirmar).
+- Troca de e-mail pendente atualiza o botão de confirmação (dev) com o novo `verify_path`.
+
+### Added
+- Testes unitários para `_token_expired` e `change_pending_email` usando SQLite temporário.
 
 
 ## [v0.1.1] - 2025-10-26

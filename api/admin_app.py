@@ -1,265 +1,134 @@
-from fastapi import FastAPI, HTTPException, Request, Form
-from urllib.parse import urlparse, quote as url_quote, unquote as url_unquote
+from __future__ import annotations
+
+import html
+import json
+import os
+import time
+import secrets
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-import os, json, time, secrets, html
 
+from api.core.config import get_settings
 from api.core.security import hash_password, verify_password
+from api.domain.slugs import is_valid_slug
+from api.repositories.sql_repository import SQLRepository
 
 
-# --- Minimal, self-contained admin app (MVP) ---
-# Uses same JSON store (api/data.json) as the public app.
+app = FastAPI(title="Soomei Admin API")
+settings = get_settings()
+repo = SQLRepository()
 
-app = FastAPI(title="Soomei Admin API (MVP)")
-
-BASE = os.path.dirname(__file__)
-DATA = os.path.join(BASE, "data.json")
-WEB = os.path.join(BASE, "..", "web")
-UPLOADS_DIR = os.path.join(WEB, "uploads")
-CUSTOM_DOMAIN_STATUS_PENDING = "pending"
-CUSTOM_DOMAIN_STATUS_ACTIVE = "active"
-CUSTOM_DOMAIN_STATUS_REJECTED = "rejected"
-CUSTOM_DOMAIN_STATUS_DISABLED = "disabled"
+ADMIN_SESSION_TTL_SECONDS = max(600, int(os.getenv("ADMIN_SESSION_TTL_SECONDS", "43200") or 43200))
+ADMIN_COOKIE_SECURE = settings.app_env == "prod" or (os.getenv("ADMIN_COOKIE_SECURE") or "").strip() == "1"
+ADMIN_HOSTS = {h.strip() for h in (os.getenv("ADMIN_HOST", "") or "").split(",") if h.strip()}
+ADMIN_HOSTS.update({"localhost:8001", "127.0.0.1:8001"})
 
 
-def _env_int(value: str | None, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-DEFAULT_ADMIN_SESSION_TTL = 12 * 3600
-ADMIN_SESSION_TTL_SECONDS = max(600, _env_int(os.getenv("ADMIN_SESSION_TTL_SECONDS"), DEFAULT_ADMIN_SESSION_TTL))
-ADMIN_COOKIE_SECURE = _env_bool(os.getenv("ADMIN_COOKIE_SECURE"), (os.getenv("APP_ENV") or "dev").lower() == "prod")
-
-
-def load_db():
-    if os.path.exists(DATA):
-        with open(DATA, "r", encoding="utf-8") as f:
-            db = json.load(f)
-    else:
-        db = {}
-    # defaults
-    db.setdefault("users", {})
-    db.setdefault("cards", {})
-    db.setdefault("profiles", {})
-    db.setdefault("sessions", {})
-    db.setdefault("verify_tokens", {})
-    db.setdefault("sessions_admin", {})
-    db.setdefault("custom_domains", {})
-    return db
-
-
-def save_db(db):
-    with open(DATA, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False, indent=2)
-
-
+# ---------------------- helpers ----------------------
 def _admin_allowed(email: str) -> bool:
     allow = (os.getenv("ADMIN_EMAILS", "") or "").strip()
     if allow:
         allowed = {x.strip().lower() for x in allow.split(",") if x.strip()}
         return (email or "").lower() in allowed
-    # Fallback de desenvolvimento: domínio da organização
     return (email or "").lower().endswith("@soomei.com.br")
 
 
-def _issue_admin_session(db, email: str) -> str:
-    token = secrets.token_urlsafe(32)
-    csrf = secrets.token_urlsafe(32)
-    now = int(time.time())
-    db["sessions_admin"][token] = {"email": email, "ts": now, "csrf": csrf, "exp": now + ADMIN_SESSION_TTL_SECONDS}
-    save_db(db)
-    return token
-
-
-def _count_cards_of_user(db, email: str) -> int:
-    c = 0
-    for _uid, card in db.get("cards", {}).items():
-        if card.get("user") == email:
-            c += 1
-    return c
-
-
-def _delete_photo_files(uid: str) -> None:
-    try:
-        os.makedirs(UPLOADS_DIR, exist_ok=True)
-        for ext in (".jpg", ".png"):
-            path = os.path.join(UPLOADS_DIR, f"{uid}{ext}")
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-
-def _normalize_domain_name(value: str) -> str:
-    v = (value or "").strip().lower()
-    if not v:
-        return ""
-    if "://" in v:
-        v = v.split("://", 1)[1]
-    for sep in ("/", "?", "#"):
-        if sep in v:
-            v = v.split(sep, 1)[0]
-    if ":" in v:
-        v = v.split(":", 1)[0]
-    return v.strip().strip(".")
-
-
-def _ensure_custom_meta(card: dict) -> dict:
-    meta = card.get("custom_domain")
-    if not isinstance(meta, dict):
-        meta = {}
-        card["custom_domain"] = meta
-    return meta
-
-
-def _register_custom_domain(db, uid: str, host: str) -> None:
-    host_norm = _normalize_domain_name(host)
-    if not host_norm:
-        return
-    db.setdefault("custom_domains", {})[host_norm] = {"uid": uid}
-
-
-def _unregister_custom_domain(db, host: str) -> None:
-    host_norm = _normalize_domain_name(host)
-    if not host_norm:
-        return
-    db.setdefault("custom_domains", {}).pop(host_norm, None)
-
-
-def _domain_in_use(db, host: str, exclude_uid: str | None = None) -> bool:
-    host_norm = _normalize_domain_name(host)
-    if not host_norm:
-        return False
-    for other_uid, card in db.get("cards", {}).items():
-        if exclude_uid and other_uid == exclude_uid:
-            continue
-        meta = card.get("custom_domain") or {}
-        active = _normalize_domain_name(meta.get("active_host", ""))
-        requested = _normalize_domain_name(meta.get("requested_host", ""))
-        status = (meta.get("status") or "").lower()
-        if active and active == host_norm:
-            return True
-        if requested and requested == host_norm and status in (CUSTOM_DOMAIN_STATUS_PENDING, CUSTOM_DOMAIN_STATUS_ACTIVE):
-            return True
-    return False
-
-
-def _load_admin_session(token: str | None):
-    if not token:
-        return None, None
-    db = load_db()
-    meta = db.get("sessions_admin", {}).get(token)
-    if not isinstance(meta, dict):
-        return db, None
-    exp = int(meta.get("exp") or 0)
-    if exp and exp < int(time.time()):
-        db["sessions_admin"].pop(token, None)
-        save_db(db)
-        return db, None
-    return db, meta
-
-
-def _current_admin_email(request: Request):
-    tok = request.cookies.get("admin_session")
-    if not tok:
-        return None
-    _, meta = _load_admin_session(tok)
-    return meta.get("email") if meta else None
-
-
-def _current_admin_session(request: Request):
-    tok = request.cookies.get("admin_session")
-    if not tok:
-        return None, None
-    db, meta = _load_admin_session(tok)
-    if not meta:
-        return None, None
-    # Auto-seed CSRF for legacy sessions (created antes da proteção CSRF)
-    if isinstance(meta, dict) and not meta.get("csrf"):
-        meta["csrf"] = secrets.token_urlsafe(32)
-        db["sessions_admin"][tok] = meta
-        save_db(db)
-    return tok, meta
-
-
-def _allowed_hosts() -> set[str]:
-    hosts = set()
-    env = (os.getenv("ADMIN_HOST", "") or "").strip()
-    if env:
-        for h in env.split(","):
-            h = h.strip()
-            if h:
-                hosts.add(h)
-    # Dev defaults
-    hosts.update({"localhost:8001", "127.0.0.1:8001"})
-    return hosts
-
-
 def _check_origin(request: Request) -> bool:
-    allowed = _allowed_hosts()
-    host_hdr = (request.headers.get("host") or "").strip()
-    # Sempre aceite o host atual se estiver explicitamente na allowlist
-    if host_hdr:
-        allowed.add(host_hdr)
-    origin = request.headers.get("origin") or ""
-    referer = request.headers.get("referer") or ""
-    src = origin or referer
-    if not src:
-        # Sem Origin/Referer: permita se o Host atual estiver permitido (uso comum em dev/LAN)
-        return bool(host_hdr and (host_hdr in allowed))
+    origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    host = (request.headers.get("host") or "").strip()
+    allowed = set(ADMIN_HOSTS)
+    if host:
+        allowed.add(host)
+    if not origin:
+        return True
     try:
-        netloc = urlparse(src).netloc
+        netloc = origin.split("://", 1)[-1].split("/", 1)[0]
     except Exception:
         return False
-    return (netloc in allowed)
+    return netloc in allowed
+
+
+def _issue_admin_session(email: str) -> tuple[str, str]:
+    csrf_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ADMIN_SESSION_TTL_SECONDS)
+    token = repo.create_admin_session(email, csrf_token, expires_at)
+    return token, csrf_token
+
+
+def _load_admin_session(token: Optional[str]):
+    if not token:
+        return None
+    sess = repo.get_admin_session(token)
+    now = datetime.now(timezone.utc)
+    if not sess or (sess.expires_at and sess.expires_at < now):
+        if token:
+            repo.delete_admin_session(token)
+        return None
+    return sess
 
 
 def _csrf_protect(request: Request, form_token: str) -> None:
     if not _check_origin(request):
-        raise HTTPException(403, "invalid origin")
-    _, sess = _current_admin_session(request)
-    if not (sess and isinstance(sess, dict)):
-        raise HTTPException(401, "not authenticated")
-    csrf_saved = sess.get("csrf")
-    if not csrf_saved or not form_token or csrf_saved != form_token:
-        raise HTTPException(403, "invalid csrf token")
+        raise HTTPException(403, "origem invalida")
+    tok = request.cookies.get("admin_session")
+    sess = _load_admin_session(tok)
+    if not sess or sess.csrf_token != form_token:
+        raise HTTPException(403, "csrf invalido")
 
 
 def require_admin(request: Request) -> str:
-    who = _current_admin_email(request)
-    if not who:
-        raise HTTPException(status_code=401, detail="not authenticated")
-    if not _admin_allowed(who):
-        raise HTTPException(status_code=403, detail="forbidden")
-    # Enforce verified email
-    db = load_db()
-    u = db.get("users", {}).get(who)
-    if not (u and u.get("email_verified_at")):
-        raise HTTPException(status_code=403, detail="email not verified")
-    return who
+    tok = request.cookies.get("admin_session")
+    sess = _load_admin_session(tok)
+    if not sess:
+        raise HTTPException(401, "nao autenticado")
+    email = sess.email
+    user = repo.get_user(email)
+    if not user or not user.email_verified_at:
+        raise HTTPException(403, "email nao verificado")
+    if not _admin_allowed(email):
+        raise HTTPException(403, "forbidden")
+    return email
 
 
+def _csrf_value(request: Request) -> str:
+    tok = request.cookies.get("admin_session")
+    sess = _load_admin_session(tok)
+    return sess.csrf_token if sess else ""
+
+
+def _layout(title: str, body: str, csrf_token: str = "") -> HTMLResponse:
+    return HTMLResponse(
+        f"""
+        <!doctype html><html lang='pt-br'><head>
+        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
+        <title>{html.escape(title)}</title>
+        <style>table {{font-size:14px}} td,th {{white-space:nowrap}}</style>
+        </head><body>
+        <main class="container">
+          <nav><ul><li><strong>Admin</strong></li></ul>
+              <ul><li><a href="/">Dashboard</a></li><li><a href="/cards">Cartoes</a></li><li><a href="/domains">Dominios</a></li><li><a href="/users">Usuarios</a></li><li><a href="/logout">Sair</a></li></ul>
+          </nav>
+          {body}
+        </main>
+        </body></html>
+        """,
+        headers={"X-CSRF-Token": csrf_token} if csrf_token else None,
+    )
+
+
+# ---------------------- auth ----------------------
 @app.get("/login", response_class=HTMLResponse)
 def login_page(next: str = "/", error: str = ""):
-    msg = ""
-    if error:
-        mapping = {
-            "credenciais": "Credenciais inválidas.",
-            "nao_autorizado": "Usuário não autorizado para o admin.",
-            "nao_verificado": "E-mail não verificado. Confirme seu e-mail antes de acessar o admin.",
-        }
-        msg = mapping.get(error, "Erro ao autenticar.")
+    messages = {
+        "credenciais": "Credenciais invalidas.",
+        "nao_autorizado": "Usuario nao autorizado.",
+        "nao_verificado": "E-mail nao verificado.",
+    }
+    msg = messages.get(error, "")
     return HTMLResponse(
         f"""
         <!doctype html><html lang='pt-br'><head>
@@ -269,16 +138,13 @@ def login_page(next: str = "/", error: str = ""):
         <body><main class="container">
           <article>
             <h1>Admin | Login</h1>
-            {('<mark role=\'alert\'>' + html.escape(msg) + '</mark>') if msg else ''}
+            {('<mark role="alert">' + html.escape(msg) + '</mark>') if msg else ''}
             <form method='post' action='/login'>
               <input type='hidden' name='next' value='{html.escape(next)}'>
-              <label>E-mail</label>
-              <input name='email' type='email' required>
-              <label>Senha</label>
-              <input name='password' type='password' required>
+              <label>E-mail</label><input name='email' type='email' required>
+              <label>Senha</label><input name='password' type='password' required>
               <button style='margin-top:12px'>Entrar</button>
             </form>
-            <small>Somente administradores autorizados.</small>
           </article>
         </main></body></html>
         """
@@ -289,20 +155,14 @@ def login_page(next: str = "/", error: str = ""):
 def do_login(request: Request, email: str = Form(...), password: str = Form(...), next: str = Form("/")):
     if not _check_origin(request):
         return RedirectResponse("/login?error=credenciais", status_code=303)
-    db = load_db()
-    u = db.get("users", {}).get(email)
-    stored_hash = u.get("pwd") if u else ""
-    if not u or not verify_password(password, stored_hash):
+    user = repo.get_user(email)
+    if not user or not verify_password(password, user.password_hash):
         return RedirectResponse("/login?error=credenciais", status_code=303)
-    if stored_hash and not str(stored_hash).startswith("argon2$"):
-        u["pwd"] = hash_password(password)
-        db["users"][email] = u
-        save_db(db)
-    if not u.get("email_verified_at"):
+    if not user.email_verified_at:
         return RedirectResponse("/login?error=nao_verificado", status_code=303)
     if not _admin_allowed(email):
         return RedirectResponse("/login?error=nao_autorizado", status_code=303)
-    tok = _issue_admin_session(db, email)
+    tok, csrf_token = _issue_admin_session(email)
     resp = RedirectResponse(next or "/", status_code=303)
     resp.set_cookie(
         "admin_session",
@@ -313,110 +173,113 @@ def do_login(request: Request, email: str = Form(...), password: str = Form(...)
         max_age=ADMIN_SESSION_TTL_SECONDS,
         path="/",
     )
+    # expor csrf no header para formularios
+    resp.headers["X-CSRF-Token"] = csrf_token
     return resp
 
 
+@app.get("/logout")
+def logout(request: Request):
+    tok = request.cookies.get("admin_session")
+    if tok:
+        repo.delete_admin_session(tok)
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("admin_session", path="/")
+    return resp
+
+
+# ---------------------- dashboard ----------------------
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     try:
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/", status_code=303)
-    db = load_db()
-    cards = db.get("cards", {})
+    cards = repo.list_cards()
     total = len(cards)
-    active = sum(1 for c in cards.values() if (c.get("status") or "").lower() == "active")
-    pending = sum(1 for c in cards.values() if (c.get("status") or "").lower() == "pending")
-    blocked = sum(1 for c in cards.values() if (c.get("status") or "").lower() == "blocked")
-    status_chart = json.dumps({
-        "labels": ["Ativos", "Pendentes", "Bloqueados"],
-        "values": [active, pending, blocked],
-    })
-    top_views = []
-    for uid, card in cards.items():
-        metrics = card.get("metrics") or {}
-        views = max(0, int(metrics.get("views", 0) or 0))
-        if views:
-            top_views.append((card.get("vanity") or uid, views))
-    top_views.sort(key=lambda item: item[1], reverse=True)
-    views_chart = json.dumps({
-        "labels": [label for label, _ in top_views[:5]] or ["Sem dados"],
-        "values": [value for _, value in top_views[:5]] or [0],
-    })
-    return HTMLResponse(
-        f"""
-        <!doctype html><html lang='pt-br'><head>
-        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
-        <title>Admin | Dashboard</title>
-        <style>
-          .charts-grid {{ display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(260px,1fr)); }}
-          canvas {{ max-width:100%; height:auto; }}
-        </style>
-        </head>
-        <body><main class="container">
-          <nav>
-            <ul>
-              <li><strong>Admin</strong></li>
-            </ul>
-            <ul>
-              <li><a href='/cards'>Cartões</a></li>
-              <li><a href='/domains'>Domínios</a></li>
-              <li><a href='/users'>Usuários</a></li>
-              <li><a href='/logout'>Sair</a></li>
-            </ul>
-          </nav>
-          <article>
-            <h3>Resumo</h3>
-            <ul>
-              <li>Total de cartões: <b>{total}</b></li>
-              <li>Ativos: <b>{active}</b> | Pendentes: <b>{pending}</b> | Bloqueados: <b>{blocked}</b></li>
-            </ul>
-            <p><a href='/cards' role='button'>Ver cartões</a> <a href='/users' role='button' class='secondary'>Ver usuários</a></p>
-          </article>
-          <article>
-            <h3>Métricas rápidas</h3>
-            <div class='charts-grid'>
-              <figure>
-                <figcaption>Distribuição por status</figcaption>
-                <canvas id='statusChart' width='320' height='220'></canvas>
-              </figure>
-              <figure>
-                <figcaption>Top visualizações</figcaption>
-                <canvas id='viewsChart' width='320' height='220'></canvas>
-              </figure>
-            </div>
-          </article>
-        </main>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" integrity="sha256-mQfeWh05rq6ArlTc95xJMu38xpv8uKXu95syEHCqB6M=" crossorigin="anonymous"></script>
-        <script>
+    status_counts = {"active": 0, "pending": 0, "blocked": 0}
+    for c in cards:
+        status_counts[(c.status or "").lower()] = status_counts.get((c.status or "").lower(), 0) + 1
+    top_views = sorted(((c.vanity or c.uid, int(c.metrics_views or 0)) for c in cards if c.metrics_views), key=lambda x: x[1], reverse=True)[:5]
+    status_chart = json.dumps({"labels": ["Ativos", "Pendentes", "Bloqueados"], "values": [status_counts.get("active", 0), status_counts.get("pending", 0), status_counts.get("blocked", 0)]})
+    views_chart = json.dumps({"labels": [label for label, _ in top_views] or ["Sem dados"], "values": [v for _, v in top_views] or [0]})
+    body = f"""
+      <article>
+        <h3>Resumo</h3>
+        <ul>
+          <li>Total de cartoes: <b>{total}</b></li>
+          <li>Ativos: <b>{status_counts.get('active',0)}</b> | Pendentes: <b>{status_counts.get('pending',0)}</b> | Bloqueados: <b>{status_counts.get('blocked',0)}</b></li>
+        </ul>
+        <p><a href='/cards' role='button'>Cartoes</a> <a href='/domains' role='button' class='secondary'>Dominios</a> <a href='/users' role='button' class='secondary'>Usuarios</a></p>
+      </article>
+      <article>
+        <h3>Metricas</h3>
+        <div class='grid'>
+          <figure><figcaption>Por status</figcaption><canvas id='statusChart' width='320' height='220'></canvas></figure>
+          <figure><figcaption>Top views</figcaption><canvas id='viewsChart' width='320' height='220'></canvas></figure>
+        </div>
+      </article>
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+      <script>
         (function(){{
-          var statusData = {status_chart};
-          var viewsData = {views_chart};
-          if (window.Chart && document.getElementById('statusChart')) {{
+          var s = {status_chart};
+          var v = {views_chart};
+          if (window.Chart) {{
             new Chart(document.getElementById('statusChart').getContext('2d'), {{
-              type: 'doughnut',
-              data: {{
-                labels: statusData.labels,
-                datasets: [{{ data: statusData.values, backgroundColor: ['#16a34a','#fbbf24','#dc2626'] }}]
-              }},
-              options: {{ plugins: {{ legend: {{ position: 'bottom' }} }} }}
+              type:'doughnut', data: {{labels:s.labels, datasets:[{{data:s.values, backgroundColor:['#4ade80','#fbbf24','#f87171']}}]}}
             }});
-          }}
-          if (window.Chart && document.getElementById('viewsChart')) {{
             new Chart(document.getElementById('viewsChart').getContext('2d'), {{
-              type: 'bar',
-              data: {{
-                labels: viewsData.labels,
-                datasets: [{{ label: 'Visualizações', data: viewsData.values, backgroundColor: '#3b82f6' }}]
-              }},
-              options: {{ scales: {{ y: {{ beginAtZero: true }} }} }}
+              type:'bar', data: {{labels:v.labels, datasets:[{{data:v.values, backgroundColor:'#60a5fa'}}]}}
             }});
           }}
         }})();
-        </script>
-        </body></html>
-        """
+      </script>
+    """
+    return _layout("Admin | Dashboard", body, csrf_token=_csrf_value(request))
+
+
+# ---------------------- cards ----------------------
+def _card_row(c, csrf_token: str) -> str:
+    status = (c.status or "").lower()
+    owner = html.escape(c.owner_email or "")
+    actions = []
+    details_link = f"<a href='/cards/{html.escape(c.uid)}' class='secondary' style='margin:0 4px'>Detalhes</a>"
+    if status == "blocked":
+        actions.append(
+            f"<form method='post' action='/cards/{html.escape(c.uid)}/unblock' style='display:inline'>"
+            f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
+            "<button class='secondary' style='margin:0 4px'>Desbloquear</button>"
+            "</form>"
+        )
+    else:
+        actions.append(
+            f"<form method='post' action='/cards/{html.escape(c.uid)}/block' style='display:inline'>"
+            f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
+            "<button class='secondary' style='margin:0 4px'>Bloquear</button>"
+            "</form>"
+        )
+    actions.append(
+        f"<form method='post' action='/cards/{html.escape(c.uid)}/reset' style='display:inline'>"
+        f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
+        "<button class='secondary' style='margin:0 4px'>Resetar</button>"
+        "</form>"
+    )
+    actions.append(
+        f"<form method='post' action='/cards/{html.escape(c.uid)}/delete' style='display:inline' onsubmit=\"return confirm('Excluir este cartao? Esta acao nao pode ser desfeita.');\">"
+        f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
+        "<button class='secondary' style='margin:0 4px'>Excluir</button>"
+        "</form>"
+    )
+    actions_html = "".join(actions)
+    return (
+        f"<tr>"
+        f"<td><code>{html.escape(c.uid)}</code></td>"
+        f"<td>{html.escape(c.vanity or '')}</td>"
+        f"<td>{owner}</td>"
+        f"<td>{html.escape(status)}</td>"
+        f"<td>{int(c.metrics_views or 0)}</td>"
+        f"<td>{details_link}{actions_html}</td>"
+        f"</tr>"
     )
 
 
@@ -426,404 +289,219 @@ def list_cards(request: Request, q: str = "", status: str = ""):
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/cards", status_code=303)
-    db = load_db()
-    # CSRF token for forms
-    _tok, _sess = _current_admin_session(request)
-    csrf = (_sess or {}).get("csrf", "")
-    items = []
-    for uid, meta in db.get("cards", {}).items():
-        st = (meta.get("status") or "").lower()
-        user = meta.get("user", "")
-        vanity = meta.get("vanity", "")
-        if status and st != status.lower():
+    cards = repo.list_cards()
+    qnorm = (q or "").strip().lower()
+    status_norm = (status or "").strip().lower()
+    filtered = []
+    for c in cards:
+        if status_norm and (c.status or "").lower() != status_norm:
             continue
-        if q:
-            qq = q.lower()
-            if qq not in uid.lower() and qq not in (user or "").lower() and qq not in (vanity or "").lower():
-                continue
-        items.append((uid, st, user, vanity))
-    items.sort(key=lambda t: (t[1] != "active", t[3] or t[0]))
+        if qnorm and qnorm not in (c.uid or "").lower() and qnorm not in (c.vanity or "").lower() and qnorm not in (c.owner_email or "").lower():
+            continue
+        filtered.append(c)
+    csrf_token = _csrf_value(request)
+    rows = "\n".join(_card_row(c, csrf_token) for c in filtered)
+    ok = (request.query_params.get("ok") or "").strip()
+    pin_msg = ""
+    if ok == "reset":
+        pin_msg = (request.query_params.get("pin") or "").strip()
+    alert = ""
+    if ok == "created":
+        alert = "<mark role='status' style='display:block'>Cartao criado.</mark>"
+    elif ok == "blocked":
+        alert = "<mark role='status' style='display:block'>Cartao bloqueado.</mark>"
+    elif ok == "unblocked":
+        alert = "<mark role='status' style='display:block'>Cartao desbloqueado.</mark>"
+    elif ok == "reset":
+        alert = f"<mark role='status' style='display:block'>Cartao resetado. Novo PIN: <strong>{html.escape(pin_msg)}</strong></mark>"
+    elif request.query_params.get("error"):
+        alert = f"<mark role='alert' style='display:block'>{html.escape(request.query_params.get('error',''))}</mark>"
+    body = f"""
+    <article>
+      <h3>Cartoes</h3>
+      {alert}
+      <form class='grid' method='get' action='/cards'>
+        <input name='q' placeholder='uid, vanity ou email' value='{html.escape(q)}'>
+        <select name='status'>
+          <option value=''>Status</option>
+          <option value='active' {'selected' if status_norm=='active' else ''}>Ativo</option>
+          <option value='pending' {'selected' if status_norm=='pending' else ''}>Pending</option>
+          <option value='blocked' {'selected' if status_norm=='blocked' else ''}>Blocked</option>
+        </select>
+        <button>Filtrar</button>
+      </form>
+      <table role='grid'>
+        <thead><tr><th>UID</th><th>Vanity</th><th>Dono</th><th>Status</th><th>Views</th><th>Ações</th></tr></thead>
+        <tbody>{rows or '<tr><td colspan=\"6\">Nenhum registro</td></tr>'}</tbody>
+      </table>
+    </article>
+    <article>
+      <h4>Criar cartao</h4>
+      <form method='post' action='/cards/create'>
+        <input type='hidden' name='csrf_token' value='{csrf_token}'>
+        <label>UID <input name='uid' required></label>
+        <label>PIN <input name='pin' required></label>
+        <label>Vanity (opcional) <input name='vanity'></label>
+        <label>Dono (email) <input name='user'></label>
+        <button>Criar</button>
+      </form>
+    </article>
+    """
+    return _layout("Admin | Cartoes", body, csrf_token=csrf_token)
 
-    # Optional notice
-    qp = request.query_params
-    notice = ""
-    ok = qp.get("ok")
-    err = qp.get("error")
-    if ok == "reset" and qp.get("pin") and qp.get("uid"):
-        notice = f"<mark role='status'>Cartão <b>{html.escape(qp.get('uid'))}</b> reiniciado. Novo PIN: <b>{html.escape(qp.get('pin'))}</b></mark>"
-    elif ok == "blocked" and qp.get("uid"):
-        notice = f"<mark role='status'>Cartão <b>{html.escape(qp.get('uid'))}</b> bloqueado com sucesso.</mark>"
-    elif ok == "activated" and qp.get("uid"):
-        notice = f"<mark role='status'>Cartão <b>{html.escape(qp.get('uid'))}</b> ativado com sucesso.</mark>"
-    elif ok == "created" and qp.get("uid"):
-        notice = f"<mark role='status'>Cartão <b>{html.escape(qp.get('uid'))}</b> criado.</mark>"
-    elif ok == "1":
-        notice = "<mark role='status'>Ação concluída.</mark>"
-    elif err:
-        mapping = {
-            "uid_ja_existe": "UID já existe.",
-            "uid": "UID inválido.",
-        }
-        notice = f"<mark role='alert'>{html.escape(mapping.get(err, 'Erro ao processar ação.'))}</mark>"
 
-    rows = []
-    for uid, st, user, vanity in items:
-        rows.append(
-            "<tr>"
-            f"<td>{html.escape(uid)}</td>"
-            f"<td>{html.escape(vanity or '')}</td>"
-            f"<td>{html.escape(st)}</td>"
-            f"<td>{html.escape(user or '')}</td>"
-            f"<td>"
-            f"<form method='post' action='/cards/{html.escape(uid)}/block' style='display:inline'>"
-            f"<input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>"
-            f"<button {'disabled' if st=='blocked' else ''}>Bloquear</button></form> "
-            f"<form method='post' action='/cards/{html.escape(uid)}/unblock' style='display:inline'>"
-            f"<input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>"
-            f"<button {'disabled' if st=='active' else ''}>Ativar</button></form> "
-            f"<form method='post' action='/cards/{html.escape(uid)}/reset' style='display:inline' onsubmit=\"return confirm('Resetar este cartão? Isso apaga dados associados e volta a pending.');\">"
-            f"<input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>"
-            f"<button class='secondary'>Reset</button></form> "
-            f"<a href='http://127.0.0.1:8000/{html.escape(vanity or uid)}' target='_blank' rel='noopener' role='button' class='contrast'>Abrir</a>"
-            f"</td>"
-            "</tr>"
-        )
-    rows_html = "".join(rows) or "<tr><td colspan='5' class='muted'>Nenhum cartão encontrado</td></tr>"
-
-    return HTMLResponse(
-        f"""
-        <!doctype html><html lang='pt-br'><head>
-        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
-        <title>Admin | Cartões</title></head>
-        <body><main class="container">
-          <nav>
-            <ul>
-              <li><a href='/'>Dashboard</a></li>
-            </ul>
-            <ul>
-              <li><a href='/domains'>Domínios</a></li>
-              <li><a href='/users'>Usuários</a></li>
-              <li><a href='/logout'>Sair</a></li>
-            </ul>
-          </nav>
-          <h1>Cartões</h1>
-          {notice}
-          <article>
-            <form method='get' action='/cards'>
-              <div class="grid">
-                <input name='q' placeholder='uid/vanity/e-mail' value='{html.escape(q)}'>
-                <input name='status' placeholder='active|pending|blocked' value='{html.escape(status)}'>
-                <button>Filtrar</button>
-              </div>
-            </form>
-            <h3 style='margin-top:10px'>Criar novo cartão</h3>
-            <form method='post' action='/cards/create'>
-              <input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>
-              <div class="grid">
-                <input name='uid' placeholder='UID' required>
-                <input name='pin' placeholder='PIN' required>
-                <input name='user' placeholder='E-mail do dono (opcional)'>
-                <input name='vanity' placeholder='slug (opcional)'>
-                <button>Criar</button>
-              </div>
-            </form>
-            <div style='overflow:auto'>
-              <table>
-                <thead><tr><th>UID</th><th>Slug</th><th>Status</th><th>User</th><th>Ações</th></tr></thead>
-                <tbody>{rows_html}</tbody>
-              </table>
-            </div>
-          </article>
-        </main></body></html>
-        """
-    )
+@app.get("/cards/{uid}", response_class=HTMLResponse)
+def card_details(uid: str, request: Request):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return RedirectResponse(f"/login?next=/cards/{uid}", status_code=303)
+    card = repo.get_card_by_uid(uid)
+    if not card:
+        return RedirectResponse("/cards?error=nao_encontrado", status_code=303)
+    owner = card.owner_email or ""
+    profile = repo.get_profile(owner) or {}
+    meta = card.custom_domain_meta or {}
+    body = f"""
+    <article>
+      <h3>Detalhes do cartao</h3>
+      <p><strong>UID:</strong> {html.escape(card.uid)}</p>
+      <p><strong>Vanity:</strong> {html.escape(card.vanity or '')}</p>
+      <p><strong>Status:</strong> {html.escape(card.status or '')}</p>
+      <p><strong>PIN:</strong> {html.escape(card.pin)}</p>
+      <p><strong>Dono:</strong> {html.escape(owner)}</p>
+      <p><strong>Billing:</strong> {html.escape(card.billing_status or '')}</p>
+      <p><strong>Views:</strong> {int(card.metrics_views or 0)}</p>
+      <p><strong>Domínio custom:</strong> {html.escape((meta.get('active_host') or '') or (meta.get('requested_host') or ''))} (status: {html.escape((meta.get('status') or '').lower())})</p>
+    </article>
+    <article>
+      <h4>Perfil</h4>
+      <pre style="white-space:pre-wrap">{html.escape(json.dumps(profile, ensure_ascii=False, indent=2))}</pre>
+    </article>
+    <p><a class='secondary' href='/cards'>Voltar</a> <a class='secondary' target='_blank' href='/{html.escape(card.vanity or card.uid)}'>Ver público</a></p>
+    """
+    return _layout(f"Admin | Cartao {html.escape(uid)}", body, csrf_token=_csrf_value(request))
 
 
 @app.post("/cards/create")
 def create_card(request: Request, uid: str = Form(...), pin: str = Form(...), user: str = Form(""), vanity: str = Form(""), csrf_token: str = Form("")):
     _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/cards", status_code=303)
-    uid = (uid or "").strip()
-    if not uid:
-        return RedirectResponse("/cards?error=uid", status_code=303)
-    db = load_db()
-    if uid in db.get("cards", {}):
-        return RedirectResponse("/cards?error=uid_ja_existe", status_code=303)
-    meta = {"uid": uid, "status": "pending", "pin": (pin or "").strip()}
-    if (user or "").strip():
-        meta["user"] = user.strip()
-    if (vanity or "").strip():
-        meta["vanity"] = vanity.strip()
-    db["cards"][uid] = meta
-    save_db(db)
-    return RedirectResponse(f"/cards?ok=created&uid={html.escape(uid)}", status_code=303)
+    uid_value = (uid or "").strip()
+    pin_value = (pin or "").strip()
+    vanity_value = (vanity or "").strip()
+    owner = (user or "").strip() or None
+    if not uid_value or not pin_value:
+        return RedirectResponse("/cards?error=uid_pin", status_code=303)
+    if repo.get_card_by_uid(uid_value):
+        return RedirectResponse("/cards?error=uid_existente", status_code=303)
+    if vanity_value:
+        if not is_valid_slug(vanity_value) or repo.slug_exists(vanity_value):
+            return RedirectResponse("/cards?error=slug_indisponivel", status_code=303)
+    if owner and not repo.get_user(owner):
+        owner = None
+    repo.create_card(uid_value, pin_value, vanity_value or None, owner)
+    if owner:
+        repo.assign_card_owner(uid_value, owner, status="pending")
+    return RedirectResponse("/cards?ok=created", status_code=303)
 
 
 @app.post("/cards/{uid}/block")
 def block_card(uid: str, request: Request, csrf_token: str = Form("")):
     _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/cards", status_code=303)
-    db = load_db()
-    if uid not in db.get("cards", {}):
-        raise HTTPException(404, "Card not found")
-    db["cards"][uid]["status"] = "blocked"
-    save_db(db)
-    return RedirectResponse(f"/cards?ok=blocked&uid={html.escape(uid)}", status_code=303)
+    repo.update_card_status(uid, "blocked")
+    return RedirectResponse("/cards?ok=blocked", status_code=303)
 
 
 @app.post("/cards/{uid}/unblock")
 def unblock_card(uid: str, request: Request, csrf_token: str = Form("")):
     _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/cards", status_code=303)
-    db = load_db()
-    if uid not in db.get("cards", {}):
-        raise HTTPException(404, "Card not found")
-    db["cards"][uid]["status"] = "active"
-    save_db(db)
-    return RedirectResponse(f"/cards?ok=activated&uid={html.escape(uid)}", status_code=303)
+    repo.update_card_status(uid, "active")
+    return RedirectResponse("/cards?ok=unblocked", status_code=303)
+
+
+def _cleanup_user_if_orphan(email: str, keep_uid: str) -> None:
+    others = [c for c in repo.get_cards_by_owner(email) if c.uid != keep_uid]
+    if others:
+        return
+    repo.delete_profile(email)
+    repo.delete_user_sessions(email)
+    repo.delete_verify_tokens_for_email(email)
+    repo.delete_reset_tokens_for_email(email)
+    repo.delete_user(email)
 
 
 @app.post("/cards/{uid}/reset")
-def reset_card(uid: str, request: Request, csrf_token: str = Form("")):
+def reset_card(uid: str, request: Request, csrf_token: str = Form(""), new_pin: str = Form("")):
     _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/cards", status_code=303)
-    uid = (uid or "").strip()
-    if not uid:
-        raise HTTPException(400, "UID invalido")
-    db = load_db()
-    card = db.get("cards", {}).get(uid)
-    owner = card.get("user") if card else None
-    if card:
-        meta = card.get("custom_domain") or {}
-        active_host = meta.get("active_host")
-        if active_host:
-            _unregister_custom_domain(db, active_host)
-    # Remove card
-    if uid in db.get("cards", {}):
-        del db["cards"][uid]
-    # Remove photo files
-    _delete_photo_files(uid)
-    # If owner had no other cards, remove user, profile, sessions, verify_tokens
+    card = repo.get_card_by_uid(uid)
+    if not card:
+        return RedirectResponse("/cards?error=nao_encontrado", status_code=303)
+    owner = card.owner_email
+    pin_value = (new_pin or "").strip() or "".join(secrets.choice("0123456789") for _ in range(6))
+    repo.reset_card(uid, new_pin=pin_value, clear_owner=True, clear_vanity=True, clear_custom_domain=True)
     if owner:
-        others = _count_cards_of_user(db, owner)
-        if others == 0:
-            db.get("profiles", {}).pop(owner, None)
-            db.get("users", {}).pop(owner, None)
-            # sessions
-            for tok, meta in list(db.get("sessions", {}).items()):
-                if meta.get("email") == owner:
-                    db["sessions"].pop(tok, None)
-            # verify tokens
-            for tok, meta in list(db.get("verify_tokens", {}).items()):
-                if meta.get("email") == owner:
-                    db["verify_tokens"].pop(tok, None)
-    # Recreate pending card with new PIN
-    digits = "0123456789"
-    new_pin = "".join(secrets.choice(digits) for _ in range(6))
-    db.setdefault("cards", {})[uid] = {"uid": uid, "status": "pending", "pin": new_pin}
-    save_db(db)
-    return RedirectResponse(f"/cards?ok=reset&uid={html.escape(uid)}&pin={html.escape(new_pin)}", status_code=303)
+        _cleanup_user_if_orphan(owner, uid)
+    return RedirectResponse(f"/cards?ok=reset&pin={pin_value}", status_code=303)
 
+
+@app.post("/cards/{uid}/delete")
+def delete_card(uid: str, request: Request, csrf_token: str = Form("")):
+    _csrf_protect(request, csrf_token)
+    card = repo.get_card_by_uid(uid)
+    if card and card.owner_email:
+        _cleanup_user_if_orphan(card.owner_email, uid)
+    repo.delete_card(uid)
+    return RedirectResponse("/cards?ok=deleted", status_code=303)
+
+
+# ---------------------- usuarios ----------------------
 @app.get("/users", response_class=HTMLResponse)
 def list_users(request: Request):
     try:
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/users", status_code=303)
-    db = load_db()
+    users = repo.list_users()
     rows = []
-    for email, meta in db.get("users", {}).items():
-        detail_href = f"/users/{url_quote(email, safe='')}"
+    for u in users:
         rows.append(
-            "<tr>"
-            f"<td>{html.escape(email)}</td>"
-            f"<td>{'sim' if _admin_allowed(email) else 'não'}</td>"
-            f"<td>{'verificado' if meta.get('email_verified_at') else 'pendente'}</td>"
-            f"<td><a href='{detail_href}' role='button' class='secondary'>Detalhes</a></td>"
-            "</tr>"
+            f"<tr><td>{html.escape(u.email)}</td><td>{'Sim' if u.email_verified_at else 'Nao'}</td><td>{'Sim' if _admin_allowed(u.email) else 'Nao'}</td></tr>"
         )
-    rows_html = "".join(rows) or "<tr><td colspan='4' class='muted'>Nenhum usuário</td></tr>"
-    return HTMLResponse(
-        f"""
-        <!doctype html><html lang='pt-br'><head>
-        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
-        <title>Admin | Usuários</title></head>
-        <body><main class="container">
-          <nav>
-            <ul>
-              <li><a href='/'>Dashboard</a></li>
-            </ul>
-            <ul>
-              <li><a href='/cards'>Cartões</a></li>
-              <li><a href='/domains'>Domínios</a></li>
-              <li><a href='/logout'>Sair</a></li>
-            </ul>
-          </nav>
-          <h1>Usuários</h1>
-          <article>
-            <div style='overflow:auto'>
-              <table>
-                <thead><tr><th>E-mail</th><th>Admin?</th><th>Status e-mail</th><th></th></tr></thead>
-                <tbody>{rows_html}</tbody>
-              </table>
-            </div>
-          </article>
-        </main></body></html>
-        """
-    )
+    body = f"""
+    <article>
+      <h3>Usuarios</h3>
+      <table role='grid'>
+        <thead><tr><th>Email</th><th>Verificado</th><th>Admin</th></tr></thead>
+        <tbody>{''.join(rows) or '<tr><td colspan=\"3\">Nenhum usuario</td></tr>'}</tbody>
+      </table>
+    </article>
+    """
+    return _layout("Admin | Usuarios", body, csrf_token=_csrf_value(request))
 
 
-@app.get("/users/{email}", response_class=HTMLResponse)
-def user_detail(email: str, request: Request):
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse(f"/login?next=/users/{url_quote(email, safe='')}", status_code=303)
-    decoded_email = url_unquote(email)
-    db = load_db()
-    user = db.get("users", {}).get(decoded_email)
-    if not user:
-        raise HTTPException(404, "Usuário não encontrado")
-    profile = db.get("profiles", {}).get(decoded_email, {})
-    cards = [(uid, meta) for uid, meta in db.get("cards", {}).items() if meta.get("user") == decoded_email]
-    cards.sort(key=lambda item: item[0])
-    card_views = []
-    total_views = 0
-    for uid, meta in cards:
-        metrics = meta.get("metrics") or {}
-        views = max(0, int(metrics.get("views", 0) or 0))
-        if views:
-            total_views += views
-        label = meta.get("vanity") or uid
-        card_views.append((label, views))
-    chart_payload = json.dumps({
-        "labels": [label for label, _ in card_views] or ["Sem dados"],
-        "values": [value for _, value in card_views] or [0],
-    })
-    _tok, _sess = _current_admin_session(request)
-    csrf = (_sess or {}).get("csrf", "")
+@app.post("/users/{email}/reset_password")
+def reset_user_password(email: str, request: Request, csrf_token: str = Form(""), password: str = Form(...)):
+    _csrf_protect(request, csrf_token)
+    if len(password or "") < 8:
+        return RedirectResponse("/users?error=pwd_curto", status_code=303)
+    repo.update_user_password(email, hash_password(password))
+    return RedirectResponse("/users?ok=pwd", status_code=303)
 
-    qp = request.query_params
-    notice = ""
-    if qp.get("ok") == "pwd":
-        notice = "<mark role='status'>Senha atualizada com sucesso.</mark>"
-    elif qp.get("error") == "pwd":
-        notice = "<mark role='alert'>Senha inválida (mínimo 8 caracteres).</mark>"
 
-    def _format_value(value):
-        if isinstance(value, (dict, list)):
-            return "<pre>" + html.escape(json.dumps(value, ensure_ascii=False, indent=2)) + "</pre>"
-        return html.escape(str(value if value is not None else ""))
-
-    profile_rows = "".join(
-        f"<tr><th scope='row'>{html.escape(str(k))}</th><td>{_format_value(v)}</td></tr>"
-        for k, v in profile.items()
-    ) or "<tr><td colspan='2' class='muted'>Sem dados de perfil.</td></tr>"
-
-    cards_rows = []
-    for uid, meta in cards:
-        cards_rows.append(
-            "<tr>"
-            f"<td>{html.escape(uid)}</td>"
-            f"<td>{html.escape(meta.get('vanity', ''))}</td>"
-            f"<td>{html.escape(meta.get('status', ''))}</td>"
-            f"<td>{html.escape(meta.get('pin', ''))}</td>"
-            f"<td><a href='/{html.escape(meta.get('vanity') or uid)}' target='_blank' rel='noopener'>Abrir</a></td>"
-            "</tr>"
+# ---------------------- dominios ----------------------
+def _domain_rows() -> str:
+    rows = []
+    for card in repo.list_cards():
+        meta = card.custom_domain_meta or {}
+        active = (meta.get("active_host") or "").strip()
+        requested = (meta.get("requested_host") or "").strip()
+        status = (meta.get("status") or "").lower()
+        if not (active or requested or status):
+            continue
+        rows.append(
+            f"<tr><td>{html.escape(card.uid)}</td><td>{html.escape(card.vanity or '')}</td><td>{html.escape(active)}</td><td>{html.escape(requested)}</td><td>{html.escape(status)}</td><td>{html.escape(meta.get('admin_note',''))}</td></tr>"
         )
-    cards_html = "".join(cards_rows) or "<tr><td colspan='5' class='muted'>Nenhum cartão vinculado.</td></tr>"
-    detail_path = f"/users/{url_quote(decoded_email, safe='')}"
-
-    return HTMLResponse(
-        f"""
-        <!doctype html><html lang='pt-br'><head>
-        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
-        <title>Admin | Usuario {html.escape(decoded_email)}</title>
-        <style>
-          #userViewsCard {{ max-width:560px; margin-top:10px; }}
-        </style>
-        </head>
-        <body><main class="container">
-          <nav>
-            <ul><li><a href='/users'>&larr; Usuarios</a></li></ul>
-            <ul><li><a href='/cards'>Cartoes</a></li><li><a href='/logout'>Sair</a></li></ul>
-          </nav>
-          <h1>Usuario: {html.escape(decoded_email)}</h1>
-          {notice}
-          <article>
-            <h3>Informacoes basicas</h3>
-            <table>
-              <tbody>
-                <tr><th scope='row'>Admin?</th><td>{'Sim' if _admin_allowed(decoded_email) else 'Nao'}</td></tr>
-                <tr><th scope='row'>E-mail verificado</th><td>{'Sim' if user.get('email_verified_at') else 'Pendente'}</td></tr>
-              </tbody>
-            </table>
-          </article>
-          <article>
-            <h3>Perfil preenchido</h3>
-            <div style='overflow:auto'>
-              <table>
-                <tbody>{profile_rows}</tbody>
-              </table>
-            </div>
-          </article>
-          <article>
-            <h3>Metricas de acesso</h3>
-            <p>Total de visualizacoes registradas: <strong>{total_views}</strong></p>
-            <div id='userViewsCard'>
-              <canvas id='userViewsChart' width='520' height='280'></canvas>
-            </div>
-          </article>
-          <article>
-            <h3>Cartoes vinculados</h3>
-            <div style='overflow:auto'>
-              <table>
-                <thead><tr><th>UID</th><th>Slug</th><th>Status</th><th>PIN</th><th></th></tr></thead>
-                <tbody>{cards_html}</tbody>
-              </table>
-            </div>
-          </article>
-          <article>
-            <h3>Resetar senha</h3>
-            <form method='post' action='{detail_path}/reset_password' class='grid'>
-              <input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>
-              <input type='password' name='new_password' placeholder='Nova senha (minimo 8 caracteres)' minlength='8' required>
-              <button>Atualizar senha</button>
-            </form>
-          </article>
-        </main>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" integrity="sha256-mQfeWh05rq6ArlTc95xJMu38xpv8uKXu95syEHCqB6M=" crossorigin="anonymous"></script>
-        <script>
-        (function(){{
-          var data = {chart_payload};
-          if (window.Chart && document.getElementById('userViewsChart')) {{
-            var ctx = document.getElementById('userViewsChart').getContext('2d');
-            new Chart(ctx, {{
-              type: 'bar',
-              data: {{ labels: data.labels, datasets: [{{ label: 'Visualizacoes', data: data.values, backgroundColor: '#0ea5e9' }}] }},
-              options: {{ scales: {{ y: {{ beginAtZero: true }} }} }}
-            }});
-          }}
-        }})();
-        </script>
-        </body></html>
-        """
-    )
+    return "".join(rows)
 
 
 @app.get("/domains", response_class=HTMLResponse)
@@ -832,212 +510,119 @@ def list_domains(request: Request):
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/domains", status_code=303)
-    db = load_db()
-    _tok, sess = _current_admin_session(request)
-    csrf = (sess or {}).get("csrf", "")
-    entries = []
-    for uid, card in db.get("cards", {}).items():
-        meta = card.get("custom_domain") or {}
-        requested = (meta.get("requested_host") or "").strip()
-        active = (meta.get("active_host") or "").strip()
-        status = (meta.get("status") or "").lower()
-        if not requested and not active:
-            continue
-        owner = card.get("user", "")
-        slug = card.get("vanity", uid)
-        note = (meta.get("admin_note") or "").strip()
-        entries.append({
-            "uid": uid,
-            "slug": slug,
-            "owner": owner,
-            "status": status,
-            "requested": requested,
-            "active": active,
-            "note": note,
-        })
-    entries.sort(key=lambda item: (item["status"] != CUSTOM_DOMAIN_STATUS_PENDING, item["slug"] or item["uid"]))
-    qp = request.query_params
-    notice = ""
-    ok = qp.get("ok")
-    err = qp.get("error")
-    if ok == "approved" and qp.get("uid"):
-        notice = f"<mark role='status'>Domínio para <b>{html.escape(qp.get('uid'))}</b> aprovado.</mark>"
-    elif ok == "rejected" and qp.get("uid"):
-        notice = f"<mark role='status'>Solicitação de <b>{html.escape(qp.get('uid'))}</b> rejeitada.</mark>"
-    elif ok == "disabled" and qp.get("uid"):
-        notice = f"<mark role='status'>Domínio de <b>{html.escape(qp.get('uid'))}</b> desativado.</mark>"
-    elif err == "no_host":
-        notice = "<mark role='alert'>Nenhuma solicitação pendente encontrada.</mark>"
-    elif err == "domain_in_use":
-        notice = "<mark role='alert'>Domínio já está em uso por outro cartão.</mark>"
-    rows = []
-    for item in entries:
-        uid = html.escape(item["uid"])
-        slug = html.escape(item["slug"] or item["uid"])
-        owner = html.escape(item["owner"] or "")
-        status = html.escape(item["status"] or "")
-        requested = html.escape(item["requested"] or "")
-        active = html.escape(item["active"] or "")
-        note = html.escape(item["note"] or "")
-        approve_btn = ""
-        reject_form = ""
-        disable_form = ""
-        if item["status"] == CUSTOM_DOMAIN_STATUS_PENDING and item["requested"]:
-            approve_btn = (
-                f"<form method='post' action='/domains/{uid}/approve' style='display:inline;margin-right:6px'>"
-                f"<input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>"
-                f"<button>Aprovar</button></form>"
-            )
-            reject_form = (
-                f"<form method='post' action='/domains/{uid}/reject' style='display:inline'>"
-                f"<input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>"
-                f"<input name='note' placeholder='Motivo' style='width:140px'>"
-                f"<button class='secondary'>Reprovar</button></form>"
-            )
-        if item["active"]:
-            disable_form = (
-                f"<form method='post' action='/domains/{uid}/disable' style='display:inline' "
-                f"onsubmit=\"return confirm('Desativar este domínio?');\">"
-                f"<input type='hidden' name='csrf_token' value='{html.escape(csrf)}'>"
-                f"<button class='secondary'>Desativar</button></form>"
-            )
-        rows.append(
-            "<tr>"
-            f"<td>{uid}</td>"
-            f"<td>/{slug}</td>"
-            f"<td>{status or '—'}</td>"
-            f"<td>{requested or '—'}</td>"
-            f"<td>{active or '—'}</td>"
-            f"<td>{owner}</td>"
-            f"<td>{note or ''}</td>"
-            f"<td>{approve_btn}{reject_form}{disable_form}</td>"
-            "</tr>"
-        )
-    rows_html = "".join(rows) or "<tr><td colspan='8' class='muted'>Nenhuma solicitação de domínio encontrada</td></tr>"
-    return HTMLResponse(
-        f"""
-        <!doctype html><html lang='pt-br'><head>
-        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
-        <title>Admin | Domínios</title></head>
-        <body><main class="container">
-          <nav>
-            <ul>
-              <li><a href='/'>Dashboard</a></li>
-            </ul>
-            <ul>
-              <li><a href='/cards'>Cartões</a></li>
-              <li><a href='/users'>Usuários</a></li>
-              <li><a href='/logout'>Sair</a></li>
-            </ul>
-          </nav>
-          <h1>Domínios personalizados</h1>
-          {notice}
-          <article>
-            <p>Use este painel para aprovar, rejeitar ou desativar URLs personalizadas solicitadas pelos clientes.</p>
-            <div style='overflow:auto'>
-              <table>
-                <thead><tr><th>UID</th><th>Slug</th><th>Status</th><th>Solicitado</th><th>Ativo</th><th>Usuário</th><th>Notas</th><th>Ações</th></tr></thead>
-                <tbody>{rows_html}</tbody>
-              </table>
-            </div>
-          </article>
-        </main></body></html>
-        """
+    csrf_token = _csrf_value(request)
+    body = f"""
+    <article>
+      <h3>Dominios personalizados</h3>
+      <table role='grid'>
+        <thead><tr><th>UID</th><th>Vanity</th><th>Ativo</th><th>Pendente</th><th>Status</th><th>Obs</th></tr></thead>
+        <tbody>{_domain_rows() or '<tr><td colspan=\"6\">Nenhum dominio</td></tr>'}</tbody>
+      </table>
+      <details>
+        <summary>Aprovar/Reprovar/Desativar</summary>
+        <form method='post' action='/domains/approve' class='grid'>
+          <input type='hidden' name='csrf_token' value='{csrf_token}'>
+          <label>UID <input name='uid' required></label>
+          <label>Nota admin <input name='note'></label>
+          <button>Aprovar pendente</button>
+        </form>
+        <form method='post' action='/domains/reject' class='grid'>
+          <input type='hidden' name='csrf_token' value='{csrf_token}'>
+          <label>UID <input name='uid' required></label>
+          <label>Nota admin <input name='note'></label>
+          <button class='secondary'>Reprovar</button>
+        </form>
+        <form method='post' action='/domains/disable' class='grid'>
+          <input type='hidden' name='csrf_token' value='{csrf_token}'>
+          <label>UID <input name='uid' required></label>
+          <label>Nota admin <input name='note'></label>
+          <button class='secondary'>Desativar</button>
+        </form>
+      </details>
+    </article>
+    """
+    return _layout("Admin | Dominios", body, csrf_token=csrf_token)
+
+
+def _update_domain(uid: str, fn):
+    card = repo.get_card_by_uid(uid)
+    if not card:
+        return False
+    meta = card.custom_domain_meta or {}
+    updated_meta = fn(meta)
+    repo.update_card_custom_domain_meta(uid, updated_meta)
+    return True
+
+
+@app.post("/domains/approve")
+def domain_approve(request: Request, uid: str = Form(...), csrf_token: str = Form(""), note: str = Form("")):
+    _csrf_protect(request, csrf_token)
+    ok = _update_domain(
+        uid,
+        lambda meta: {
+            **meta,
+            "active_host": meta.get("requested_host") or meta.get("active_host") or "",
+            "status": "active",
+            "admin_note": note,
+            "updated_at": int(time.time()),
+            "requested_host": meta.get("requested_host", ""),
+        },
     )
+    card = repo.get_card_by_uid(uid)
+    host = (card.custom_domain_meta or {}).get("active_host") if card else None
+    if ok and host:
+        repo.register_custom_domain(host, uid)
+    return RedirectResponse("/domains?ok=approved", status_code=303)
 
 
-@app.post("/users/{email}/reset_password")
-def admin_reset_password(email: str, request: Request, new_password: str = Form(...), csrf_token: str = Form("")):
+@app.post("/domains/reject")
+def domain_reject(request: Request, uid: str = Form(...), csrf_token: str = Form(""), note: str = Form("")):
     _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/users", status_code=303)
-    decoded_email = url_unquote(email)
-    new_password = (new_password or "").strip()
-    if len(new_password) < 8:
-        return RedirectResponse(f"/users/{url_quote(decoded_email, safe='')}?error=pwd", status_code=303)
-    db = load_db()
-    user = db.get("users", {}).get(decoded_email)
+    _update_domain(
+        uid,
+        lambda meta: {
+            **meta,
+            "status": "rejected",
+            "admin_note": note,
+            "updated_at": int(time.time()),
+        },
+    )
+    return RedirectResponse("/domains?ok=rejected", status_code=303)
+
+
+@app.post("/domains/disable")
+def domain_disable(request: Request, uid: str = Form(...), csrf_token: str = Form(""), note: str = Form("")):
+    _csrf_protect(request, csrf_token)
+    card = repo.get_card_by_uid(uid)
+    meta = card.custom_domain_meta or {} if card else {}
+    active_host = meta.get("active_host")
+    _update_domain(
+        uid,
+        lambda meta: {
+            **meta,
+            "status": "disabled",
+            "active_host": "",
+            "requested_host": "",
+            "admin_note": note,
+            "updated_at": int(time.time()),
+        },
+    )
+    if active_host:
+        repo.unregister_custom_domain(active_host)
+    return RedirectResponse("/domains?ok=disabled", status_code=303)
+
+
+# ---------------------- misc ----------------------
+@app.post("/cards/{uid}/assign")
+def assign_owner(uid: str, request: Request, email: str = Form(""), csrf_token: str = Form("")):
+    _csrf_protect(request, csrf_token)
+    user = repo.get_user(email)
     if not user:
-        raise HTTPException(404, "Usuário não encontrado")
-    user["pwd"] = hash_password(new_password)
-    save_db(db)
-    return RedirectResponse(f"/users/{url_quote(decoded_email, safe='')}?ok=pwd", status_code=303)
-@app.post("/domains/{uid}/approve")
-def domain_approve(uid: str, request: Request, csrf_token: str = Form(""), note: str = Form("")):
-    _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/domains", status_code=303)
-    db = load_db()
-    card = db.get("cards", {}).get(uid)
-    if not card:
-        raise HTTPException(404, "Card not found")
-    meta = _ensure_custom_meta(card)
-    host = meta.get("requested_host")
-    if not host:
-        return RedirectResponse("/domains?error=no_host", status_code=303)
-    if _domain_in_use(db, host, exclude_uid=uid):
-        return RedirectResponse("/domains?error=domain_in_use", status_code=303)
-    old_active = meta.get("active_host")
-    if old_active and _normalize_domain_name(old_active) != _normalize_domain_name(host):
-        _unregister_custom_domain(db, old_active)
-    meta["active_host"] = host
-    meta["status"] = CUSTOM_DOMAIN_STATUS_ACTIVE
-    meta["approved_at"] = int(time.time())
-    meta["approved_by"] = _current_admin_email(request)
-    meta["admin_note"] = (note or "").strip()
-    meta["updated_at"] = int(time.time())
-    _register_custom_domain(db, uid, host)
-    db["cards"][uid] = card
-    save_db(db)
-    return RedirectResponse(f"/domains?ok=approved&uid={url_quote(uid, safe='')}", status_code=303)
+        return RedirectResponse("/cards?error=user_nao_encontrado", status_code=303)
+    repo.assign_card_owner(uid, email, status="active", billing_status="ok")
+    return RedirectResponse("/cards?ok=assigned", status_code=303)
 
 
-@app.post("/domains/{uid}/reject")
-def domain_reject(uid: str, request: Request, csrf_token: str = Form(""), note: str = Form("")):
-    _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/domains", status_code=303)
-    db = load_db()
-    card = db.get("cards", {}).get(uid)
-    if not card:
-        raise HTTPException(404, "Card not found")
-    meta = _ensure_custom_meta(card)
-    if not meta.get("requested_host"):
-        return RedirectResponse("/domains?error=no_host", status_code=303)
-    meta["status"] = CUSTOM_DOMAIN_STATUS_REJECTED
-    meta["admin_note"] = (note or "").strip()
-    meta["updated_at"] = int(time.time())
-    db["cards"][uid] = card
-    save_db(db)
-    return RedirectResponse(f"/domains?ok=rejected&uid={url_quote(uid, safe='')}", status_code=303)
-
-
-@app.post("/domains/{uid}/disable")
-def domain_disable(uid: str, request: Request, csrf_token: str = Form("")):
-    _csrf_protect(request, csrf_token)
-    try:
-        require_admin(request)
-    except HTTPException:
-        return RedirectResponse("/login?next=/domains", status_code=303)
-    db = load_db()
-    card = db.get("cards", {}).get(uid)
-    if not card:
-        raise HTTPException(404, "Card not found")
-    meta = _ensure_custom_meta(card)
-    active = meta.get("active_host")
-    if not active:
-        return RedirectResponse("/domains?error=no_host", status_code=303)
-    _unregister_custom_domain(db, active)
-    meta["active_host"] = ""
-    meta["status"] = CUSTOM_DOMAIN_STATUS_DISABLED
-    meta["updated_at"] = int(time.time())
-    db["cards"][uid] = card
-    save_db(db)
-    return RedirectResponse(f"/domains?ok=disabled&uid={url_quote(uid, safe='')}", status_code=303)
+def create_admin_app() -> FastAPI:
+    """Factory compatível com uvicorn/gunicorn."""
+    return app

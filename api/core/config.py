@@ -17,6 +17,7 @@ class Settings:
 
     app_env: str
     public_base_url: str
+    database_url: str
     smtp_host: str
     smtp_port: int
     smtp_user: str
@@ -45,6 +46,7 @@ def get_settings() -> Settings:
     return Settings(
         app_env=(os.getenv("APP_ENV") or "dev").lower(),
         public_base_url=os.getenv("PUBLIC_BASE_URL", "https://soomei.cc").rstrip("/"),
+        database_url=os.getenv("DATABASE_URL", ""),
         smtp_host=os.getenv("SMTP_HOST", ""),
         smtp_port=_int(os.getenv("SMTP_PORT", "465"), 465),
         smtp_user=os.getenv("SMTP_USER", ""),

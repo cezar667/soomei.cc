@@ -14,7 +14,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from api.core import csrf
 from api.core.config import get_settings
 from api.core.security import hash_password, verify_password
-from api.repositories.json_storage import db_defaults, load, save
 from api.services.card_service import find_card_by_slug
 from api.services.card_display import (
     FEATURED_DEFAULT_COLOR,
@@ -31,6 +30,7 @@ from api.services.domain_service import (
     CUSTOM_DOMAIN_STATUS_REJECTED,
 )
 from api.services.session_service import current_user_email
+from api.repositories.sql_repository import SQLRepository
 
 router = APIRouter(prefix="/edit", tags=["edit"])
 
@@ -49,6 +49,8 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 _FOOTER_SLOT = "<span id='footerActionSlot' class='footer-auth-slot'></span>"
 _FOOTER_PLACEHOLDER = "{footer_action_html}"
+
+_sql_repo = SQLRepository()
 
 
 def set_css_href(value: str) -> None:
@@ -149,11 +151,13 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
+    if uid and card:
+        _sql_repo.sync_card_from_json(uid, card)
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
-    prof = load()["profiles"].get(owner, {})
+    prof = _sql_repo.get_profile(owner) or {}
     saved_cookie = request.cookies.get("flash_edit_saved")
     pwd_cookie = request.cookies.get("flash_edit_pwd")
     saved_flag = bool(saved_cookie or str(saved) == "1")
@@ -1418,15 +1422,16 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
+    if uid and card:
+        _sql_repo.sync_card_from_json(uid, card)
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:
         return RedirectResponse(f"/{slug}", status_code=303)
     csrf.validate_csrf(request, csrf_token)
-    db2 = db_defaults(load())
     def redirect_error(msg: str):
         return RedirectResponse(f"/edit/{slug}?error={urlparse.quote_plus(msg)}", status_code=303)
-    prof = db2["profiles"].get(owner, {})
+    prof = _sql_repo.get_profile(owner) or {}
     prof.update({
         "full_name": full_name.strip(),
         "title": title.strip(),
@@ -1474,11 +1479,10 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
             return redirect_error("Nova senha deve ter no minimo 8 caracteres.")
         if new_password != confirm_password:
             return redirect_error("As senhas nao conferem.")
-        user = db2["users"].get(owner)
-        if not user or not verify_password(current_password, user.get("pwd")):
+        user = _sql_repo.get_user(owner)
+        if not user or not verify_password(current_password, user.password_hash):
             return redirect_error("Senha atual incorreta.")
-        user["pwd"] = hash_password(new_password)
-        db2["users"][owner] = user
+        _sql_repo.update_user_password(owner, hash_password(new_password))
         pwd_changed = True
     allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
     if photo and photo.filename:
@@ -1507,13 +1511,6 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         if not _has_valid_signature(data, ct):
             return redirect_error("Arquivo de imagem invalido.")
         prof["cover_url"] = _save_resized_image(data, f"{uid}_cover.jpg", (1600, 900))
-    db2["profiles"][owner] = prof
-    save(db2)
-    # Se perfil ainda estiver incompleto ou senha foi alterada, mantem usuario na edicao com aviso
-    if not profile_complete(prof) or pwd_changed:
-        resp = RedirectResponse(f"/edit/{slug}", status_code=303)
-        resp.set_cookie("flash_edit_saved", "1", max_age=15, path="/edit", httponly=True, samesite="lax")
-        if pwd_changed:
-            resp.set_cookie("flash_edit_pwd", "1", max_age=15, path="/edit", httponly=True, samesite="lax")
-        return resp
+    _sql_repo.upsert_profile(owner, prof)
+    # Redireciona sempre para a página pública após salvar
     return RedirectResponse(f"/{slug}", status_code=303)

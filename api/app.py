@@ -129,14 +129,6 @@ app.state.templates = templates
 slug_service = SlugService()
 app.state.slug_service = slug_service
 
-app.include_router(auth_router.router)
-app.include_router(slug_router.router)
-app.include_router(custom_domain_router.router)
-app.include_router(hooks_router.router)
-app.include_router(pages_router.router)
-app.include_router(card_edit_router.router)
-app.include_router(cards_router.router)
-
 
 @app.get("/favicon.ico")
 def favicon():
@@ -157,6 +149,14 @@ def _brand_footer_inject(html_doc: str) -> str:
     return html_doc.replace("</main>", snippet + "</main>", 1) if "</main>" in html_doc else (html_doc + snippet)
 
 
+app.include_router(auth_router.router)
+app.include_router(slug_router.router)
+app.include_router(custom_domain_router.router)
+app.include_router(hooks_router.router)
+app.include_router(pages_router.router)
+app.include_router(card_edit_router.router)
+app.include_router(cards_router.router)
+
 cards_router.set_brand_footer(_brand_footer_inject)
 card_edit_router.set_brand_footer(_brand_footer_inject)
 cards_router.configure_environment(
@@ -171,11 +171,17 @@ card_edit_router.configure_environment(
     public_base_host=PUBLIC_BASE_HOST,
     uploads_dir=UPLOADS,
 )
+legal_default = os.path.abspath(os.path.join(BASE, "..", "legal", "terms_v1.md"))
+legal_terms_path = os.getenv("LEGAL_TERMS_PATH", legal_default)
 pages_router.configure_pages(
     css_href=CSS_HREF,
     brand_footer=_brand_footer_inject,
-    legal_terms_path=os.path.join(BASE, "..", "legal", "terms_v1.md"),
+    legal_terms_path=legal_terms_path,
 )
+
+def create_app() -> FastAPI:
+    """Factory compatível com uvicorn/gunicorn."""
+    return app
 
 
 
