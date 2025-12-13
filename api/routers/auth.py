@@ -88,7 +88,7 @@ def forgot_password(request: Request, message: str = "", error: str = ""):
       <p>Informe o e-mail cadastrado para receber o link de redefinicao.</p>
       <form method='post' action='/auth/forgot' class='grid'>
         <input type='hidden' name='csrf_token' value='{token_html}'>
-        <input name='email' type='email' placeholder='voce@exemplo.com' required>
+        <input name='email' type='email' placeholder='voce@exemplo.com' required autocomplete='email'>
         <button class='btn'>Enviar link</button>
       </form>
       {_banner(message, "ok")}

@@ -141,8 +141,8 @@ def login_page(next: str = "/", error: str = ""):
             {('<mark role="alert">' + html.escape(msg) + '</mark>') if msg else ''}
             <form method='post' action='/login'>
               <input type='hidden' name='next' value='{html.escape(next)}'>
-              <label>E-mail</label><input name='email' type='email' required>
-              <label>Senha</label><input name='password' type='password' required>
+              <label for='adminEmail'>E-mail</label><input id='adminEmail' name='email' type='email' required autocomplete='email'>
+              <label for='adminPassword'>Senha</label><input id='adminPassword' name='password' type='password' required autocomplete='current-password'>
               <button style='margin-top:12px'>Entrar</button>
             </form>
           </article>

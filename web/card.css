@@ -117,6 +117,31 @@ form input, form button{width:100%;margin:8px 0;padding:10px;border-radius:10px;
 .featured-cta:hover .featured-cta__icon{transform:translateX(4px);background:rgba(var(--featured-shadow-rgb,0,0,0),.28)}
 .edit-footer{margin-top:32px;display:flex;}
 .edit-footer form{margin:0}
+.portfolio-showcase{margin:18px 0;padding:18px;border:1px solid #242427;border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.015));box-shadow:0 28px 80px rgba(0,0,0,.38);position:relative;overflow:hidden}
+.portfolio-showcase::before{content:"";position:absolute;inset:-22% 8% auto;height:240px;background:radial-gradient(circle at 30% 20%,rgba(255,255,255,.16),transparent 55%);filter:blur(28px);opacity:.65;pointer-events:none}
+.portfolio-showcase::after{content:"";position:absolute;right:2%;bottom:-10%;width:240px;height:240px;background:radial-gradient(circle at 50% 50%,rgba(61,214,140,.25),transparent 60%);filter:blur(42px);opacity:.7;pointer-events:none}
+.portfolio-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;position:relative;z-index:1}
+.portfolio-title{margin:4px 0 0;font-size:24px;letter-spacing:.5px;text-transform:uppercase;font-weight:800}
+.portfolio-sub{margin:4px 0 0;font-size:13px;color:#9aa0a6}
+.portfolio-chip{background:rgba(255,255,255,.08);border:1px solid #ffffff20;border-radius:999px;padding:6px 12px;font-size:12px;color:#eaeaea;backdrop-filter:blur(6px)}
+.portfolio-carousel{margin-top:14px;position:relative;perspective:1400px;min-height:280px;cursor:grab}
+.portfolio-carousel:active{cursor:grabbing}
+.portfolio-carousel::after{content:"";position:absolute;inset:auto 14% -30px;height:160px;background:radial-gradient(ellipse at center,rgba(0,0,0,.38),transparent 70%);filter:blur(14px);pointer-events:none;z-index:0}
+.portfolio-ring{--theta: calc(360deg / var(--total));--radius:520px;--active:0;position:relative;width:100%;height:280px;transform-style:preserve-3d;transform:translateZ(calc(var(--radius) * -0.68)) rotateY(calc(var(--active) * var(--theta) * -1));transition:transform 1s cubic-bezier(.16,.68,.42,1);will-change:transform;z-index:1}
+.portfolio-slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotateY(calc(var(--i) * var(--theta))) translateZ(var(--radius)) rotateY(-2deg) rotateX(2deg);opacity:.55;filter:saturate(.9) brightness(.9);transition:opacity .6s ease,filter .6s ease,transform 1s cubic-bezier(.16,.68,.42,1)}
+.portfolio-slide.is-active{opacity:1;filter:none;transform:rotateY(calc(var(--i) * var(--theta))) translateZ(var(--radius)) scale(1.035);z-index:2}
+.portfolio-frame{position:relative;width:clamp(260px,38vw,500px);height:240px;border-radius:18px;overflow:hidden;border:1px solid #ffffff22;box-shadow:0 16px 52px rgba(0,0,0,.48),0 0 0 1px rgba(255,255,255,.05);background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.01))}
+.portfolio-frame::before{content:"";position:absolute;inset:-30% auto auto -25%;width:50%;height:80%;background:linear-gradient(145deg,rgba(255,255,255,.28),rgba(255,255,255,0));transform:rotate(-12deg);opacity:.7;pointer-events:none}
+.portfolio-frame img{width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.02);filter:drop-shadow(0 18px 36px rgba(0,0,0,.35))}
+.portfolio-slide.is-active .portfolio-frame{box-shadow:0 18px 60px rgba(0,0,0,.52),0 0 0 1px rgba(255,255,255,.08)}
+.portfolio-glow{position:absolute;inset:0;background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,0));mix-blend-mode:screen;pointer-events:none}
+.portfolio-dots{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:18px;position:relative;z-index:1;flex-wrap:wrap}
+.portfolio-dot{width:12px;height:12px;border-radius:50%;border:1px solid #ffffff44;background:rgba(255,255,255,.04);cursor:pointer;transition:transform .2s ease,background .2s ease,border-color .2s ease,box-shadow .2s ease}
+.portfolio-dot.is-active{background:#ffffff;border-color:#ffffff;transform:scale(1.15);box-shadow:0 0 0 6px rgba(255,255,255,.08)}
+@media (max-width:520px){
+  .portfolio-ring{--radius:360px;height:240px}
+  .portfolio-frame{height:210px}
+}
 @-webkit-keyframes featuredHalo{
 0%,100%{box-shadow:0 10px 24px rgba(var(--featured-shadow-rgb,255,180,115),.3),0 0 0 0 rgba(var(--featured-shadow-rgb,255,180,115),0)}
 50%{box-shadow:0 16px 36px rgba(var(--featured-shadow-rgb,255,180,115),.45),0 0 12px 3px rgba(var(--featured-shadow-rgb,255,180,115),.35)}

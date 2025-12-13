@@ -517,7 +517,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               </div>
               <div class='form-control'>
                 <label>Cor do cartão</label>
-                <input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 48px'>
+                <input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 48px' aria-label='Cor do cartao'>
                 <span class='muted hint'>Essa cor é usada em bot├Áes e cart├Áes auxiliares.</span>
               </div>
             </div>
@@ -531,27 +531,27 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <div class='section-grid two-col'>
               <div class='form-control'>
                 <label>Nome <span class='required-pill'>Obrigatorio</span></label>
-                <input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome completo' required>
+                <input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome completo' required aria-label='Nome completo'>
               </div>
               <div class='form-control'>
                 <label>Cargo | Empresa <span class='required-pill'>Obrigatorio</span></label>
-                <input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei' required>
+                <input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei' required aria-label='Cargo e empresa'>
               </div>
               <div class='form-control'>
                 <label>WhatsApp <span class='required-pill'>Obrigatorio</span></label>
-                <input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19'>
+                <input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19' aria-label='WhatsApp'>
               </div>
               <div class='form-control'>
                 <label>Email público <span class='required-pill'>Obrigatorio</span></label>
-                <input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}' placeholder='contato@exemplo.com'>
+                <input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}' placeholder='contato@exemplo.com' aria-label='Email publico'>
               </div>
               <div class='form-control'>
                 <label>Site</label>
-                <input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}'>
+                <input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}' aria-label='Site'>
               </div>
               <div class='form-control full'>
                 <label>Endereço</label>
-                <input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF'>
+                <input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF' aria-label='Endereco'>
               </div>
             </div>
             <div id='primaryInfoHint' class='primary-required-hint' role='status' aria-live='polite' tabindex='-1'>
@@ -603,16 +603,16 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 </div>
                 <div class='form-control'>
                   <label>Título do botão</label>
-                  <input name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência'>
+                  <input name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência' aria-label='Titulo do botao destaque'>
                 </div>
                 <div class='form-control'>
                   <label>Link (URL)</label>
-                  <input name='featured_url' type='url' inputmode='url' placeholder='https://seusite.com/agendar' value='{html.escape(prof.get('featured_url',''))}'>
+                  <input name='featured_url' type='url' inputmode='url' placeholder='https://seusite.com/agendar' value='{html.escape(prof.get('featured_url',''))}' aria-label='Link do botao destaque'>
                 </div>
                 <div class='form-control'>
                   <label>Cor principal</label>
                   <div style='display:flex;align-items:center;gap:10px'>
-                    <input id='featuredColor' data-default-color='{FEATURED_DEFAULT_COLOR}' name='featured_color' type='color' value='{html.escape(prof.get('featured_color', FEATURED_DEFAULT_COLOR) or FEATURED_DEFAULT_COLOR)}' style='height:42px;padding:0 8px;border-radius:12px;flex:0 0 120px'>
+                    <input id='featuredColor' data-default-color='{FEATURED_DEFAULT_COLOR}' name='featured_color' type='color' value='{html.escape(prof.get('featured_color', FEATURED_DEFAULT_COLOR) or FEATURED_DEFAULT_COLOR)}' style='height:42px;padding:0 8px;border-radius:12px;flex:0 0 120px' aria-label='Cor do botao destaque'>
                     <button type='button' class='btn ghost' id='featuredColorReset' style='flex:1'>Resetar cor</button>
                   </div>
                   <p class='muted hint'>Define o gradiente e o brilho do botão.</p>
@@ -641,7 +641,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </label>
           </div>
           <input name='google_review_url' type='url' placeholder='https://search.google.com/local/writereview?...'
-                value='{html.escape(prof.get("google_review_url", ""))}'>
+                value='{html.escape(prof.get("google_review_url", ""))}' aria-label='Link de avaliacao do Google'>
           <a class="link-google-review" target='_blank' rel='noopener'
             href='https://support.google.com/business/answer/3474122?hl=pt-BR#:~:text=Para%20encontrar%20o%20link%20da,Pesquisa%20Google%2C%20selecione%20Solicitar%20avalia%C3%A7%C3%B5es'>
             Toque aqui para ver como encontrar o link de Avaliação do Google Meu Negócio
@@ -657,35 +657,35 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <div class='links-grid-edit'>
               <div class='form-control'>
                 <label>Título do botão 1</label>
-                <input name='label1' value='{html.escape(links[0].get('label',''))}'>
+                <input name='label1' value='{html.escape(links[0].get('label',''))}' aria-label='Titulo do botao 1'>
               </div>
               <div class='form-control'>
                 <label>Link (URL)</label>
-                <input name='href1' value='{html.escape(links[0].get('href',''))}'>
+                <input name='href1' value='{html.escape(links[0].get('href',''))}' aria-label='Link do botao 1'>
               </div>
               <div class='form-control'>
                 <label>Título do botão 2</label>
-                <input name='label2' value='{html.escape(links[1].get('label',''))}'>
+                <input name='label2' value='{html.escape(links[1].get('label',''))}' aria-label='Titulo do botao 2'>
               </div>
               <div class='form-control'>
                 <label>Link (URL)</label>
-                <input name='href2' value='{html.escape(links[1].get('href',''))}'>
+                <input name='href2' value='{html.escape(links[1].get('href',''))}' aria-label='Link do botao 2'>
               </div>
               <div class='form-control'>
                 <label>Título do botão 3</label>
-                <input name='label3' value='{html.escape(links[2].get('label',''))}'>
+                <input name='label3' value='{html.escape(links[2].get('label',''))}' aria-label='Titulo do botao 3'>
               </div>
               <div class='form-control'>
                 <label>Link (URL)</label>
-                <input name='href3' value='{html.escape(links[2].get('href',''))}'>
+                <input name='href3' value='{html.escape(links[2].get('href',''))}' aria-label='Link do botao 3'>
               </div>
               <div class='form-control'>
                 <label>Título do botão 4</label>
-                <input name='label4' value='{html.escape(links[3].get('label',''))}'>
+                <input name='label4' value='{html.escape(links[3].get('label',''))}' aria-label='Titulo do botao 4'>
               </div>
               <div class='form-control'>
                 <label>Link (URL)</label>
-                <input name='href4' value='{html.escape(links[3].get('href',''))}'>
+                <input name='href4' value='{html.escape(links[3].get('href',''))}' aria-label='Link do botao 4'>
               </div>
             </div>
           </section>
@@ -700,15 +700,15 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <input type='hidden' name='password_mode' id='passwordMode' value='0'>
               <div class='form-control'>
                 <label>Senha atual</label>
-                <input type='password' name='current_password' autocomplete='current-password' placeholder='Digite sua senha atual'>
+                <input type='password' name='current_password' autocomplete='current-password' placeholder='Digite sua senha atual' aria-label='Senha atual'>
               </div>
               <div class='form-control'>
                 <label>Nova senha</label>
-                <input type='password' name='new_password' autocomplete='new-password' minlength='8' placeholder='Mínimo de 8 caracteres'>
+                <input type='password' name='new_password' autocomplete='new-password' minlength='8' placeholder='Mínimo de 8 caracteres' aria-label='Nova senha'>
               </div>
               <div class='form-control'>
                 <label>Confirmar nova senha</label>
-                <input type='password' name='confirm_password' autocomplete='new-password' minlength='8' placeholder='Repita a nova senha'>
+                <input type='password' name='confirm_password' autocomplete='new-password' minlength='8' placeholder='Repita a nova senha' aria-label='Confirmar nova senha'>
               </div>
               <p class='muted hint'>Sua sessão permanecerá ativa após a troca.</p>
             </div>
@@ -1656,6 +1656,44 @@ def visitor_public_card(
             f"<li><a class='link {cls}' href='{html.escape(href)}' target='_blank' rel='noopener'>{icon}{text}</a></li>"
         )
     links_grid_html = "".join(link_items)
+    portfolio_raw = prof.get("portfolio_images") or []
+    portfolio_images = []
+    if isinstance(portfolio_raw, list):
+        for item in portfolio_raw[:5]:
+            val = (item or "").strip()
+            if val:
+                portfolio_images.append(html.escape(val))
+    portfolio_enabled_flag = bool(prof.get("portfolio_enabled"))
+    portfolio_section = ""
+    if portfolio_enabled_flag and portfolio_images:
+        slides_html = "".join(
+            f"<div class='portfolio-slide{' is-active' if idx == 0 else ''}' style='--i:{idx};'>"
+            f"<div class='portfolio-frame'><div class='portfolio-glow'></div><img src='{src}' alt='Portfolio {idx + 1}' loading='lazy'></div>"
+            f"</div>"
+            for idx, src in enumerate(portfolio_images)
+        )
+        dots_html = "".join(
+            f"<button type='button' class='portfolio-dot{' is-active' if idx == 0 else ''}' data-index='{idx}' aria-label='Mostrar foto {idx + 1}' aria-current='{'true' if idx == 0 else 'false'}'></button>"
+            for idx in range(len(portfolio_images))
+        )
+        plural = "s" if len(portfolio_images) != 1 else ""
+        portfolio_section = f"""
+        <section class='portfolio-showcase'>
+          <div class='portfolio-head'>
+            <div>
+              <p class='section-kicker'>Portfólio</p>
+            </div>
+          </div>
+          <div class='portfolio-carousel' data-total='{len(portfolio_images)}'>
+            <div class='portfolio-ring' style='--total:{len(portfolio_images)};--active:0;--radius:420px;'>
+              {slides_html}
+            </div>
+            <div class='portfolio-dots'>
+              {dots_html}
+            </div>
+          </div>
+        </section>
+        """
     scripts = """
 
     <script>
@@ -2160,6 +2198,89 @@ def visitor_public_card(
 
     })();
 
+    (function(){
+      var ring = document.querySelector('.portfolio-ring');
+      if (!ring) { return; }
+      var slides = ring.querySelectorAll('.portfolio-slide');
+      if (!slides.length) { return; }
+      var dots = document.querySelectorAll('.portfolio-dot');
+      var carousel = document.querySelector('.portfolio-carousel');
+      var total = slides.length;
+      var active = 0;
+      var timer = null;
+      var prefersReduce = false;
+      var startX = null;
+      var lastDx = 0;
+      var moved = false;
+      try {
+        prefersReduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch (_e) {}
+      function setActive(idx){
+        active = ((idx % total) + total) % total;
+        ring.style.setProperty('--active', active);
+        slides.forEach(function(slide, i){
+          slide.classList.toggle('is-active', i === active);
+        });
+        dots.forEach(function(dot, i){
+          var isCurrent = i === active;
+          dot.classList.toggle('is-active', isCurrent);
+          dot.setAttribute('aria-current', isCurrent ? 'true' : 'false');
+        });
+      }
+      function schedule(){
+        if (timer){ clearInterval(timer); }
+        if (prefersReduce){ return; }
+        timer = setInterval(function(){
+          setActive(active + 1);
+        }, 4200);
+      }
+      dots.forEach(function(dot){
+        dot.addEventListener('click', function(ev){
+          ev.preventDefault();
+          var idx = parseInt(dot.getAttribute('data-index') || '0', 10) || 0;
+          setActive(idx);
+          schedule();
+        });
+      });
+      if (carousel){
+        carousel.addEventListener('pointerdown', function(ev){
+          startX = ev.clientX;
+          moved = false;
+          lastDx = 0;
+          if (timer){ clearInterval(timer); }
+          try { carousel.setPointerCapture(ev.pointerId); } catch(_e){}
+        });
+        carousel.addEventListener('pointermove', function(ev){
+          if (startX === null) return;
+          var dx = ev.clientX - startX;
+          lastDx = dx;
+          if (Math.abs(dx) > 8){ moved = true; }
+        });
+        carousel.addEventListener('pointerup', function(ev){
+          if (startX === null) return;
+          if (Math.abs(lastDx) > 40){
+            var step = lastDx > 0 ? -1 : 1;
+            setActive(active + step);
+          } else if (!moved){
+            setActive(active + 1);
+          }
+          startX = null;
+          schedule();
+        });
+        carousel.addEventListener('mouseenter', function(){ if (timer) { clearInterval(timer); } });
+        carousel.addEventListener('mouseleave', function(){ schedule(); });
+        carousel.addEventListener('wheel', function(ev){
+          ev.preventDefault();
+          var delta = ev.deltaY || ev.deltaX || 0;
+          if (delta === 0) return;
+          setActive(active + (delta > 0 ? 1 : -1));
+          schedule();
+        }, { passive: false });
+      }
+      setActive(0);
+      schedule();
+    })();
+
     </script>
 
     """
@@ -2453,6 +2574,7 @@ def visitor_public_card(
           ]) +
           "</div>"
         ) if (len(other_links) > 0) else ""}
+        {portfolio_section}
         <div class='fixed-actions'>
           {(
             f"<a class='btn fixed website' target='_blank' rel='noopener' href='{html.escape(site_href)}'>"

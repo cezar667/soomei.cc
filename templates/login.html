@@ -10,10 +10,10 @@
         <form method="post" action="/auth/login" class="login-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="uid" value="{{ uid }}">
-          <label>Email</label>
-          <input name="email" type="email" required placeholder="voce@empresa.com">
-          <label>Senha</label>
-          <input name="password" type="password" required placeholder="Sua senha">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" name="email" type="email" required placeholder="voce@empresa.com" autocomplete="email">
+          <label for="loginPassword">Senha</label>
+          <input id="loginPassword" name="password" type="password" required placeholder="Sua senha" autocomplete="current-password">
           <button class="btn primary login-btn">Entrar</button>
         </form>
         <p><a class="muted" href="/auth/forgot">Esqueceu a senha?</a></p>

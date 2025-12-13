@@ -18,10 +18,10 @@
           <h3>Corrigir e reenviar</h3>
           <form id="pendingEmailForm">
             <input type="hidden" name="uid" value="{{ uid }}">
-            <label>Novo e-mail</label>
-            <input type="email" name="new_email" required>
-            <label>PIN da carta</label>
-            <input type="password" name="pin" inputmode="numeric" pattern="[0-9]*" required>
+            <label for="pendingNewEmail">Novo e-mail</label>
+            <input id="pendingNewEmail" type="email" name="new_email" required autocomplete="email">
+            <label for="pendingPin">PIN da carta</label>
+            <input id="pendingPin" type="password" name="pin" inputmode="numeric" pattern="[0-9]*" required autocomplete="one-time-code">
             <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
               <button class="btn" type="submit">Corrigir e reenviar</button>
               <button class="secondary" type="button" id="resendPendingBtn">Reenviar para <span id="resendEmailLabel">{{ email }}</span></button>

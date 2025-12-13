@@ -29,7 +29,7 @@
     .loading-spinner{width:96px;height:96px;object-fit:contain;pointer-events:none}
   </style>
   <div class="loading-overlay" id="onboardLoading" aria-hidden="true" role="status" aria-live="polite" aria-label="Processando">
-    <img src="/static/img/loading.gif" alt="Processando..." class="loading-spinner">
+    <img src="/static/img/soomei_loading.gif" alt="Processando..." class="loading-spinner">
   </div>
   <section class="card card-public carbon">
     <h1>Ativar cartao</h1>
@@ -38,15 +38,15 @@
     <form id="onbForm" method="post" action="/auth/register">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="uid" value="{{ uid }}">
-      <label>Email</label>
+      <label for="emailInput">Email</label>
       <input id="emailInput" name="email" type="email" required value="{{ email }}" autocapitalize="none" autocomplete="email" autocorrect="off">
       <div id="emailMsg" class="hint"></div>
-      <label>PIN da carta</label>
-      <input name="pin" type="password" required inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Somente numeros">
+      <label for="pinInput">PIN da carta</label>
+      <input id="pinInput" name="pin" type="password" required inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Somente numeros">
       <div class="hint">Dica: PIN possui apenas numeros.</div>
-      <label>Nova senha</label>
-      <input name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="Minimo de 8 caracteres">
-      <label>Link do seu cartão (opcional)</label>
+      <label for="passwordInput">Nova senha</label>
+      <input id="passwordInput" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="Minimo de 8 caracteres">
+      <label for="vanityInput">Link do seu cartao (opcional)</label>
       <input id="vanityInput" name="vanity" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" value="{{ vanity }}" autocapitalize="none" autocorrect="off" inputmode="url" style="text-transform:lowercase">
       <div id="slugMsg" class="hint">Use 3-30 caracteres, todos minusculos, sem caracteres especiais</div>
       <div class="terms-row">

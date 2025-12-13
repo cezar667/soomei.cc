@@ -7,14 +7,14 @@ Este documento orienta agentes e contribuidores em todo o repositório. Foca em 
 - Componentes:
   - API FastAPI (HTML server-rendered minimalista)
   - Worker Cloudflare (roteador curto `/r/{uid}` com KV/Queue)
-  - Armazenamento local (MVP) em `api/data.json` — substituível por Postgres/D1.
+  - Banco principal: Postgres (SQLAlchemy). `api/data.json` fica apenas para importação legada via `scripts/migrate_to_postgres.py`.
   - Scripts para provisionar cartões (UID/PIN) e resetar.
 
 ## Arquitetura e Padrões de Projeto
 - Estilo arquitetural: “Camadas finas” com evolução para Clean Architecture.
   - Camada Web (FastAPI endpoints, validação, DTOs)
   - Camada Domínio (regras: onboarding, slug, redirecionamento, sessão)
-  - Camada Dados (repo/adapter: hoje JSON; futuramente Postgres/D1)
+  - Camada Dados (repo/adapters em SQLAlchemy/Postgres; pode evoluir para D1)
 - Padrões recomendados:
   - DTOs/Pydantic para entrada/saída (futuramente)
   - Repository Pattern para isolamento de dados
@@ -74,17 +74,17 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
 - Criptografia de senha: `api.core.security` já usa `argon2id` (argon2-cffi) com prefixo próprio e fallback somente- leitura para hashes legados em scrypt; garantir que fluxos legados (ex.: troca de senha no `/edit/{slug}`) validem a senha atual via `verify_password`.
 - Sessão: os cookies `session`/`admin_session` são emitidos via `session_service` e `api.admin_app` com `HttpOnly`, `SameSite=Strict` e `Secure` ativado quando `APP_ENV=prod` (ou `ADMIN_COOKIE_SECURE=1`). Tokens vivem no armazenamento server-side (`sessions`/`sessions_admin`) com TTL configurável (`SESSION_TTL_SECONDS` e `ADMIN_SESSION_TTL_SECONDS`).
 - CSRF: `api.core.csrf` injeta cookie `csrf_token` (com `SameSite=Strict` e `Secure` em produção), exige POST + campo oculto e valida `Origin/Referer`. Rotas de login, register, slug select/update, edição de perfil, custom-domain, logout e admin já consomem esse helper.
-- CORS: ainda precisamos travar `CORSMiddleware` para permitir somente o domínio público antes de liberar APIs JSON.
+- CORS: `CORSMiddleware` já restringe origens ao `PUBLIC_BASE` (mais localhost/127.0.0.1 em dev); revisar se novos hosts forem expostos.
 - Validações:
   - Slug (regex + lista reservada) — `api.domain.slugs`.
   - Telefone — `card_display.sanitize_phone`.
-  - Uploads - hoje checamos content-type e reencodamos via Pillow, mas faltam limites de tamanho (ex.: 2MB), checagem de assinatura/MIME e quota de disco.
+  - Uploads - fluxo `/edit/{slug}` limita a 2MB, reencoda e valida assinatura JPEG/PNG; ainda faltam quotas/limite de disco e limpeza de arquivos órfãos.
 - Headers de segurança (prod):
   - `Content-Security-Policy` (default-src 'self')
   - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`
   - `Referrer-Policy: no-referrer-when-downgrade`
   - `Strict-Transport-Security` (via proxy)
-- Rate limiting: `api.core.rate_limiter.rate_limit_ip` limita slug-check/update, login/register/forgot e custom-domain; expandir para verify/admin APIs quando expostas.
+- Rate limiting: `api.core.rate_limiter.rate_limit_ip` cobre slug-check/update, login/register/forgot e custom-domain; falta proteger `/auth/verify`/reenvios e `/login` do admin.
 - Auditoria/Observabilidade: Sentry/OTel para erros; logs estruturados com correlação (request-id) ainda pendentes.
 - Segredos: variáveis de ambiente/secret manager. Nunca commitar chaves (KV/Queue IDs reais).
 
@@ -98,12 +98,9 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
 - Banco: índices em `cards.slug`, `taps(slug, ts)`. Pool de conexões.
 - Não bloquear loop: operações pesadas (ex.: QR, imagem) podem ir para tasks (ou pre-geradas/cached).
 
-## Dados e Evolução para Produção
-- Migrar `api/data.json` → Postgres (ou Cloudflare D1):
-  - Tabelas: `users`, `cards`, `profiles`, `taps`, `email_tokens`, `sessions`
-  - Migrations: Alembic
-  - Hash de senha: argon2/bcrypt
-- ETL de migração: script que lê JSON e popula DB.
+## Dados e Evolu??o para Produ??o
+- Fonte de dados: Postgres (`users`, `cards`, `profiles`, `sessions`, `sessions_admin`, `verify_tokens`, `reset_tokens`, `custom_domains`). Schema criado via `api.db.create_tables` ou `db/schema.sql`; Alembic/migrations versionadas ainda pendentes.
+- Import legado: `api/data.json` pode ser carregado via `python scripts/migrate_to_postgres.py`; n?o ? usado em runtime.
 
 ## Observabilidade e Qualidade
 - Logging estruturado (json) com nível por ambiente.
@@ -159,13 +156,14 @@ Notas de Segurança do Admin
 - [x] E-mail verificado requerido no login do admin.
 - [x] CSRF obrigatório em POSTs do admin + validação de origem via `ADMIN_HOST`.
 - [x] Cookie `Secure` e `SameSite=Strict` (o `admin_session` sempre usa HttpOnly+SameSite=Strict e liga `Secure` quando `ADMIN_COOKIE_SECURE=1` ou `APP_ENV=prod`).
+- [ ] Rate limit em `/login` do admin.
 - [ ] 2FA (TOTP) para contas admin (futuro).
 
 Checklist de Segurança em Produção
 - [x] HTTPS forçado (HSTS via proxy) — o middleware de segurança injeta `Strict-Transport-Security` automaticamente quando `APP_ENV=prod`; basta manter o app atrás de HTTPS real/proxy.
 - [x] Cookies `Secure; HttpOnly; SameSite=Lax`/`Strict` (cookies de sessão/admin já aplicam `HttpOnly` + `SameSite=Strict` e habilitam `Secure` quando `APP_ENV=prod`; o cookie de CSRF segue exposto por design).
 - [x] CSRF em endpoints state-changing (FastAPI usa `api.core.csrf` com cookie + header e validação de origem).
-- [x] Rate limiting de login/register/verify (rate limit por IP em login, register, forgot e slug/custom-domain; considerar adicionar verify/admin).
+- [ ] Rate limiting completo (login/register/forgot e slug/custom-domain já limitados; falta `/auth/verify`, reenvios e `/login` do admin).
 - [x] CSP e cabeçalhos de segurança ativos (middleware injeta CSP opinativa + XFO, X-Content-Type-Options, Referrer-Policy; HSTS quando `APP_ENV=prod`).
 - [x] Limites de upload e validação de arquivo (fluxo `/edit/{slug}` agora limita a 2MB e valida assinatura JPEG/PNG antes de salvar).
 - [x] Hash de senha com argon2/bcrypt (`api.core.security` usa Argon2id).
@@ -195,32 +193,23 @@ Checklist de Segurança em Produção
 - Abrir PRs com descrição clara e impacto em rotas/segurança.
 - Respeitar rotas estáveis; se quebrar, documentar migração.
 
-### Modularizacao em andamento
+### Modularizacao e estado atual
 - Dados/adapters:
-  - Camada SQL (Postgres) em `api.db`: `session.py` (engine/session), `models.py` (users, cards, profiles, tokens, sessões, domínios) e script `api.db.create_tables`.
-  - `api.repositories.sql_repository` oferece operações sobre o banco (CRUD de usuários/tokens, consulta/atualização de cards, perfis e domínios, sincronização com JSON legada). A migração completa do `data.json` pode ser feita via `python -m scripts.migrate_to_postgres` (carrega usuários, cards, perfis, tokens, sessões e domínios para o Postgres).
-- Domínio/Serviços:
-  - `api.domain.slugs` continua responsável pelas regras de slug/reservados.
-  - `api.services.slug_service` agora consulta e sincroniza com o Postgres (checagem de disponibilidade e atribuição de vanity slug passam pelo repositório SQL, com fallback no JSON enquanto routers não migram).
-  - `api.services.card_service` consulta o Postgres e sincroniza o dicionário JSON (função `find_card_by_slug` mantém a assinatura atual, mas abastece o banco via `sync_card_from_json`).
-  - `api.services.session_service` emite/valida sessões via tabela `users_sessions`, com fallback para o JSON durante a transição.
-  - `api.services.auth_service` usa o repositório SQL para registro/login (hash e verificação de e-mail no Postgres), ainda que perfis/cartões permaneçam em JSON.
-  - `api.services.custom_domain_service` continua sobre `domain_service` (normalize/lookup) e ainda depende do JSON até os routers migrarem.
-- Core cross-cutting: `api.core.config`, `security` (argon2), `csrf`, `rate_limiter`, `mailer` e `utils` seguem encapsulando concerns compartilhados.
+  - Postgres em `api.db` (`session.py`, `models.py`, `create_tables.py`). `SQLRepository` cobre CRUD de usuarios/cards/perfis/tokens/sessoes/dominios; `sync_card_from_json` ficou so para import/backfill (rotas `cards`/`card_edit` ainda chamam, mas a fonte e o SQL).
+- Dominio/Servicos:
+  - `api.domain.slugs` segue com regras/reservados; `api.services.slug_service` usa apenas o repositorio SQL.
+  - `api.services.card_service` resolve cards direto no banco; helpers de sync so para legado.
+  - `api.services.session_service` usa tabela `sessions`; `api.services.auth_service` usa Postgres para registro/login/verificacao/reset.
+  - `api.services.custom_domain_service`/`domain_service` consultam somente SQL (`custom_domains` + meta JSON no card).
+- Core cross-cutting: `api.core.config`, `security` (argon2), `csrf`, `rate_limiter`, `mailer` e `utils`.
 - Routers FastAPI:
-  - `api.routers.auth`, `slug`, `custom_domain`, `pages` (onboard/login/terms), `hooks`, `card_edit` e `cards` já usam o Postgres como fonte principal para usuários, cards, perfis, sessões e métricas; o fallback para `data.json` foi removido.
-  - Inicialização: `api.app:create_app()` e `api.admin_app:create_admin_app()` são as fábricas; `api.app_factory` expõe ambos (`public_app`, `admin_app`). Uvicorn: `uvicorn api.app:create_app` (público) e `uvicorn api.admin_app:create_admin_app` (admin).
-  - `SQLRepository` ganhou helpers para sessões admin, contagem/CRUD de cartões e operações de status/billing, preparando a migração do admin.
-  - `api.admin_app.py` foi migrado para Postgres (login admin, sessões admin, dashboard, CRUD/reset de cartões, domínio personalizado, usuários) usando `SQLRepository`.
-  - Scripts `scripts/add_card.py` e `scripts/reset_card.py` agora operam sobre Postgres; `data.json` pode ser mantido apenas para migração legada via `scripts/migrate_to_postgres.py`.
+  - `auth`, `slug`, `custom_domain`, `pages`, `hooks`, `card_edit` e `cards` operam sobre Postgres (sem fallback JSON); `cards`/`card_edit` ainda chamam `sync_card_from_json` por compatibilidade.
+  - Inicializacao: `api.app:create_app()` e `api.admin_app:create_admin_app()`; `api.app_factory` expoe ambos (`public_app`, `admin_app`). Uvicorn: `uvicorn api.app:create_app` (publico) e `uvicorn api.admin_app:create_admin_app` (admin).
+  - `api.admin_app.py` usa `SQLRepository` para login/sessoes admin, dashboard, CRUD/reset de cartoes, dominios e usuarios.
+  - Scripts `scripts/add_card.py` e `scripts/reset_card.py` operam no Postgres; `scripts/migrate_to_postgres.py` e utilitario unico para importar JSON legado.
 
-### Próximas etapas de migração para Postgres
-1. **Admin / Custom domains**
-   - Criar operações no `SQLRepository` para tudo o que o admin faz hoje (criar/resetar cartões, sessions admin, aprovar/reprovar domínios, limpar perfis/fotos, métricas).
-   - Refatorar `api.services.custom_domain_service` (já sincroniza meta, mas falta mover conflitos/registro por completo) e o router `/custom-domain` para usarem apenas o Postgres.
-   - Migrar `api/admin_app.py` em blocos: login/sessões admin, dashboard/listas, CRUD de cartões, perfis/uploads, e fluxo de domínios.
-   - Atualizar scripts utilitários (`scripts/add_card.py`, `scripts/reset_card.py`) para usar o repositório SQL.
-2. **Remoção do JSON**
-   - JSON e `json_storage` removidos; Postgres é a única fonte de dados. `scripts/migrate_to_postgres.py` permanece como utilitário para importar um `data.json` legado, mas o runtime não depende mais dele. Flag `USE_JSON_FALLBACK` removida.
-  - `api.routers.cards` continua grande e concentra renderização pública, QR, vCard e onboarding. A migração para Postgres será feita por partes (lookup de cards, custom-domain, perfis, métricas), sincronizando com o repositório SQL a cada etapa.
-
+### Proximas etapas
+1. **Seguranca e observabilidade**: rate limit para `/auth/verify`/reenvios e `/login` do admin; auditoria minima (login, reset/bloqueio, custom-domain); 2FA/TOTP no admin; logging estruturado com request-id; health/readyz e metricas (Prom/OTel).
+2. **Dados e operacoes**: Alembic/migrations versionadas; backup/restore ensaiados; quotas/limpeza para uploads (limite de disco, remocao de orfaos).
+3. **Pipeline/infra**: CI com lint+pytest; Docker hardening (usuario nao-root, FS read-only, healthcheck); WAF/rate limit no edge; secrets via secret manager.
+4. **CSP/UX**: revisar CSP nas paginas com upload/JS e cobrir XSS; manter escape consistente; desabilitar formatos extras de upload se surgirem (SVG).

@@ -6,7 +6,7 @@
     <p>Este será o seu endereço público: <code>/slug</code></p>
     <form method="post" action="/slug/select/{{ uid }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>Slug</label>
+      <label for="slug">Slug</label>
       <div class="slug-input-row">
         <input name="value" id="slug" value="{{ current }}" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" required aria-describedby="slugInfoTip">
         <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que e um slug?" title="O que e um slug?">i</button>

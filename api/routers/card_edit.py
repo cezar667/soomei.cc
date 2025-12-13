@@ -172,6 +172,13 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     links = prof.get("links", [])
     photo_url = resolve_photo(prof.get("photo_url"))
     cover_url = (prof.get("cover_url") or "").strip()
+    portfolio_enabled = bool(prof.get("portfolio_enabled", False))
+    portfolio_images = prof.get("portfolio_images") or []
+    if not isinstance(portfolio_images, list):
+        portfolio_images = []
+    portfolio_images = [(p or "").strip() for p in portfolio_images if p][:5]
+    while len(portfolio_images) < 5:
+        portfolio_images.append("")
     custom_domains_enabled = _get_settings().custom_domains_enabled
     custom_meta = card.get("custom_domain") or {} if custom_domains_enabled else {}
     active_domain = (custom_meta.get("active_host") or "").strip()
@@ -240,6 +247,117 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     csrf_token_html = html.escape(csrf_token_value)
     csrf_token_js = json.dumps(csrf_token_value)
     footer_action_html = _owner_logout_form(slug, csrf_token_value)
+    portfolio_slots = []
+    for idx, src in enumerate(portfolio_images, start=1):
+        safe_src = html.escape(src)
+        is_empty = not bool(src)
+        thumb = f"<img src='{safe_src}' alt='Foto {idx}'>" if src else f"<span class='placeholder'>Foto {idx}</span>"
+        portfolio_slots.append(
+            f"""
+              <div class='portfolio-slot' data-slot='{idx}'>
+                <div class='portfolio-thumb{' is-empty' if is_empty else ''}' id='pfThumb{idx}'>
+                  {thumb}
+                  <div class='thumb-glow'></div>
+                </div>
+                <div class='portfolio-actions'>
+                  <a href='#' class='photo-change' data-trigger='{idx}'>Trocar</a>
+                  <span class='muted'>|</span>
+                  <a href='#' class='photo-change muted' data-remove='{idx}'>Remover</a>
+                </div>
+                <input type='file' name='portfolio{idx}' id='portfolioInput{idx}' accept='image/jpeg,image/png' style='display:none'>
+                <input type='hidden' name='portfolio_remove{idx}' id='portfolioRemove{idx}' value='0'>
+              </div>
+            """
+        )
+    portfolio_slots_html = "\n".join(portfolio_slots)
+    portfolio_script_block = """
+      <script>
+      (function(){
+        var MAX_SLOTS = 5;
+        var MAX_UPLOAD = """ + str(MAX_UPLOAD_BYTES) + """;
+        var toggle = document.getElementById('portfolioEnabled');
+        var toggleLabel = document.getElementById('portfolioToggleLabel');
+        var toggleUi = toggle ? toggle.nextElementSibling : null;
+        var toggleKnob = toggleUi ? toggleUi.querySelector('.knob') : null;
+        function syncToggle(state){
+          if (toggleLabel){
+            toggleLabel.textContent = state ? 'Exibindo' : 'Oculto';
+          }
+          if (toggleKnob){
+            toggleKnob.style.left = state ? '22px' : '3px';
+          }
+          if (toggleUi){
+            toggleUi.style.background = state ? '#3dd68c55' : '#2a2a2a';
+          }
+        }
+        function buildEmptyContent(idx){
+          return '<span class="placeholder">Foto ' + idx + '</span><div class="thumb-glow"></div>';
+        }
+        function wireSlot(idx){
+          var input = document.getElementById('portfolioInput' + idx);
+          var thumb = document.getElementById('pfThumb' + idx);
+          var removeFlag = document.getElementById('portfolioRemove' + idx);
+          var trigger = document.querySelector('[data-trigger=\"' + idx + '\"]');
+          var remover = document.querySelector('[data-remove=\"' + idx + '\"]');
+          function clearSlot(){
+            if (thumb){
+              thumb.classList.add('is-empty');
+              thumb.innerHTML = buildEmptyContent(idx);
+            }
+            if (removeFlag){ removeFlag.value = '1'; }
+            if (input){ input.value = ''; }
+          }
+          if (trigger && input){
+            trigger.addEventListener('click', function(ev){
+              ev.preventDefault();
+              input.click();
+            });
+          }
+          if (remover){
+            remover.addEventListener('click', function(ev){
+              ev.preventDefault();
+              clearSlot();
+            });
+          }
+          if (input){
+            input.addEventListener('change', function(){
+              var f = (input.files && input.files[0]) || null;
+              if (!f){ return; }
+              var ok = /^(image\\/jpeg|image\\/png)$/i.test(f.type || '');
+              if (!ok){
+                alert('Formato de imagem nao suportado (use JPEG ou PNG).');
+                input.value = '';
+                return;
+              }
+              if (f.size > MAX_UPLOAD){
+                alert('Imagem excede 2MB. Escolha uma foto menor.');
+                input.value = '';
+                return;
+              }
+              var reader = new FileReader();
+              reader.onload = function(evt){
+                if (!thumb){ return; }
+                var src = (evt && evt.target && evt.target.result) ? evt.target.result : '';
+                thumb.classList.remove('is-empty');
+                thumb.innerHTML = '<img src=\"' + src + '\" alt=\"Foto ' + idx + '\"><div class=\"thumb-glow\"></div>';
+                if (removeFlag){ removeFlag.value = '0'; }
+              };
+              reader.readAsDataURL(f);
+            });
+          }
+        }
+        for (var i = 1; i <= MAX_SLOTS; i += 1){
+          wireSlot(i);
+        }
+        if (toggle){
+          syncToggle(!!toggle.checked);
+          toggle.addEventListener('change', function(){
+            syncToggle(!!toggle.checked);
+          });
+        }
+      })();
+      </script>
+    """
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -287,6 +405,18 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       .cta-card p{{margin:0 0 10px;font-size:13px;color:#9aa0a6}}
       .panel-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
       .links-grid-edit{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}}
+      .portfolio-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}}
+      .portfolio-slot{{border:1px solid #242427;border-radius:12px;padding:12px;background:#0f0f10;position:relative;overflow:hidden}}
+      .portfolio-thumb{{position:relative;border:1px dashed #2a2a2a;border-radius:10px;height:160px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 20% 20%,rgba(255,255,255,.05),transparent 45%),radial-gradient(circle at 80% 0%,rgba(255,255,255,.04),transparent 30%),#0c0c0f;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}}
+      .portfolio-thumb.is-empty{{border-style:dashed}}
+      .portfolio-thumb img{{width:100%;height:100%;object-fit:cover;display:block}}
+      .portfolio-thumb .placeholder{{color:#7f8591;font-size:13px}}
+      .portfolio-thumb:hover{{transform:translateY(-3px);box-shadow:0 10px 26px rgba(0,0,0,.3);border-color:#2f77ff40}}
+      .thumb-glow{{position:absolute;inset:0;border-radius:10px;background:linear-gradient(120deg,rgba(255,255,255,.08),rgba(0,0,0,.02));mix-blend-mode:screen;pointer-events:none}}
+      .portfolio-actions{{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px}}
+      .portfolio-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}}
+      .portfolio-hint{{margin:0;color:#9aa0a6;font-size:12px}}
+      .portfolio-toggle-label{{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#9aa0a6}}
       .password-fields{{margin-top:14px;display:grid;gap:12px}}
       .password-fields.is-hidden{{display:none}}
       .btn.ghost{{background:transparent;border:1px solid #2a2a2a;color:#eaeaea}}
@@ -301,7 +431,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     </head>
     <body>
       <div class='loading-overlay' id='formLoading' aria-hidden='true' role='status' aria-live='polite' aria-label='Processando'>
-        <img src='/static/img/loading.gif' alt='Processando...' class='loading-spinner'>
+        <img src='/static/img/soomei_loading.gif' alt='Processando...' class='loading-spinner'>
       </div>
       <script>
         window.soomeiLoader = (function(){{
@@ -468,7 +598,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <div class='visual-grid'>
               <div class='form-control full'>
-                <label>Capa do cartão</label>
+                <label for='coverInput'>Capa do cartão</label>
                 <div class='cover-preview' id='coverPreview'>
                   {(
                     f"<img id='coverImg' src='{html.escape(cover_url)}' alt='capa do cartão'>"
@@ -503,8 +633,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <input type='file' id='photoInput' name='photo' accept='image/jpeg,image/png' style='display:none'>
               </div>
               <div class='form-control'>
-                <label>Cor do cartão</label>
-                <input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 48px'>
+                <label for='themeColor'>Cor do cartão</label>
+                <input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 48px' aria-label='Cor do cartao'>
                 <span class='muted hint'>Essa cor é usada em botões e cartões auxiliares.</span>
               </div>
             </div>
@@ -517,28 +647,28 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <div class='section-grid two-col'>
               <div class='form-control'>
-                <label>Nome <span class='required-pill'>Obrigatorio</span></label>
-                <input name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome completo' required>
+                <label for='fullName'>Nome <span class='required-pill'>Obrigatorio</span></label>
+                <input id='fullName' name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome completo' required aria-label='Nome completo' autocomplete='name'>
               </div>
               <div class='form-control'>
-                <label>Cargo | Empresa <span class='required-pill'>Obrigatorio</span></label>
-                <input name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei' required>
+                <label for='titleInput'>Cargo | Empresa <span class='required-pill'>Obrigatorio</span></label>
+                <input id='titleInput' name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei' required aria-label='Cargo e empresa' autocomplete='organization-title'>
               </div>
               <div class='form-control'>
-                <label>WhatsApp <span class='required-pill'>Obrigatorio</span></label>
-                <input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19'>
+                <label for='whatsapp'>WhatsApp <span class='required-pill'>Obrigatorio</span></label>
+                <input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19' aria-label='WhatsApp'>
               </div>
               <div class='form-control'>
-                <label>Email público <span class='required-pill'>Obrigatorio</span></label>
-                <input name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}' placeholder='contato@exemplo.com'>
+                <label for='emailPublic'>Email público <span class='required-pill'>Obrigatorio</span></label>
+                <input id='emailPublic' name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}' placeholder='contato@exemplo.com' aria-label='Email publico' autocomplete='email'>
               </div>
               <div class='form-control'>
-                <label>Site</label>
-                <input name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}'>
+                <label for='siteUrl'>Site</label>
+                <input id='siteUrl' name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}' aria-label='Site' autocomplete='url'>
               </div>
               <div class='form-control full'>
-                <label>Endereço</label>
-                <input name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF'>
+                <label for='addressInput'>Endereço</label>
+                <input id='addressInput' name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF' aria-label='Endereco' autocomplete='street-address'>
               </div>
             </div>
             <div id='primaryInfoHint' class='primary-required-hint' role='status' aria-live='polite' tabindex='-1'>
@@ -580,8 +710,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                     <h4 style='margin:0'>Botão destaque</h4>
                     <p style='margin:4px 0 0;font-size:13px;color:#9aa0a6'>Defina a principal ação que você quer que os visitantes realizem ao abrir seu cartão.</p>
                   </div>
-                  <label class='switch' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
-                    <input type='checkbox' name='featured_enabled' value='1' {'checked' if featured_enabled else ''} style='display:none'>
+                  <label class='switch' for='featuredEnabled' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+                    <input type='checkbox' id='featuredEnabled' name='featured_enabled' value='1' {'checked' if featured_enabled else ''} style='display:none'>
                     <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
                       <span class='knob' style='position:absolute;top:3px;left:{'22px' if featured_enabled else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
                     </span>
@@ -589,17 +719,17 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                   </label>
                 </div>
                 <div class='form-control'>
-                  <label>Título do botão</label>
-                  <input name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência'>
+                <label for='featuredLabel'>Título do botão</label>
+                  <input id='featuredLabel' name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência' aria-label='Titulo do botao destaque'>
                 </div>
                 <div class='form-control'>
-                  <label>Link (URL)</label>
-                  <input name='featured_url' type='url' inputmode='url' placeholder='https://seusite.com/agendar' value='{html.escape(prof.get('featured_url',''))}'>
+                  <label for='featuredUrl'>Link (URL)</label>
+                  <input id='featuredUrl' name='featured_url' type='url' inputmode='url' placeholder='https://seusite.com/agendar' value='{html.escape(prof.get('featured_url',''))}' aria-label='Link do botao destaque'>
                 </div>
                 <div class='form-control'>
-                  <label>Cor principal</label>
+                  <label for='featuredColor'>Cor principal</label>
                   <div style='display:flex;align-items:center;gap:10px'>
-                    <input id='featuredColor' data-default-color='{FEATURED_DEFAULT_COLOR}' name='featured_color' type='color' value='{html.escape(prof.get('featured_color', FEATURED_DEFAULT_COLOR) or FEATURED_DEFAULT_COLOR)}' style='height:42px;padding:0 8px;border-radius:12px;flex:0 0 120px'>
+                    <input id='featuredColor' data-default-color='{FEATURED_DEFAULT_COLOR}' name='featured_color' type='color' value='{html.escape(prof.get('featured_color', FEATURED_DEFAULT_COLOR) or FEATURED_DEFAULT_COLOR)}' style='height:42px;padding:0 8px;border-radius:12px;flex:0 0 120px' aria-label='Cor do botao destaque'>
                     <button type='button' class='btn ghost' id='featuredColorReset' style='flex:1'>Resetar cor</button>
                   </div>
                   <p class='muted hint'>Define o gradiente e o brilho do botão.</p>
@@ -609,7 +739,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
         <div class='cta-card' style='margin-top:12px'>
           <div style='display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px'>
-            <label style='display:flex;align-items:center;gap:8px;margin:0'>
+            <div style='display:flex;align-items:center;gap:8px;margin:0'>
               <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='18' height='18' class='g-icon'>
                 <path fill='#fff' d='M24 9.5c3.94 0 7.06 1.7 9.18 3.12l6.77-6.77C36.26 2.52 30.62 0 24 0 14.5 0 6.36 5.4 2.4 13.22l7.9 6.14C12.12 13.32 17.63 9.5 24 9.5z'/>
                 <path fill='#fff' d='M46.5 24.5c0-1.6-.14-3.1-.4-4.5H24v9h12.7c-.6 3.2-2.4 5.9-5.1 7.7l7.9 6.1C43.8 38.8 46.5 32.1 46.5 24.5z'/>
@@ -617,17 +747,17 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <path fill='#fff' d='M24 48c6.48 0 11.92-2.13 15.89-5.8l-7.9-6.14C29.8 37.75 27.06 38.5 24 38.5c-6.37 0-11.88-3.82-14.7-9.86l-7.9 6.14C6.36 42.6 14.5 48 24 48z'/>
               </svg>
               <span>Link de avaliação do Google</span>
-            </label>
+            </div>
             <!-- TOGGLE ON/OFF -->
-            <label class='switch' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
-              <input type='checkbox' name='google_review_show' value='1' {'checked' if show_grev else ''} style='display:none'>
+            <label class='switch' for='googleReviewShow' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+              <input type='checkbox' id='googleReviewShow' name='google_review_show' value='1' {'checked' if show_grev else ''} style='display:none'>
               <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
                 <span class='knob' style='position:absolute;top:3px;left:{'22px' if show_grev else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
               </span>
               <span class='muted' style='font-size:12px'>{'Exibindo' if show_grev else 'Oculto'}</span>
             </label>
           </div>
-          <input name='google_review_url' type='url' placeholder='https://search.google.com/local/writereview?...'
+          <input id='googleReviewUrl' name='google_review_url' aria-label='Link de avaliacao do Google' type='url' placeholder='https://search.google.com/local/writereview?...'
                 value='{html.escape(prof.get("google_review_url", ""))}'>
           <a class="link-google-review" target='_blank' rel='noopener'
             href='https://support.google.com/business/answer/3474122?hl=pt-BR#:~:text=Para%20encontrar%20o%20link%20da,Pesquisa%20Google%2C%20selecione%20Solicitar%20avalia%C3%A7%C3%B5es'>
@@ -643,38 +773,59 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <div class='links-grid-edit'>
               <div class='form-control'>
-                <label>Título do botão 1</label>
-                <input name='label1' value='{html.escape(links[0].get('label',''))}'>
+                <label for='label1'>Título do botão 1</label>
+                <input id='label1' name='label1' value='{html.escape(links[0].get('label',''))}' aria-label='Titulo do botao 1'>
               </div>
               <div class='form-control'>
-                <label>Link (URL)</label>
-                <input name='href1' value='{html.escape(links[0].get('href',''))}'>
+                <label for='href1'>Link (URL)</label>
+                <input id='href1' name='href1' value='{html.escape(links[0].get('href',''))}' aria-label='Link do botao 1'>
               </div>
               <div class='form-control'>
-                <label>Título do botão 2</label>
-                <input name='label2' value='{html.escape(links[1].get('label',''))}'>
+                <label for='label2'>Título do botão 2</label>
+                <input id='label2' name='label2' value='{html.escape(links[1].get('label',''))}' aria-label='Titulo do botao 2'>
               </div>
               <div class='form-control'>
-                <label>Link (URL)</label>
-                <input name='href2' value='{html.escape(links[1].get('href',''))}'>
+                <label for='href2'>Link (URL)</label>
+                <input id='href2' name='href2' value='{html.escape(links[1].get('href',''))}' aria-label='Link do botao 2'>
               </div>
               <div class='form-control'>
-                <label>Título do botão 3</label>
-                <input name='label3' value='{html.escape(links[2].get('label',''))}'>
+                <label for='label3'>Título do botão 3</label>
+                <input id='label3' name='label3' value='{html.escape(links[2].get('label',''))}' aria-label='Titulo do botao 3'>
               </div>
               <div class='form-control'>
-                <label>Link (URL)</label>
-                <input name='href3' value='{html.escape(links[2].get('href',''))}'>
+                <label for='href3'>Link (URL)</label>
+                <input id='href3' name='href3' value='{html.escape(links[2].get('href',''))}' aria-label='Link do botao 3'>
               </div>
               <div class='form-control'>
-                <label>Título do botão 4</label>
-                <input name='label4' value='{html.escape(links[3].get('label',''))}'>
+                <label for='label4'>Título do botão 4</label>
+                <input id='label4' name='label4' value='{html.escape(links[3].get('label',''))}' aria-label='Titulo do botao 4'>
               </div>
               <div class='form-control'>
-                <label>Link (URL)</label>
-                <input name='href4' value='{html.escape(links[3].get('href',''))}'>
+                <label for='href4'>Link (URL)</label>
+                <input id='href4' name='href4' value='{html.escape(links[3].get('href',''))}' aria-label='Link do botao 4'>
               </div>
             </div>
+          </section>
+          <section class='edit-section' data-collapsible="1" data-collapsed="1">
+            <p class='section-kicker'>Portfólio</p>
+            <div class='section-head'>
+              <h2 class='section-title'>Fotos para o carrossel 3D</h2>
+              <p class='section-desc'>Adicione até 5 imagens. Elas serão otimizadas e exibidas em um carrossel 3D logo abaixo dos links extras.</p>
+            </div>
+            <div class='portfolio-header'>
+              <p class='portfolio-hint'>Deixe desativado para esconder o portfólio no cartão.</p>
+              <label class='switch portfolio-toggle-label' for='portfolioEnabled'>
+                <input type='checkbox' id='portfolioEnabled' name='portfolio_enabled' value='1' {'checked' if portfolio_enabled else ''} style='display:none'>
+                <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
+                  <span class='knob' style='position:absolute;top:3px;left:{'22px' if portfolio_enabled else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
+                </span>
+                <span class='muted' id='portfolioToggleLabel' style='font-size:12px'>{'Exibindo' if portfolio_enabled else 'Oculto'}</span>
+              </label>
+            </div>
+            <div class='portfolio-grid'>
+              {portfolio_slots_html}
+            </div>
+            <p class='portfolio-hint'>Limitamos a 5 fotos (2MB) e salvamos os arquivos em uma pasta interna do seu usuário.</p>
           </section>
           <section class='edit-section' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Segurança</p>
@@ -686,16 +837,16 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <div id='passwordFields' class='password-fields is-hidden'>
               <input type='hidden' name='password_mode' id='passwordMode' value='0'>
               <div class='form-control'>
-                <label>Senha atual</label>
-                <input type='password' name='current_password' autocomplete='current-password' placeholder='Digite sua senha atual'>
+                <label for='currentPassword'>Senha atual</label>
+                <input type='password' id='currentPassword' name='current_password' autocomplete='current-password' placeholder='Digite sua senha atual' aria-label='Senha atual'>
               </div>
               <div class='form-control'>
-                <label>Nova senha</label>
-                <input type='password' name='new_password' autocomplete='new-password' minlength='8' placeholder='Mínimo de 8 caracteres'>
+                <label for='newPassword'>Nova senha</label>
+                <input type='password' id='newPassword' name='new_password' autocomplete='new-password' minlength='8' placeholder='Mínimo de 8 caracteres' aria-label='Nova senha'>
               </div>
               <div class='form-control'>
-                <label>Confirmar nova senha</label>
-                <input type='password' name='confirm_password' autocomplete='new-password' minlength='8' placeholder='Repita a nova senha'>
+                <label for='confirmPassword'>Confirmar nova senha</label>
+                <input type='password' id='confirmPassword' name='confirm_password' autocomplete='new-password' minlength='8' placeholder='Repita a nova senha' aria-label='Confirmar nova senha'>
               </div>
               <p class='muted hint'>Sua sessão permanecerá ativa após a troca.</p>
             </div>
@@ -769,10 +920,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           var form = document.getElementById('editForm');
           var saveBtn = document.getElementById('saveBtn');
           var primaryHint = document.getElementById('primaryInfoHint');
-          var requiredName = document.querySelector("input[name='full_name']");
-          var requiredTitle = document.querySelector("input[name='title']");
+          var requiredName = document.querySelector("input[id='fullName' name='full_name']");
+          var requiredTitle = document.querySelector("input[id='titleInput' name='title']");
           var whatsappInput = document.getElementById('whatsapp');
-          var emailInput = document.querySelector("input[name='email_public']");
+          var emailInput = document.querySelector("input[id='emailPublic' name='email_public']");
           function hasValue(el){{
             return !!(el && typeof el.value === 'string' && el.value.trim());
           }}
@@ -871,8 +1022,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             sw.addEventListener('change', paint);
             paint();
           }}
-          hydrateSwitch("input[name='google_review_show']");
-          hydrateSwitch("input[name='featured_enabled']");
+          hydrateSwitch("input[id='googleReviewShow' name='google_review_show']");
+          hydrateSwitch("input[id='featuredEnabled' name='featured_enabled']");
           var featuredColor = document.getElementById('featuredColor');
           var featuredReset = document.getElementById('featuredColorReset');
           if (featuredColor && featuredReset){{
@@ -1095,6 +1246,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       </form>
       <script>
       (function(){{
+        var MAX_UPLOAD = {MAX_UPLOAD_BYTES};
         var input = document.getElementById('photoInput');
         if (input) {{
           var img = document.getElementById('avatarImg');
@@ -1103,6 +1255,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             if (!f) return;
             var ok = /^(image\/jpeg|image\/png)$/i.test((f.type || ''));
             if (!ok) {{ alert('Formato de imagem nao suportado (use JPEG ou PNG)'); input.value=''; return; }}
+            if (f.size > MAX_UPLOAD) {{ alert('Imagem excede 2MB. Escolha uma foto menor.'); input.value=''; return; }}
             var url = URL.createObjectURL(f);
             if (img) {{
               img.src = url;
@@ -1119,6 +1272,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             if (!f) return;
             var ok = /^(image\/jpeg|image\/png)$/i.test((f.type || ''));
             if (!ok) {{ alert('Formato de imagem nao suportado (use JPEG ou PNG)'); coverInput.value=''; return; }}
+            if (f.size > MAX_UPLOAD) {{ alert('Imagem excede 2MB. Escolha uma foto menor.'); coverInput.value=''; return; }}
             var reader = new FileReader();
             reader.onload = function(evt){{
               if (coverImg) {{
@@ -1188,7 +1342,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <li>Adicione um registro <strong>CNAME</strong> apontando para <code>{html.escape(custom_domain_target)}</code>.</li>
               <li>Envie o pedido para a Soomei aprovar e liberar o certificado SSL.</li>
             </ol>
-            <label>Domínio solicitado</label>
+            <label for='customDomainInput'>Domínio solicitado</label>
             <input id='customDomainInput' placeholder='ex.: nome.suaempresa.com.br' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
             <div class='panel-actions' style='margin-top:8px'>
               <button id='customDomainSubmit' class='btn'>Enviar pedido</button>
@@ -1344,7 +1498,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <button class='close' id='pixClose' aria-label='Fechar' title='Fechar'>&#10005;</button>
           </header>
           <div>
-            <label>Tipo da chave</label>
+            <label for='pixType'>Tipo da chave</label>
             <select id='pixType' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
               <option value='aleatoria'>Aleatória</option>
               <option value='email'>E-mail</option>
@@ -1352,7 +1506,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <option value='cpf'>CPF</option>
               <option value='cnpj'>CNPJ</option>
             </select>
-            <label>Valor da chave</label>
+            <label for='pixValue'>Valor da chave</label>
             <input id='pixValue' placeholder='sua-chave' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
             <div style='text-align:right'><a href='#' id='pixSave' class='btn'>Salvar</a></div>
           </div>
@@ -1387,6 +1541,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
         }}
       }})();
       </script>
+      {portfolio_script_block}
     </main></body></html>
     """
     response = HTMLResponse(_apply_brand_footer(html_form, footer_action_html))
@@ -1416,8 +1571,19 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                confirm_password: str = Form(""),
                password_mode: str = Form("0"),
                 cover_remove: str = Form("0"),
+                portfolio_enabled: str = Form(""),
+                portfolio_remove1: str = Form("0"),
+                portfolio_remove2: str = Form("0"),
+                portfolio_remove3: str = Form("0"),
+                portfolio_remove4: str = Form("0"),
+                portfolio_remove5: str = Form("0"),
                 photo: UploadFile | None = File(None),
                 cover: UploadFile | None = File(None),
+                portfolio1: UploadFile | None = File(None),
+                portfolio2: UploadFile | None = File(None),
+                portfolio3: UploadFile | None = File(None),
+                portfolio4: UploadFile | None = File(None),
+                portfolio5: UploadFile | None = File(None),
                 csrf_token: str = Form("")):
     db, uid, card = find_card_by_slug(slug)
     if not card:
@@ -1466,6 +1632,43 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         if lbl.strip() and href.strip():
             links.append({"label": lbl.strip(), "href": href.strip()})
     prof["links"] = links
+    portfolio_enabled_flag = bool(portfolio_enabled)
+    existing_portfolio = prof.get("portfolio_images") or []
+    if not isinstance(existing_portfolio, list):
+        existing_portfolio = []
+    portfolio_slots = [(p or "").strip() for p in existing_portfolio[:5]]
+    while len(portfolio_slots) < 5:
+        portfolio_slots.append("")
+    allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
+    remove_flags = [
+        (portfolio_remove1 or "").strip(),
+        (portfolio_remove2 or "").strip(),
+        (portfolio_remove3 or "").strip(),
+        (portfolio_remove4 or "").strip(),
+        (portfolio_remove5 or "").strip(),
+    ]
+    for idx, flag in enumerate(remove_flags):
+        if flag == "1":
+            portfolio_slots[idx] = ""
+    portfolio_files = [portfolio1, portfolio2, portfolio3, portfolio4, portfolio5]
+    safe_uid = re.sub(r"[^A-Za-z0-9_-]+", "", uid)
+    uid_dir = safe_uid or uid
+    for idx, file_obj in enumerate(portfolio_files):
+        if file_obj and file_obj.filename:
+            ct = (file_obj.content_type or "").lower()
+            if ct not in allowed_types:
+                return redirect_error("Formato de imagem nao suportado (use JPEG ou PNG).")
+            data = await file_obj.read()
+            if not data:
+                return redirect_error("Imagem vazia.")
+            if len(data) > MAX_UPLOAD_BYTES:
+                return redirect_error("Imagem excede 2MB.")
+            if not _has_valid_signature(data, ct):
+                return redirect_error("Arquivo de imagem invalido.")
+            portfolio_slots[idx] = _save_resized_image(data, f"{uid_dir}/portfolio_{idx+1}.jpg", (1600, 900))
+    portfolio_clean = [p for p in portfolio_slots if p]
+    prof["portfolio_images"] = portfolio_clean
+    prof["portfolio_enabled"] = portfolio_enabled_flag and bool(portfolio_clean)
     pwd_changed = False
     current_password = (current_password or "").strip()
     new_password = (new_password or "").strip()
@@ -1484,7 +1687,6 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
             return redirect_error("Senha atual incorreta.")
         _sql_repo.update_user_password(owner, hash_password(new_password))
         pwd_changed = True
-    allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
     if photo and photo.filename:
         ct = (photo.content_type or "").lower()
         if ct not in allowed_types:

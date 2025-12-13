@@ -57,6 +57,8 @@ Todas as mudanças notáveis do projeto serão documentadas aqui.
 
 ### Added
 - Testes unitários para `_token_expired` e `change_pending_email` usando SQLite temporário.
+- Carrossel 3D de portfólio (até 5 fotos) na página pública, com upload otimizado em pastas por usuário, toggle de exibição e controles (auto-play, drag/scroll, dots).
+- Validação preventiva de tamanho (2MB) para avatar, capa e fotos do portfólio já no front-end, evitando perda do formulário ao enviar arquivos grandes.
 
 
 ## [v0.1.1] - 2025-10-26
@@ -82,4 +84,3 @@ Todas as mudanças notáveis do projeto serão documentadas aqui.
 - Cartão inválido:
   - Card carbono com mensagem amigável de orientação.
 - Ajustes gerais de UI/CSS: topbar, ícones (SVG), transições e estrutura.
-
