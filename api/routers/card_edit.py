@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import html
 import io
@@ -1651,6 +1652,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         if flag == "1":
             portfolio_slots[idx] = ""
     portfolio_files = [portfolio1, portfolio2, portfolio3, portfolio4, portfolio5]
+    portfolio_tasks: list[tuple[int, asyncio.Task]] = []
     safe_uid = re.sub(r"[^A-Za-z0-9_-]+", "", uid)
     uid_dir = safe_uid or uid
     for idx, file_obj in enumerate(portfolio_files):
@@ -1665,7 +1667,16 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 return redirect_error("Imagem excede 2MB.")
             if not _has_valid_signature(data, ct):
                 return redirect_error("Arquivo de imagem invalido.")
-            portfolio_slots[idx] = _save_resized_image(data, f"{uid_dir}/portfolio_{idx+1}.jpg", (1600, 900))
+            task = asyncio.create_task(
+                asyncio.to_thread(_save_resized_image, data, f"{uid_dir}/portfolio_{idx+1}.jpg", (1600, 900))
+            )
+            portfolio_tasks.append((idx, task))
+    if portfolio_tasks:
+        results = await asyncio.gather(*(task for _, task in portfolio_tasks), return_exceptions=True)
+        for (idx, _), res in zip(portfolio_tasks, results):
+            if isinstance(res, Exception):
+                return redirect_error("Falha ao processar imagem do portfolio.")
+            portfolio_slots[idx] = res
     portfolio_clean = [p for p in portfolio_slots if p]
     prof["portfolio_images"] = portfolio_clean
     prof["portfolio_enabled"] = portfolio_enabled_flag and bool(portfolio_clean)
@@ -1698,7 +1709,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
             return redirect_error("Imagem excede 2MB.")
         if not _has_valid_signature(data, ct):
             return redirect_error("Arquivo de imagem invalido.")
-        prof["photo_url"] = _save_resized_image(data, f"{uid}.jpg", (800, 800))
+        prof["photo_url"] = await asyncio.to_thread(_save_resized_image, data, f"{uid}.jpg", (800, 800))
     if (cover_remove or "").strip() == "1":
         prof["cover_url"] = ""
     elif cover and cover.filename:
@@ -1712,7 +1723,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
             return redirect_error("Imagem excede 2MB.")
         if not _has_valid_signature(data, ct):
             return redirect_error("Arquivo de imagem invalido.")
-        prof["cover_url"] = _save_resized_image(data, f"{uid}_cover.jpg", (1600, 900))
+        prof["cover_url"] = await asyncio.to_thread(_save_resized_image, data, f"{uid}_cover.jpg", (1600, 900))
     _sql_repo.upsert_profile(owner, prof)
     # Redireciona sempre para a página pública após salvar
     return RedirectResponse(f"/{slug}", status_code=303)
