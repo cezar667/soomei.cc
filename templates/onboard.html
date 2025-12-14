@@ -34,7 +34,11 @@
   <section class="card card-public carbon">
     <h1>Ativar cartao</h1>
     <p>UID: <b>{{ uid }}</b></p>
-    <div id="formAlert" class="banner" role="alert" aria-live="polite" style="display:{% if error and error|trim %}block{% else %}none{% endif %}">{{ error }}</div>
+    {% if error and error|trim %}
+    <div id="formAlert" class="banner" role="alert" aria-live="polite">{{ error }}</div>
+    {% else %}
+    <div id="formAlert" class="banner" role="alert" aria-live="polite" style="display:none"></div>
+    {% endif %}
     <form id="onbForm" method="post" action="/auth/register">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="uid" value="{{ uid }}">
