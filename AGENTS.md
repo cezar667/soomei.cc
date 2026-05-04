@@ -45,7 +45,7 @@ Este documento orienta agentes e contribuidores em todo o repositório. Foca em 
 Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, `/q/*`, `/v/*`, `/{slug}`, `/slug/*`, `/blocked`.
 
 ## Admin (Subdomínio)
-- App dedicado em `api/admin_app.py`; recomendado expor em `adm.seu-dominio` (ex.: `adm.soomei.cc`).
+- App dedicado em `api/admin_app.py`; recomendado expor em `adm.seu-dominio` (ex.: `adm.soomei.cc`).
 - Sessão separada: cookie `admin_session` (não reutilizar `session` do público).
 - Requisitos de acesso (MVP):
   - E-mail verificado obrigatório (`email_verified_at` presente).
@@ -69,6 +69,7 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
 - `GET /r/{uid}` lê KV `CARDS` e roteia para `API_BASE`:
   - `pending` → `/onboard/{uid}`; `blocked` → `/blocked`; `active` → `/{vanity|uid}`
 - Variáveis: `API_BASE`. Métricas assíncronas via Queue `TAPS`.
+- Situação atual: o Worker continua dependente de KV como fonte de verdade no edge, mas o backend não publica automaticamente mutações de cartão para `CARDS`; antes de produção, ativação/bloqueio/reset/troca de slug precisam sincronizar Postgres → KV.
 
 ## Segurança (Baseline → Produção)
 - Criptografia de senha: `api.core.security` já usa `argon2id` (argon2-cffi) com prefixo próprio e fallback somente- leitura para hashes legados em scrypt; garantir que fluxos legados (ex.: troca de senha no `/edit/{slug}`) validem a senha atual via `verify_password`.
@@ -84,7 +85,8 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
   - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`
   - `Referrer-Policy: no-referrer-when-downgrade`
   - `Strict-Transport-Security` (via proxy)
-- Rate limiting: `api.core.rate_limiter.rate_limit_ip` cobre slug-check/update, login/register/forgot e custom-domain; falta proteger `/auth/verify`/reenvios e `/login` do admin.
+- Rate limiting: `api.core.rate_limiter.rate_limit_ip` cobre slug-check/update, login/register/forgot e custom-domain; falta proteger `/auth/verify`/reenvios e `/login` do admin. Além disso, o limiter atual é in-memory por processo e não escala para múltiplos workers/instâncias.
+- Admin: `api.admin_app` ainda não reutiliza o middleware de headers de segurança da app pública e mantém `GET /logout`; antes de produção, preferir POST + CSRF e alinhar CSP/XFO/HSTS entre apps.
 - Auditoria/Observabilidade: Sentry/OTel para erros; logs estruturados com correlação (request-id) ainda pendentes.
 - Segredos: variáveis de ambiente/secret manager. Nunca commitar chaves (KV/Queue IDs reais).
 
@@ -95,18 +97,24 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
   - CDN para assets estáticos (`web/`)
   - ETag/Last-Modified nas páginas estáticas simples
   - Worker: considerar caches curtíssimos para redirects `/{uid}` quando `vanity` estável (invalidação por evento)
-- Banco: índices em `cards.slug`, `taps(slug, ts)`. Pool de conexões.
-- Não bloquear loop: operações pesadas (ex.: QR, imagem) podem ir para tasks (ou pre-geradas/cached).
+- Banco: além de PK/unique do ORM, faltam índices explícitos para consultas frequentes (`cards.owner_email`, `cards.status`, `sessions.expires_at`, `verify_tokens.email`, `reset_tokens.email`, `custom_domains.card_uid`). Hoje há filtragem em memória em partes do admin e das checagens de domínio.
+- Métricas: `metrics_views` é incrementado de forma síncrona a cada visita; para volume real, mover coleta para fila/eventos e agregar de forma assíncrona.
+- Não bloquear loop: operações pesadas (QR, vCard com foto, imagem) ainda acontecem durante requests; o fluxo de upload já usa `asyncio.to_thread` em `card_edit`, mas a geração pública continua síncrona e deve ser cacheada/precomputada quando houver tráfego maior.
+- Estado atual crítico: `sync_card_from_json` ainda é chamado em caminhos de leitura de `cards`/`card_edit`; como o helper persiste no SQL, isso gera write amplification e atualiza `updated_at` em acessos públicos.
 
-## Dados e Evolu??o para Produ??o
-- Fonte de dados: Postgres (`users`, `cards`, `profiles`, `sessions`, `sessions_admin`, `verify_tokens`, `reset_tokens`, `custom_domains`). Schema criado via `api.db.create_tables` ou `db/schema.sql`; Alembic/migrations versionadas ainda pendentes.
-- Import legado: `api/data.json` pode ser carregado via `python scripts/migrate_to_postgres.py`; n?o ? usado em runtime.
+## Dados e Evolução para Produção
+- Fonte de dados: Postgres (`users`, `cards`, `profiles`, `sessions`, `sessions_admin`, `verify_tokens`, `reset_tokens`, `custom_domains`) via `api.db.models`/`create_tables`. Alembic/migrations versionadas ainda pendentes.
+- `db/schema.sql` está defasado e não representa o runtime atual; não tratar esse arquivo como fonte de verdade até ser reescrito ou substituído por migrations versionadas.
+- Import legado: `api/data.json` pode ser carregado via `python scripts/migrate_to_postgres.py`; não é usado em runtime.
+- Edge/read model: falta uma projeção oficial Postgres → Cloudflare KV (`CARDS`) para manter o Worker consistente com slug/status/dono.
 
 ## Observabilidade e Qualidade
 - Logging estruturado (json) com nível por ambiente.
 - Healthcheck `GET /healthz` e `GET /readyz` (adicionar quando for prod).
 - Métricas: Prometheus/OpenTelemetry (latência, erros, throughput).
-- Testes: pytest (unitários para domínio, integração para rotas críticas).
+- Testes: hoje existem apenas smoke/unit tests para `SQLRepository` e `AuthService`; faltam integração/E2E para onboarding, páginas públicas, uploads, admin, custom-domain e Worker.
+- Pipeline: o repositório só possui workflow de release/deploy por tag; ainda faltam validação em PR (lint/testes), deploy do Worker, execução de migrations e smoke test pós-deploy.
+- Ambiente dev: padronizar Python 3.11+ com dependências de runtime/dev reproduzíveis (`requirements-dev.txt` ou `pyproject` + lock), evitando coleta de testes quebrada por ambiente incompleto.
 - Style: Black + Ruff + isort; pre-commit.
 
 ## Execução Local (Dev)
@@ -203,13 +211,30 @@ Checklist de Segurança em Produção
   - `api.services.custom_domain_service`/`domain_service` consultam somente SQL (`custom_domains` + meta JSON no card).
 - Core cross-cutting: `api.core.config`, `security` (argon2), `csrf`, `rate_limiter`, `mailer` e `utils`.
 - Routers FastAPI:
-  - `auth`, `slug`, `custom_domain`, `pages`, `hooks`, `card_edit` e `cards` operam sobre Postgres (sem fallback JSON); `cards`/`card_edit` ainda chamam `sync_card_from_json` por compatibilidade.
+  - `auth`, `slug`, `custom_domain`, `pages`, `hooks`, `card_edit` e `cards` operam sobre Postgres (sem fallback JSON); `cards`/`card_edit` ainda chamam `sync_card_from_json` em caminhos de leitura e precisam parar de fazer persistência durante GET/render.
+  - `card_edit.py` e `cards.py` mantêm duplicação relevante de fluxo `/edit`, upload, HTML e custom-domain; antes de crescer novas features, consolidar em um único módulo/use-case.
+  - Há colisões de rota que hoje funcionam por ordem de inclusão, não por desenho explícito: `POST /auth/register` aparece em `pages.py` e `auth.py`; `/edit/{slug}` está implementado em dois routers.
   - Inicializacao: `api.app:create_app()` e `api.admin_app:create_admin_app()`; `api.app_factory` expoe ambos (`public_app`, `admin_app`). Uvicorn: `uvicorn api.app:create_app` (publico) e `uvicorn api.admin_app:create_admin_app` (admin).
   - `api.admin_app.py` usa `SQLRepository` para login/sessoes admin, dashboard, CRUD/reset de cartoes, dominios e usuarios.
   - Scripts `scripts/add_card.py` e `scripts/reset_card.py` operam no Postgres; `scripts/migrate_to_postgres.py` e utilitario unico para importar JSON legado.
 
+### Lacunas confirmadas na auditoria (2026-05-04)
+1. **Writes em leitura**:
+   - `api/routers/cards.py` e `api/routers/card_edit.py` ainda chamam `SQLRepository.sync_card_from_json` ao carregar cartão. Como o helper faz `commit`, cada visita pública pode virar escrita no banco.
+2. **Fonte de verdade duplicada no edge**:
+   - O Worker usa KV `CARDS`, mas não existe rotina oficial que publique no KV as mudanças feitas no Postgres (ativação, bloqueio, reset, slug, owner, domínio).
+3. **Escalabilidade limitada por full scan**:
+   - Admin, checagens de custom-domain e fallback de lookup por host ainda carregam cartões em memória e filtram em Python. Isso não sustenta crescimento de base.
+4. **Sobreposição de rotas e código duplicado**:
+   - `cards.py` e `card_edit.py` repetem HTML/JS/upload; `pages.py` registra rota duplicada para `/auth/register`. Isso aumenta risco de regressão e comportamento implícito.
+5. **Prontidão operacional incompleta**:
+   - Sem Alembic, health/readyz, logs estruturados, CI de PR, Dockerfile, deploy do Worker no pipeline e cobertura de testes para rotas críticas.
+6. **Documentação defasada**:
+   - `README.md`, `CHANGELOG.md` e `db/schema.sql` não refletem integralmente o runtime atual e precisam ser tratados como backlog de documentação/infra.
+
 ### Proximas etapas
-1. **Seguranca e observabilidade**: rate limit para `/auth/verify`/reenvios e `/login` do admin; auditoria minima (login, reset/bloqueio, custom-domain); 2FA/TOTP no admin; logging estruturado com request-id; health/readyz e metricas (Prom/OTel).
-2. **Dados e operacoes**: Alembic/migrations versionadas; backup/restore ensaiados; quotas/limpeza para uploads (limite de disco, remocao de orfaos).
-3. **Pipeline/infra**: CI com lint+pytest; Docker hardening (usuario nao-root, FS read-only, healthcheck); WAF/rate limit no edge; secrets via secret manager.
-4. **CSP/UX**: revisar CSP nas paginas com upload/JS e cobrir XSS; manter escape consistente; desabilitar formatos extras de upload se surgirem (SVG).
+1. **Corrigir inconsistencias de runtime**: remover `sync_card_from_json` de leituras, eliminar rotas duplicadas, unificar `card_edit.py`/`cards.py` no fluxo de edição e revisar `db/schema.sql`/docs para o estado real.
+2. **Fechar o loop Postgres → edge**: criar projeção/sincronização de `cards` para KV `CARDS` a cada mutação relevante (create, activate, block, reset, slug, custom-domain) e definir estratégia de invalidação/cache no Worker.
+3. **Escalar consultas e dados**: Alembic/migrations versionadas, índices reais, paginação e filtros SQL no admin, remoção de full scans em domínio customizado, quotas/limpeza para uploads e desenho de métricas assíncronas.
+4. **Segurança e operação**: rate limit distribuído para auth/admin, auditoria mínima (login, reset/bloqueio, custom-domain), 2FA/TOTP no admin, headers de segurança também no admin, logout via POST, logging estruturado com request-id, health/readyz e métricas.
+5. **Pipeline/infra**: CI com lint+pytest, ambiente dev reproduzível, Docker hardening (usuário não-root, FS read-only, healthcheck), deploy automatizado com migrations + Worker e secrets via secret manager.
