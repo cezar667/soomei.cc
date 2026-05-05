@@ -152,8 +152,6 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
-    if uid and card:
-        _sql_repo.sync_card_from_json(uid, card)
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:
@@ -1589,8 +1587,6 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
-    if uid and card:
-        _sql_repo.sync_card_from_json(uid, card)
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:

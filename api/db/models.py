@@ -34,10 +34,10 @@ class Card(Base):
     __tablename__ = "cards"
 
     uid = Column(String(64), primary_key=True)
-    status = Column(String(32), default="pending", nullable=False)
+    status = Column(String(32), default="pending", nullable=False, index=True)
     pin = Column(String(32), nullable=False)
     billing_status = Column(String(32), nullable=True)
-    owner_email = Column(String(255), ForeignKey("users.email", ondelete="SET NULL"), nullable=True)
+    owner_email = Column(String(255), ForeignKey("users.email", ondelete="SET NULL"), nullable=True, index=True)
     vanity = Column(String(64), unique=True, nullable=True)
     metrics_views = Column(Integer, default=0, nullable=False)
     custom_domain_meta = Column(JSON, default=dict, nullable=False)
@@ -62,8 +62,8 @@ class UserSession(Base):
     __tablename__ = "sessions"
 
     token = Column(String(128), primary_key=True)
-    user_email = Column(String(255), ForeignKey("users.email", ondelete="CASCADE"), nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
+    user_email = Column(String(255), ForeignKey("users.email", ondelete="CASCADE"), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -73,7 +73,7 @@ class AdminSession(Base):
     token = Column(String(128), primary_key=True)
     email = Column(String(255), nullable=False)
     csrf_token = Column(String(255), nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -81,7 +81,7 @@ class VerifyToken(Base):
     __tablename__ = "verify_tokens"
 
     token = Column(String(255), primary_key=True)
-    email = Column(String(255), ForeignKey("users.email", ondelete="CASCADE"), nullable=False)
+    email = Column(String(255), ForeignKey("users.email", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -89,7 +89,7 @@ class ResetToken(Base):
     __tablename__ = "reset_tokens"
 
     token = Column(String(255), primary_key=True)
-    email = Column(String(255), ForeignKey("users.email", ondelete="CASCADE"), nullable=False)
+    email = Column(String(255), ForeignKey("users.email", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -97,7 +97,7 @@ class CustomDomain(Base):
     __tablename__ = "custom_domains"
 
     host = Column(String(255), primary_key=True)
-    card_uid = Column(String(64), ForeignKey("cards.uid", ondelete="CASCADE"), nullable=False)
+    card_uid = Column(String(64), ForeignKey("cards.uid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     card = relationship("Card", back_populates="custom_domain")

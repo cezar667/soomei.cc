@@ -2,26 +2,97 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import delete, func, or_, select, update
 
 from api.db.models import (
-    User,
-    Card,
-    Profile,
-    VerifyToken,
-    ResetToken,
-    CustomDomain,
     AdminSession,
+    Card,
+    CustomDomain,
+    Profile,
+    ResetToken,
     UserSession,
+    User,
+    VerifyToken,
 )
 from api.db.session import get_session
 
 
+@dataclass
+class PageResult:
+    items: list
+    total: int
+    page: int
+    page_size: int
+
+    @property
+    def total_pages(self) -> int:
+        if self.total <= 0:
+            return 1
+        return max(1, (self.total + self.page_size - 1) // self.page_size)
+
+
 class SQLRepository:
     """CRUD helpers wrapping the SQLAlchemy session."""
+
+    @staticmethod
+    def _sanitize_page(page: int, page_size: int) -> tuple[int, int, int]:
+        safe_page_size = max(1, min(int(page_size or 50), 100))
+        safe_page = max(1, int(page or 1))
+        offset = (safe_page - 1) * safe_page_size
+        return safe_page, safe_page_size, offset
+
+    @staticmethod
+    def _card_domain_text(field_name: str):
+        return func.lower(func.coalesce(Card.custom_domain_meta[field_name].as_string(), ""))
+
+    @staticmethod
+    def _card_domain_status():
+        return SQLRepository._card_domain_text("status")
+
+    @staticmethod
+    def _card_query_filters(q: str = "", status: str = "") -> list:
+        filters = []
+        qnorm = (q or "").strip().lower()
+        status_norm = (status or "").strip().lower()
+        if status_norm:
+            filters.append(func.lower(Card.status) == status_norm)
+        if qnorm:
+            like = f"%{qnorm}%"
+            filters.append(
+                or_(
+                    func.lower(Card.uid).like(like),
+                    func.lower(func.coalesce(Card.vanity, "")).like(like),
+                    func.lower(func.coalesce(Card.owner_email, "")).like(like),
+                )
+            )
+        return filters
+
+    @staticmethod
+    def _domain_query_filters(q: str = "", status: str = "") -> list:
+        active_host = SQLRepository._card_domain_text("active_host")
+        requested_host = SQLRepository._card_domain_text("requested_host")
+        meta_status = SQLRepository._card_domain_status()
+        filters = [or_(active_host != "", requested_host != "", meta_status != "")]
+        status_norm = (status or "").strip().lower()
+        if status_norm:
+            filters.append(meta_status == status_norm)
+        qnorm = (q or "").strip().lower()
+        if qnorm:
+            like = f"%{qnorm}%"
+            filters.append(
+                or_(
+                    func.lower(Card.uid).like(like),
+                    func.lower(func.coalesce(Card.vanity, "")).like(like),
+                    func.lower(func.coalesce(Card.owner_email, "")).like(like),
+                    active_host.like(like),
+                    requested_host.like(like),
+                )
+            )
+        return filters
 
     # -------------------------- users --------------------------
     def get_user(self, email: str) -> Optional[User]:
@@ -86,9 +157,82 @@ class SQLRepository:
         with get_session() as session:
             return session.execute(select(Card)).scalars().all()
 
+    def search_cards(self, *, q: str = "", status: str = "", page: int = 1, page_size: int = 50) -> PageResult:
+        safe_page, safe_page_size, offset = self._sanitize_page(page, page_size)
+        filters = self._card_query_filters(q=q, status=status)
+        with get_session() as session:
+            count_stmt = select(func.count()).select_from(Card)
+            if filters:
+                count_stmt = count_stmt.where(*filters)
+            total = int(session.execute(count_stmt).scalar_one() or 0)
+
+            stmt = select(Card)
+            if filters:
+                stmt = stmt.where(*filters)
+            stmt = stmt.order_by(Card.updated_at.desc(), Card.uid.asc()).offset(offset).limit(safe_page_size)
+            items = session.execute(stmt).scalars().all()
+        return PageResult(items=items, total=total, page=safe_page, page_size=safe_page_size)
+
     def list_users(self) -> list[User]:
         with get_session() as session:
             return session.execute(select(User)).scalars().all()
+
+    def search_users(self, *, q: str = "", page: int = 1, page_size: int = 50) -> PageResult:
+        safe_page, safe_page_size, offset = self._sanitize_page(page, page_size)
+        qnorm = (q or "").strip().lower()
+        filters = []
+        if qnorm:
+            filters.append(func.lower(User.email).like(f"%{qnorm}%"))
+        with get_session() as session:
+            count_stmt = select(func.count()).select_from(User)
+            if filters:
+                count_stmt = count_stmt.where(*filters)
+            total = int(session.execute(count_stmt).scalar_one() or 0)
+
+            stmt = select(User)
+            if filters:
+                stmt = stmt.where(*filters)
+            stmt = stmt.order_by(User.created_at.desc(), User.email.asc()).offset(offset).limit(safe_page_size)
+            items = session.execute(stmt).scalars().all()
+        return PageResult(items=items, total=total, page=safe_page, page_size=safe_page_size)
+
+    def list_cards_with_custom_domains(self, *, q: str = "", status: str = "", page: int = 1, page_size: int = 50) -> PageResult:
+        safe_page, safe_page_size, offset = self._sanitize_page(page, page_size)
+        filters = self._domain_query_filters(q=q, status=status)
+        with get_session() as session:
+            count_stmt = select(func.count()).select_from(Card).where(*filters)
+            total = int(session.execute(count_stmt).scalar_one() or 0)
+
+            stmt = (
+                select(Card)
+                .where(*filters)
+                .order_by(Card.updated_at.desc(), Card.uid.asc())
+                .offset(offset)
+                .limit(safe_page_size)
+            )
+            items = session.execute(stmt).scalars().all()
+        return PageResult(items=items, total=total, page=safe_page, page_size=safe_page_size)
+
+    def dashboard_card_counts(self) -> dict[str, int]:
+        counts = {"active": 0, "pending": 0, "blocked": 0}
+        with get_session() as session:
+            stmt = select(func.lower(Card.status), func.count()).group_by(func.lower(Card.status))
+            for status, total in session.execute(stmt).all():
+                status_key = (status or "").lower()
+                counts[status_key] = int(total or 0)
+        return counts
+
+    def top_cards_by_views(self, limit: int = 5) -> list[tuple[str, int]]:
+        safe_limit = max(1, min(int(limit or 5), 50))
+        with get_session() as session:
+            stmt = (
+                select(Card.uid, Card.vanity, Card.metrics_views)
+                .where(Card.metrics_views > 0)
+                .order_by(Card.metrics_views.desc(), Card.updated_at.desc(), Card.uid.asc())
+                .limit(safe_limit)
+            )
+            rows = session.execute(stmt).all()
+        return [((vanity or uid), int(views or 0)) for uid, vanity, views in rows]
 
     def create_card(self, uid: str, pin: str, vanity: str | None = None, owner_email: str | None = None) -> Card:
         now = datetime.now(timezone.utc)
@@ -370,20 +514,46 @@ class SQLRepository:
         if not host_norm:
             return None
         with get_session() as session:
-            entry = session.get(CustomDomain, host_norm)
-            if entry:
-                return session.get(Card, entry.card_uid)
-            cards = session.execute(select(Card)).scalars().all()
-            for card in cards:
-                meta = card.custom_domain_meta or {}
-                active = (meta.get("active_host") or "").strip().lower()
-                if active == host_norm:
-                    return card
-            return None
+            stmt = (
+                select(Card)
+                .join(CustomDomain, CustomDomain.card_uid == Card.uid)
+                .where(CustomDomain.host == host_norm)
+                .limit(1)
+            )
+            direct = session.execute(stmt).scalar_one_or_none()
+            if direct:
+                return direct
+            fallback_stmt = (
+                select(Card)
+                .where(self._card_domain_text("active_host") == host_norm)
+                .order_by(Card.updated_at.desc(), Card.uid.asc())
+                .limit(1)
+            )
+            return session.execute(fallback_stmt).scalar_one_or_none()
 
-    def get_cards_for_domain_checks(self) -> list[Card]:
+    def custom_domain_conflict_exists(self, host: str, *, exclude_uid: str | None = None) -> bool:
+        host_norm = (host or "").strip().lower()
+        if not host_norm:
+            return False
+        active_host = self._card_domain_text("active_host")
+        requested_host = self._card_domain_text("requested_host")
+        meta_status = self._card_domain_status()
         with get_session() as session:
-            return session.execute(select(Card)).scalars().all()
+            domain_stmt = select(CustomDomain.card_uid).where(CustomDomain.host == host_norm)
+            if exclude_uid:
+                domain_stmt = domain_stmt.where(CustomDomain.card_uid != exclude_uid)
+            if session.execute(domain_stmt.limit(1)).first() is not None:
+                return True
+
+            stmt = select(Card.uid).where(
+                or_(
+                    active_host == host_norm,
+                    ((requested_host == host_norm) & meta_status.in_(("pending", "active"))),
+                )
+            )
+            if exclude_uid:
+                stmt = stmt.where(Card.uid != exclude_uid)
+            return session.execute(stmt.limit(1)).first() is not None
 
     def register_custom_domain(self, host: str, uid: str) -> None:
         entity = CustomDomain(host=host, card_uid=uid)

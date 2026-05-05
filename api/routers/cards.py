@@ -67,11 +67,8 @@ def configure_environment(*, settings, public_base: str, public_base_host: str, 
     UPLOADS_DIR = uploads_dir or ""
 
 
-def _find_card_with_sync(slug: str):
-    db, uid, card = find_card_by_slug(slug)
-    if uid and card:
-        _sql_repo.sync_card_from_json(uid, card)
-    return db, uid, card
+def _find_card(slug: str):
+    return find_card_by_slug(slug)
 def _templates(request: Request):
     tpl = getattr(getattr(request.app, "state", None), "templates", None)
     if tpl:
@@ -156,9 +153,8 @@ def _save_resized_image(data: bytes, filename: str, max_size: tuple[int, int]) -
         f.write(payload)
     etag = hashlib.md5(payload).hexdigest()[:8]
     return f"/static/uploads/{filename}?v={etag}"
-@router.get("/edit/{slug}", response_class=HTMLResponse)
 def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd: str = ""):
-    db, uid, card = _find_card_with_sync(slug)
+    db, uid, card = _find_card(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     owner = card.get("user", "")
@@ -1409,7 +1405,6 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     if pwd_cookie:
         response.delete_cookie("flash_edit_pwd", path="/edit")
     return response
-@router.post("/edit/{slug}")
 async def save_edit(slug: str, request: Request, full_name: str = Form(""), title: str = Form(""),
                 whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
                 google_review_url: str = Form(""),
@@ -1432,7 +1427,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 photo: UploadFile | None = File(None),
                 cover: UploadFile | None = File(None),
                 csrf_token: str = Form("")):
-    db, uid, card = _find_card_with_sync(slug)
+    db, uid, card = _find_card(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     owner = card.get("user", "")
@@ -2641,7 +2636,7 @@ def visitor_public_card(
     return response
 @router.get("/u/{slug}", response_class=HTMLResponse)
 def public_card(slug: str, request: Request):
-    db, uid, card = _find_card_with_sync(slug)
+    db, uid, card = _find_card(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     templates = _templates(request)
@@ -2656,7 +2651,7 @@ def public_card(slug: str, request: Request):
     return visitor_public_card(prof, slug, is_owner, view_count, card=card, request=request)
 @router.get("/q/{slug}.png")
 def qr(slug: str, request: Request):
-    db, uid, card = _find_card_with_sync(slug)
+    db, uid, card = _find_card(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     slug_value = card.get("vanity") or slug
@@ -2668,7 +2663,7 @@ def qr(slug: str, request: Request):
     return StreamingResponse(buf, media_type="image/png")
 @router.get("/v/{slug}.vcf")
 def vcard(slug: str, request: Request):
-    db, uid, card = _find_card_with_sync(slug)
+    db, uid, card = _find_card(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
     prof = _sql_repo.get_profile(card.get("user", "")) or {}
@@ -2724,7 +2719,7 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
     if prefetched:
         db, uid, card = prefetched
     else:
-        db, uid, card = _find_card_with_sync(slug)
+        db, uid, card = _find_card(slug)
     if card and card.get("vanity") and slug != card.get("vanity"):
         return RedirectResponse(f"/{html.escape(card.get('vanity'))}", status_code=302)
     if not card:
@@ -3106,7 +3101,7 @@ def custom_domain_root(request: Request):
             return RedirectResponse("/login", status_code=303)
         return HTMLResponse("Pagina nao encontrada", status_code=404)
     slug = card.get("vanity") or uid
-    # _find_card_with_sync já retorna perfis/estado necessários; passamos apenas uid/card
+    # _find_card já retorna os dados necessários; passamos apenas uid/card
     return _serve_slug(slug, request, ({}, uid, card))
 @router.get("/{slug}", response_class=HTMLResponse)
 def root_slug(slug: str, request: Request):

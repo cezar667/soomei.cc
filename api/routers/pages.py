@@ -133,8 +133,6 @@ def legal_terms(request: Request):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     return response
 
-
-@router.post("/auth/register")
 # Silencia requisições de debug do Chrome (evita 404 ruidoso em logs)
 @router.get("/.well-known/appspecific/com.chrome.devtools.json")
 def chrome_devtools_wellknown():

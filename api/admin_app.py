@@ -7,6 +7,7 @@ import time
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -25,6 +26,7 @@ ADMIN_SESSION_TTL_SECONDS = max(600, int(os.getenv("ADMIN_SESSION_TTL_SECONDS", 
 ADMIN_COOKIE_SECURE = settings.app_env == "prod" or (os.getenv("ADMIN_COOKIE_SECURE") or "").strip() == "1"
 ADMIN_HOSTS = {h.strip() for h in (os.getenv("ADMIN_HOST", "") or "").split(",") if h.strip()}
 ADMIN_HOSTS.update({"localhost:8001", "127.0.0.1:8001"})
+ADMIN_LIST_PAGE_SIZE = 50
 
 
 # ---------------------- helpers ----------------------
@@ -120,6 +122,42 @@ def _layout(title: str, body: str, csrf_token: str = "") -> HTMLResponse:
     )
 
 
+def _page_link(path: str, *, page: int, **params: str | int) -> str:
+    query = {}
+    for key, value in params.items():
+        if value in (None, "", 0):
+            continue
+        query[key] = value
+    if page > 1:
+        query["page"] = page
+    qs = urlencode(query)
+    return f"{path}?{qs}" if qs else path
+
+
+def _pager_html(path: str, page_data, **params: str | int) -> str:
+    total_pages = max(1, page_data.total_pages)
+    current = max(1, min(page_data.page, total_pages))
+    summary = f"<p class='muted'>Total: <strong>{page_data.total}</strong> | Pagina {current} de {total_pages}</p>"
+    if total_pages <= 1:
+        return summary
+    prev_html = (
+        f"<a href='{html.escape(_page_link(path, page=current - 1, **params))}' role='button' class='secondary'>Anterior</a>"
+        if current > 1
+        else "<button class='secondary' disabled>Anterior</button>"
+    )
+    next_html = (
+        f"<a href='{html.escape(_page_link(path, page=current + 1, **params))}' role='button' class='secondary'>Proxima</a>"
+        if current < total_pages
+        else "<button class='secondary' disabled>Proxima</button>"
+    )
+    return (
+        f"{summary}"
+        "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>"
+        f"{prev_html}{next_html}"
+        "</div>"
+    )
+
+
 # ---------------------- auth ----------------------
 @app.get("/login", response_class=HTMLResponse)
 def login_page(next: str = "/", error: str = ""):
@@ -195,12 +233,9 @@ def dashboard(request: Request):
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/", status_code=303)
-    cards = repo.list_cards()
-    total = len(cards)
-    status_counts = {"active": 0, "pending": 0, "blocked": 0}
-    for c in cards:
-        status_counts[(c.status or "").lower()] = status_counts.get((c.status or "").lower(), 0) + 1
-    top_views = sorted(((c.vanity or c.uid, int(c.metrics_views or 0)) for c in cards if c.metrics_views), key=lambda x: x[1], reverse=True)[:5]
+    status_counts = repo.dashboard_card_counts()
+    total = sum(int(v or 0) for v in status_counts.values())
+    top_views = repo.top_cards_by_views(limit=5)
     status_chart = json.dumps({"labels": ["Ativos", "Pendentes", "Bloqueados"], "values": [status_counts.get("active", 0), status_counts.get("pending", 0), status_counts.get("blocked", 0)]})
     views_chart = json.dumps({"labels": [label for label, _ in top_views] or ["Sem dados"], "values": [v for _, v in top_views] or [0]})
     body = f"""
@@ -284,23 +319,17 @@ def _card_row(c, csrf_token: str) -> str:
 
 
 @app.get("/cards", response_class=HTMLResponse)
-def list_cards(request: Request, q: str = "", status: str = ""):
+def list_cards(request: Request, q: str = "", status: str = "", page: int = 1):
     try:
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/cards", status_code=303)
-    cards = repo.list_cards()
-    qnorm = (q or "").strip().lower()
+    q_value = (q or "").strip()
     status_norm = (status or "").strip().lower()
-    filtered = []
-    for c in cards:
-        if status_norm and (c.status or "").lower() != status_norm:
-            continue
-        if qnorm and qnorm not in (c.uid or "").lower() and qnorm not in (c.vanity or "").lower() and qnorm not in (c.owner_email or "").lower():
-            continue
-        filtered.append(c)
+    page_data = repo.search_cards(q=q_value, status=status_norm, page=page, page_size=ADMIN_LIST_PAGE_SIZE)
     csrf_token = _csrf_value(request)
-    rows = "\n".join(_card_row(c, csrf_token) for c in filtered)
+    rows = "\n".join(_card_row(c, csrf_token) for c in page_data.items)
+    pager = _pager_html("/cards", page_data, q=q_value, status=status_norm)
     ok = (request.query_params.get("ok") or "").strip()
     pin_msg = ""
     if ok == "reset":
@@ -320,8 +349,9 @@ def list_cards(request: Request, q: str = "", status: str = ""):
     <article>
       <h3>Cartoes</h3>
       {alert}
+      {pager}
       <form class='grid' method='get' action='/cards'>
-        <input name='q' placeholder='uid, vanity ou email' value='{html.escape(q)}'>
+        <input name='q' placeholder='uid, vanity ou email' value='{html.escape(q_value)}'>
         <select name='status'>
           <option value=''>Status</option>
           <option value='active' {'selected' if status_norm=='active' else ''}>Ativo</option>
@@ -334,6 +364,7 @@ def list_cards(request: Request, q: str = "", status: str = ""):
         <thead><tr><th>UID</th><th>Vanity</th><th>Dono</th><th>Status</th><th>Views</th><th>Ações</th></tr></thead>
         <tbody>{rows or '<tr><td colspan=\"6\">Nenhum registro</td></tr>'}</tbody>
       </table>
+      {pager}
     </article>
     <article>
       <h4>Criar cartao</h4>
@@ -456,24 +487,32 @@ def delete_card(uid: str, request: Request, csrf_token: str = Form("")):
 
 # ---------------------- usuarios ----------------------
 @app.get("/users", response_class=HTMLResponse)
-def list_users(request: Request):
+def list_users(request: Request, q: str = "", page: int = 1):
     try:
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/users", status_code=303)
-    users = repo.list_users()
+    q_value = (q or "").strip()
+    page_data = repo.search_users(q=q_value, page=page, page_size=ADMIN_LIST_PAGE_SIZE)
     rows = []
-    for u in users:
+    for u in page_data.items:
         rows.append(
             f"<tr><td>{html.escape(u.email)}</td><td>{'Sim' if u.email_verified_at else 'Nao'}</td><td>{'Sim' if _admin_allowed(u.email) else 'Nao'}</td></tr>"
         )
+    pager = _pager_html("/users", page_data, q=q_value)
     body = f"""
     <article>
       <h3>Usuarios</h3>
+      {pager}
+      <form class='grid' method='get' action='/users'>
+        <input name='q' placeholder='email' value='{html.escape(q_value)}'>
+        <button>Filtrar</button>
+      </form>
       <table role='grid'>
         <thead><tr><th>Email</th><th>Verificado</th><th>Admin</th></tr></thead>
         <tbody>{''.join(rows) or '<tr><td colspan=\"3\">Nenhum usuario</td></tr>'}</tbody>
       </table>
+      {pager}
     </article>
     """
     return _layout("Admin | Usuarios", body, csrf_token=_csrf_value(request))
@@ -489,9 +528,9 @@ def reset_user_password(email: str, request: Request, csrf_token: str = Form("")
 
 
 # ---------------------- dominios ----------------------
-def _domain_rows() -> str:
+def _domain_rows(cards: list) -> str:
     rows = []
-    for card in repo.list_cards():
+    for card in cards:
         meta = card.custom_domain_meta or {}
         active = (meta.get("active_host") or "").strip()
         requested = (meta.get("requested_host") or "").strip()
@@ -505,19 +544,36 @@ def _domain_rows() -> str:
 
 
 @app.get("/domains", response_class=HTMLResponse)
-def list_domains(request: Request):
+def list_domains(request: Request, q: str = "", status: str = "", page: int = 1):
     try:
         require_admin(request)
     except HTTPException:
         return RedirectResponse("/login?next=/domains", status_code=303)
+    q_value = (q or "").strip()
+    status_value = (status or "").strip().lower()
+    page_data = repo.list_cards_with_custom_domains(q=q_value, status=status_value, page=page, page_size=ADMIN_LIST_PAGE_SIZE)
     csrf_token = _csrf_value(request)
+    pager = _pager_html("/domains", page_data, q=q_value, status=status_value)
     body = f"""
     <article>
       <h3>Dominios personalizados</h3>
+      {pager}
+      <form class='grid' method='get' action='/domains'>
+        <input name='q' placeholder='uid, vanity, email ou dominio' value='{html.escape(q_value)}'>
+        <select name='status'>
+          <option value=''>Status</option>
+          <option value='pending' {'selected' if status_value=='pending' else ''}>Pendente</option>
+          <option value='active' {'selected' if status_value=='active' else ''}>Ativo</option>
+          <option value='rejected' {'selected' if status_value=='rejected' else ''}>Reprovado</option>
+          <option value='disabled' {'selected' if status_value=='disabled' else ''}>Desativado</option>
+        </select>
+        <button>Filtrar</button>
+      </form>
       <table role='grid'>
         <thead><tr><th>UID</th><th>Vanity</th><th>Ativo</th><th>Pendente</th><th>Status</th><th>Obs</th></tr></thead>
-        <tbody>{_domain_rows() or '<tr><td colspan=\"6\">Nenhum dominio</td></tr>'}</tbody>
+        <tbody>{_domain_rows(page_data.items) or '<tr><td colspan=\"6\">Nenhum dominio</td></tr>'}</tbody>
       </table>
+      {pager}
       <details>
         <summary>Aprovar/Reprovar/Desativar</summary>
         <form method='post' action='/domains/approve' class='grid'>

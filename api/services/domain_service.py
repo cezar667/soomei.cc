@@ -85,22 +85,7 @@ class DomainService:
         host_norm = self.normalize(host)
         if not host_norm:
             return False
-        entry = _sql_repo.get_custom_domain(host_norm)
-        if entry and entry.card_uid != exclude_uid:
-            return True
-        cards = _sql_repo.get_cards_for_domain_checks()
-        for card in cards:
-            if exclude_uid and card.uid == exclude_uid:
-                continue
-            meta = card.custom_domain_meta or {}
-            active_host = self.normalize(meta.get("active_host", ""))
-            requested_host = self.normalize(meta.get("requested_host", ""))
-            status = (meta.get("status") or "").lower()
-            if active_host == host_norm:
-                return True
-            if requested_host == host_norm and status in (CUSTOM_DOMAIN_STATUS_PENDING, CUSTOM_DOMAIN_STATUS_ACTIVE):
-                return True
-        return False
+        return _sql_repo.custom_domain_conflict_exists(host_norm, exclude_uid=exclude_uid)
 
     def find_card_by_host(self, host: str) -> DomainRecord:
         host_norm = self.normalize(host)
