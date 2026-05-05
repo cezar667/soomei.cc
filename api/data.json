@@ -1,0 +1,856 @@
+{
+  "users": {
+    "cezar@soomei.com.br": {
+      "email": "cezar@soomei.com.br",
+      "pwd": "argon2$$argon2id$v=19$m=65536,t=3,p=4$var3ZInajYFExZsupC2i3g$l56R2E5ElFjG4bcaEFvZ8BgfF/eKm+kSqYm6B7VbQY4",
+      "email_verified_at": 1761340108
+    },
+    "contato@soomei.com.br": {
+      "email": "contato@soomei.com.br",
+      "pwd": "17910175a69ae202240dddf20b6d871c4be75e2d1136fce071f82068f09bd35ac71474ceed34c432c2fa8d8613351fd79ab79744f0e66289fbab4ca53fbd14a6",
+      "email_verified_at": 1761368582
+    },
+    "isabella@gmail.com": {
+      "email": "isabella@gmail.com",
+      "pwd": "bc5ead274ab9ea074cd3d41b64a4763d21b72632931b83cc4c43c21b1e3b581ac75267abb52c2be82462efbd116bb240c27a9877a593cca549945123b0d535e2",
+      "email_verified_at": 1761445576
+    },
+    "cadublack778@gmail.com": {
+      "email": "cadublack778@gmail.com",
+      "pwd": "504f53b22ea9276300d39c6a759a3e243557cf7ec9f7d153ac36739be50037ec233ec87fc1864c46319c98ab5a915dcc1b7316494c00e14960524c2d2190d89a",
+      "email_verified_at": 1761472466
+    },
+    "andre@brvs.com.br": {
+      "email": "andre@brvs.com.br",
+      "pwd": "f5ad9247a13be399cfd23ea96099743ab54c3c88945fb08558066673e08f1eb2bf205313c8a131f8ff4a01aa718a48baabde29acaab7179ceeffc8835e0df277",
+      "email_verified_at": 1761504941
+    },
+    "sttark321@gmail.com": {
+      "email": "sttark321@gmail.com",
+      "pwd": "b07783c47291643bf0d2c28ba52725568bf8fffb85fb3d422ee3893d17235ddc1e047605e539a2c07d312b60e0d4649b4da695e92aeabf6851f414955f50da4d",
+      "email_verified_at": 1761505853
+    },
+    "yuri.mkt.vendas@gmail.com": {
+      "email": "yuri.mkt.vendas@gmail.com",
+      "pwd": "argon2$$argon2id$v=19$m=65536,t=3,p=4$jHK4x82XbP2RGa5vUEB9bg$wNgYFJBXrYCn06mI+wq2JOeQhHtnoOlRwujRVmxEjs8",
+      "email_verified_at": 1761524875
+    },
+    "duartedeywid@gmail.com": {
+      "email": "duartedeywid@gmail.com",
+      "pwd": "3a76c0e34c84a2cdd1095fea8e9e07a1791c2cd6a379822bd867f133029860f70df9553cc2a14ab4410cf82994e67a2aaa066d502458369222b5d7e726e40376",
+      "email_verified_at": 1761525543
+    },
+    "bb@bb.com": {
+      "email": "bb@bb.com",
+      "pwd": "f5ad9247a13be399cfd23ea96099743ab54c3c88945fb08558066673e08f1eb2bf205313c8a131f8ff4a01aa718a48baabde29acaab7179ceeffc8835e0df277",
+      "email_verified_at": 1762658734
+    },
+    "edialidab@yahoo.com": {
+      "email": "edialidab@yahoo.com",
+      "pwd": "1363ca35ae4a1095ee3667366cb5e85469ef992847764ac1c493276d13d36b965cff66bb6ec18da4f2403c151a02521b6c3c8c87439657696db1c68ed1630f4c",
+      "email_verified_at": 1763170958
+    },
+    "cezar667@gmail.com": {
+      "email": "cezar667@gmail.com",
+      "pwd": "argon2$$argon2id$v=19$m=65536,t=3,p=4$qNrhKc6BA5ZxJRnv2hq7mg$0Q09oHw7/CySw1E4fu0sMWvOJCqBZe5evcZ8CmggDy4",
+      "email_verified_at": null
+    },
+    "joaopaulosuisso@gmail.com": {
+      "email": "joaopaulosuisso@gmail.com",
+      "pwd": "argon2$$argon2id$v=19$m=65536,t=3,p=4$IIH/RyFZHZ0tqRbOiq/xEw$3W73ABKmeCxge2LRBWQ+bQtmU+1KTuAGwgGPVbhVp6U",
+      "email_verified_at": 1763593842
+    }
+  },
+  "cards": {
+    "tksc4o": {
+      "uid": "tksc4o",
+      "status": "active",
+      "pin": "123987",
+      "billing_status": "ok",
+      "user": "cezar@soomei.com.br",
+      "vanity": "cezar",
+      "metrics": {
+        "views": 116
+      }
+    },
+    "ttt": {
+      "uid": "ttt",
+      "status": "active",
+      "pin": "817572",
+      "billing_status": "ok",
+      "user": "contato@soomei.com.br",
+      "vanity": "soomei"
+    },
+    "abc124": {
+      "uid": "abc124",
+      "status": "active",
+      "pin": "073957",
+      "billing_status": "ok",
+      "user": "isabella@gmail.com",
+      "vanity": "isabella",
+      "metrics": {
+        "views": 1
+      }
+    },
+    "js123": {
+      "uid": "js123",
+      "status": "active",
+      "pin": "123456",
+      "billing_status": "ok",
+      "user": "joaopaulosuisso@gmail.com",
+      "vanity": "pacheco1993",
+      "metrics": {
+        "views": 21
+      }
+    },
+    "mt123": {
+      "uid": "mt123",
+      "status": "pending",
+      "pin": "038222"
+    },
+    "cadu123": {
+      "uid": "cadu123",
+      "status": "active",
+      "pin": "123456",
+      "billing_status": "ok",
+      "user": "cadublack778@gmail.com",
+      "vanity": "elegance",
+      "metrics": {
+        "views": 39
+      }
+    },
+    "and123": {
+      "uid": "and123",
+      "status": "active",
+      "pin": "123456",
+      "billing_status": "ok",
+      "user": "andre@brvs.com.br",
+      "vanity": "bravus",
+      "metrics": {
+        "views": 33
+      }
+    },
+    "sm123": {
+      "uid": "sm123",
+      "status": "active",
+      "pin": "310331",
+      "billing_status": "ok",
+      "user": "sttark321@gmail.com",
+      "vanity": "samuel"
+    },
+    "Ad123": {
+      "uid": "Ad123",
+      "status": "pending",
+      "pin": "176950"
+    },
+    "bella": {
+      "uid": "bella",
+      "status": "pending",
+      "pin": "217644"
+    },
+    "yuri123": {
+      "uid": "yuri123",
+      "status": "active",
+      "pin": "123456",
+      "billing_status": "ok",
+      "user": "yuri.mkt.vendas@gmail.com",
+      "vanity": "yuridesouza",
+      "metrics": {
+        "views": 11
+      }
+    },
+    "dvd123": {
+      "uid": "dvd123",
+      "status": "active",
+      "pin": "123456",
+      "billing_status": "ok",
+      "user": "duartedeywid@gmail.com",
+      "vanity": "duarte"
+    },
+    "ma123": {
+      "uid": "ma123",
+      "status": "pending",
+      "pin": "123456"
+    },
+    "jr123": {
+      "uid": "jr123",
+      "status": "pending",
+      "pin": "123456"
+    },
+    "emi123": {
+      "uid": "emi123",
+      "status": "pending",
+      "pin": "123456"
+    },
+    "bbb": {
+      "uid": "bbb",
+      "status": "active",
+      "pin": "415643",
+      "billing_status": "ok",
+      "user": "bb@bb.com",
+      "vanity": "bbb",
+      "metrics": {
+        "views": 1
+      }
+    },
+    "edi123": {
+      "uid": "edi123",
+      "status": "active",
+      "pin": "123456",
+      "billing_status": "ok",
+      "user": "edialidab@yahoo.com",
+      "vanity": "edialidaborges",
+      "metrics": {
+        "views": 7
+      }
+    },
+    "esi123": {
+      "uid": "esi123",
+      "status": "pending",
+      "pin": "331975"
+    },
+    "abc123": {
+      "uid": "abc123",
+      "status": "active",
+      "pin": "625710",
+      "billing_status": "ok",
+      "user": "cezar667@gmail.com",
+      "vanity": "teste",
+      "metrics": {
+        "views": 2
+      }
+    },
+    "rubi123": {
+      "uid": "rubi123",
+      "status": "pending",
+      "pin": "123456"
+    },
+    "kapi123": {
+      "uid": "kapi123",
+      "status": "pending",
+      "pin": "123456"
+    }
+  },
+  "profiles": {
+    "cezar@soomei.com.br": {
+      "full_name": "Cezar Damasceno",
+      "title": "Cofounder | Soomei",
+      "links": [
+        {
+          "label": "Linkedin",
+          "href": "https://linkedin.com/in/cezar667"
+        },
+        {
+          "label": "Instagram",
+          "href": "https://www.instagram.com/prcezardamasceno"
+        },
+        {
+          "label": "Meu curso",
+          "href": "soomei.cc"
+        }
+      ],
+      "whatsapp": "5531999951416",
+      "pix_key": "09084582667",
+      "email_public": "cezar@soomei.com.br",
+      "photo_url": "/static/uploads/tksc4o.jpg?v=3124eec7",
+      "theme_color": "#000000",
+      "address": "",
+      "site_url": "https://soomei.themembers.com.br",
+      "google_review_url": "https://search.google.com/local/writereview?placeid=ChIJs1pUEORFpJQRdAWfcr3jVvk",
+      "google_review_show": true,
+      "cover_url": "/static/uploads/tksc4o_cover.jpg?v=5c631012",
+      "featured_color": "#FFB473",
+      "featured_label": "Agendar experiência",
+      "featured_url": "https://soomei.themembers.com.br/",
+      "featured_enabled": true
+    },
+    "contato@soomei.com.br": {
+      "full_name": "Soomei",
+      "title": "O poder de crescer juntos",
+      "links": [
+        {
+          "label": "Instagram",
+          "href": "Associacaosoomei"
+        }
+      ],
+      "whatsapp": "31999951418",
+      "pix_key": "Gsgggdgdgd",
+      "email_public": "contato@soomei.com.br",
+      "theme_color": "#000000",
+      "photo_url": "/static/uploads/ttt.jpg",
+      "address": "Av Rio Branco 931 Uberlândia Mg",
+      "site_url": "https://www.soomei.com.br",
+      "google_review_url": "",
+      "google_review_show": true
+    },
+    "isabella@gmail.com": {
+      "full_name": "Isabella Damasceno",
+      "title": "Arquiteta | Soomei",
+      "links": [
+        {
+          "label": "Instagram",
+          "href": "bellapcabreu"
+        }
+      ],
+      "whatsapp": "34984261748",
+      "pix_key": "09084582667",
+      "email_public": "isabellapcabreu@gmail.com",
+      "site_url": "https://soomei.com.br",
+      "address": "Av. Rio Branco, 931, Uberlandia-MG",
+      "theme_color": "#000000",
+      "photo_url": "/static/uploads/abc124.png"
+    },
+    "cadublack778@gmail.com": {
+      "full_name": "Carlos Eduardo",
+      "title": "Empresario e dono | Cadu elegance barbershop",
+      "links": [
+        {
+          "label": "Instagram",
+          "href": "https://www.instagram.com/caduelegancebarbershop?igsh=Y3Q1cW14ZDczM3Vw"
+        },
+        {
+          "label": "Agendar Experiencia",
+          "href": "https://agendamento.igic.com.br/CaduEleganceBarbershop?fbclid=PAVERFWAN8Zd5leHRuA2FlbQIxMQBzcnRjBmFwcF9pZA8xMjQwMjQ1NzQyODc0MTQAAaeR4zqPNGV3JKfL90Y4HXAo5ACyDCMaPawXArthaLZ4Ypg51S6ywAell_gf1g_aem_nqbABCxtzYuo3UZZqqMVMg"
+        }
+      ],
+      "whatsapp": "5534984196696",
+      "pix_key": "5534984196696",
+      "email_public": "cadublack778@gmail.com",
+      "site_url": "https://www.instagram.com/caduelegancebarbershop?igsh=Y3Q1cW14ZDczM3Vw",
+      "address": "Ortizio Borges 1050",
+      "theme_color": "#999999",
+      "photo_url": "/static/uploads/cadu123.jpg",
+      "google_review_url": "https://search.google.com/local/writereview?placeid=ChIJs1pUEORFpJQRdAWfcr3jVvk",
+      "google_review_show": true,
+      "featured_color": "#D6D6D6",
+      "featured_label": "Agendar Experiência",
+      "featured_url": "https://links.igic.com.br/CaduEleganceBarbershop?fbclid=PAdGRleAOEsU9leHRuA2FlbQIxMQBzcnRjBmFwcF9pZA8xMjQwMjQ1NzQyODc0MTQAAadXwL_ZoJkqj6zRAtpLAuipBE4GD7TmKejWOFB6yqOw46DdSyWDeuXnH_6kbw_aem_Hb1sf4n8ztvOULQeSoUz9w",
+      "featured_enabled": true,
+      "cover_url": "/static/uploads/cadu123_cover.jpg?v=5e151749"
+    },
+    "andre@brvs.com.br": {
+      "full_name": "André Silva",
+      "title": "Co-Funder | Bravus",
+      "links": [
+        {
+          "label": "Instagram",
+          "href": "https://www.instagram.com/andredchaves"
+        }
+      ],
+      "whatsapp": "5531984489551",
+      "pix_key": "e1dc9ffc-b0e2-429d-8109-e1d345dc2c30",
+      "email_public": "andre@brvs.com.br",
+      "site_url": "https://andre.bravusgrowth.com/",
+      "address": "R. José Cecílio Domingos, 62",
+      "theme_color": "#32c2ff",
+      "photo_url": "/static/uploads/and123.jpg",
+      "google_review_url": "",
+      "google_review_show": true,
+      "featured_color": "#00DC00",
+      "featured_label": "Agendar um bate papo",
+      "featured_url": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ1oW0jOi5PujmDbQ--CgHXdi4OfyUDq6xqGVoHi7d-YYmD03Axf1jCqqkoJQAtR2A6-ACAu0tL3",
+      "featured_enabled": true,
+      "cover_url": "/static/uploads/and123_cover.jpg?v=f622fe6c"
+    },
+    "sttark321@gmail.com": {
+      "full_name": "samuel gama",
+      "title": "founder",
+      "links": [
+        {
+          "label": "https://www.youtube.com/@Samuel7pereiragama",
+          "href": "https://www.instagram.com/samuel7pereira/#"
+        }
+      ],
+      "whatsapp": "34992053445",
+      "pix_key": "",
+      "email_public": "samuel7pgama@gmail.com",
+      "site_url": "https://gruporegularizeja.com.br/",
+      "address": "Passo Fundo, 90",
+      "theme_color": "#000000"
+    },
+    "yuri.mkt.vendas@gmail.com": {
+      "full_name": "Yuri De Souza Bocoli Goetten",
+      "title": "Consultor | Yuri de Souza consultoria",
+      "links": [
+        {
+          "label": "Linkedin",
+          "href": "https://www.linkedin.com/in/y-u-r-i-d-e-s-o-u-z-a-9039942aa?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app"
+        },
+        {
+          "label": "Instagram",
+          "href": "https://www.linkedin.com/in/y-u-r-i-d-e-s-o-u-z-a-9039942aa?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app"
+        }
+      ],
+      "whatsapp": "5548992466758",
+      "pix_key": "62398915000154",
+      "email_public": "yuri.mkt.vendas@gmail.com",
+      "site_url": "https://yuri-consultoria-essencial.lovable.app/",
+      "address": "Rua Benjamin Alves Santos",
+      "google_review_url": "",
+      "google_review_show": true,
+      "theme_color": "#a77a26",
+      "photo_url": "/static/uploads/yuri123.jpg",
+      "featured_color": "#A77A26",
+      "featured_label": "Agendar análise",
+      "featured_url": "https://yuri-consultoria-essencial.lovable.app/",
+      "featured_enabled": true,
+      "cover_url": "/static/uploads/yuri123_cover.jpg?v=07e91142"
+    },
+    "duartedeywid@gmail.com": {
+      "full_name": "Deywid Rosa Duarte",
+      "title": "Proprietário | Duarte Design",
+      "links": [],
+      "whatsapp": "37984286668",
+      "pix_key": "",
+      "email_public": "duartedeywid@gmail.com",
+      "site_url": "",
+      "address": "Avenida Manuel Lucio, 520",
+      "google_review_url": "",
+      "google_review_show": true,
+      "theme_color": "#00ff00"
+    },
+    "bb@bb.com": {
+      "full_name": "Bbbb",
+      "title": "",
+      "links": [],
+      "whatsapp": "5531999951416",
+      "pix_key": "",
+      "email_public": "",
+      "site_url": "",
+      "photo_url": "",
+      "cover_url": "/static/uploads/bbb_cover.jpg?v=eac52e37",
+      "address": "Av. Rio Branco",
+      "google_review_url": "",
+      "google_review_show": true,
+      "theme_color": "#000000"
+    },
+    "edialidab@yahoo.com": {
+      "full_name": "",
+      "title": "",
+      "links": [],
+      "whatsapp": "",
+      "pix_key": "",
+      "email_public": "",
+      "site_url": "",
+      "photo_url": "",
+      "cover_url": ""
+    },
+    "cezar667@gmail.com": {
+      "full_name": "",
+      "title": "",
+      "links": [],
+      "whatsapp": "",
+      "pix_key": "",
+      "email_public": "",
+      "site_url": "",
+      "photo_url": "",
+      "cover_url": ""
+    },
+    "joaopaulosuisso@gmail.com": {
+      "full_name": "",
+      "title": "",
+      "links": [],
+      "whatsapp": "",
+      "pix_key": "",
+      "email_public": "",
+      "site_url": "",
+      "photo_url": "",
+      "cover_url": ""
+    }
+  },
+  "sessions": {
+    "oe2t9smMDr1zAA2NkzyXdRzz6cxZFn2uxTuWLB7Cy1E": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761341068
+    },
+    "4BxYeQL8E0MN1hdTAhPW_m8LKVT9HI7E_SSmuLywWng": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761355477
+    },
+    "b6aFcBFb5Za_spG8qRmnkashJqRxQM0yXvq4m8RdCLE": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761357412
+    },
+    "aj3UWQaCz5hyRfXmMclaD-21Z6c_TwiwZBhdgcmYxag": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761365857
+    },
+    "dCqCf5dW1J6gN6oYRtl_7jjm9k4tZk3Gtd_IPAxQ1zM": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761370231
+    },
+    "-BV3d0hHYOABBzqcHWY__O72cJD8j3K0Si-kTAXBDXI": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761400330
+    },
+    "kGm04V11Nd6OTZ12zf-TfRDVhltdifnO8yA6C2xttPM": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761401703
+    },
+    "ReisoYyIeJ_xpZ-w8QHWKFFwz91suw9LZ6K-nXCPq-Q": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761405503
+    },
+    "W56a5O90Qfgld8rnpEGq8VtLX1NFCAxSVEY6kIPBOjY": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761408088
+    },
+    "Th83wizNh5rHahBTL9HMM-iOjIKS_PpSibdkf6EzNqI": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761418617
+    },
+    "f995BOCc_qMakuRzpgWkwOy0R_8wUW9vx-haOnO-JDE": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761431200
+    },
+    "81HkhVJpIpkqy9JSgk_l_pJulMU14y6QWFwm-J9-w94": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761433901
+    },
+    "tSfegpoktYvNZbFEATzc8WGt_OtDaShVGCJ6cshow6Y": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761434540
+    },
+    "WtlwZy52GwagMbAmSHzVodO5bZm5dvuZgbWuOqZQvJ4": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761442346
+    },
+    "57vQAemWmzNElQKRGrP_s8qgwgp3z2zB26pz8pe79nk": {
+      "email": "isabella@gmail.com",
+      "ts": 1761445576
+    },
+    "86EBTXvMfcV_obWPo6FVM4klc3xhzmd_qekE9AVbejA": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761446528
+    },
+    "6CPGHTjYEC3LAtFT5txAvQbHVK8zJw06ISR6Y1ofgFM": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761448447
+    },
+    "Jmwll3_Ou8jS1cD1Scxx_m5eYcFmmT6r02KmLKLDz6E": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1761472466
+    },
+    "FQDXBdawMk4wabxAlrH8WD4_k2QafobT74CnHpVLUeo": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761484112
+    },
+    "2Jz9vwAG8eJW-u5X3IvXxMFnLSO6oKrXhYO33_RmAKQ": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1761492230
+    },
+    "TtPNsVmNLU2519mG671iZmEzVgJ4QtahgUcaJXSvoJA": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1761492893
+    },
+    "ipFlyw50Jb8tuAtPxgBGc5GHGpdXpxB181tfqagYYC4": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761493549
+    },
+    "HS3cNLVxVMYfLVw6334D-f_09jDpWFZ7PMyeT0KL6g4": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1761494454
+    },
+    "MH9nrpTVuMMt9oIuQrb-W93Ktc6iBPEpGfMvrF7B0gU": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761494554
+    },
+    "VdxeQpI7dVztMWei4hJ_6ab49ds-4onrr5fesLiqpd0": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1761501355
+    },
+    "gQgcZPGpirkGsotYW_tvZI2cKZX-m2cKmUAxm0O8ITQ": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761501595
+    },
+    "tPmfhfViP27xkup-DIlnB0f66lVDMB5eqvsfqT0qhyA": {
+      "email": "andre@brvs.com.br",
+      "ts": 1761504941
+    },
+    "O3rsCb8xLb95SPFdo38l5CFheR5u1hZZywm_la_MPFY": {
+      "email": "sttark321@gmail.com",
+      "ts": 1761505853
+    },
+    "rdkOQ-OM1K0U6AHlRow6YcyavUd8ooAxewB2ucV4HsI": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761517710
+    },
+    "2DTX1YtwIKB26VzYT7ik5iyMe1YPBX1Y_MIaEO-FYcs": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761520584
+    },
+    "cQnpGdbBei58t2_DikZEY9Ai-I_oojMi1qAir0gr12k": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761521966
+    },
+    "i6gSRdNuP8ml6uFkTxsj1QS6Eb23VGq2RpB9A3QPZqo": {
+      "email": "yuri.mkt.vendas@gmail.com",
+      "ts": 1761524875
+    },
+    "GvW9RpODRug33EzpEQc3rYWfNxUU1dTMz5lF1BPI2bQ": {
+      "email": "duartedeywid@gmail.com",
+      "ts": 1761525543
+    },
+    "jQYH3hULc_vUbWIVdT4LhBXPIJFxu6jJWJDTjJNK69E": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761535759
+    },
+    "fOlZ6OXOwXUSUxUamo2vomLHttTCHEXWh-RcHMytkKY": {
+      "email": "contato@soomei.com.br",
+      "ts": 1761571045
+    },
+    "QrcCfcaPPCE_SKbzSGIY_MXhmZw0EV97gkhZ0YG_Jvg": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761578436
+    },
+    "O332rBWgdD-jHK8OErKj8THWDPcp7J62njOGAj41ZBg": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761589720
+    },
+    "utspbex7FZ40VKH8ln0gLG8cZTf7sbrob3K1aX4FHPQ": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761598393
+    },
+    "KZZ7EdN7nf0DzyrPat_0yI0ilAS34NYUW_JhV2Pahn0": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761616221
+    },
+    "hpHucYjKzCwQLQAryIZqVNxQzkgdVetN7iLYdYorKD0": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761834972
+    },
+    "52XqjUYPWH4keeNaf-zonzfDk3O0o9lBLP8wCP4Weig": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1762553962
+    },
+    "BByWvg4SMzA2z4ZEXHG9TrX_5pxYhdTU6tJnouJGg5o": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1762560884
+    },
+    "d7A5jC8gEAz4EX-cb0X4W9P5jOEtNrDz8x4EpQJyEdY": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1762618480
+    },
+    "IiXVIyCrYpRN3jPX7Up2ZmUktAFksxpTbEEdeaTTKCE": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1762622380
+    },
+    "8ctAiyX2X5ekWlGgJ1B_uIzlMrd_hVg8WBzWLTvADKk": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1762639456
+    },
+    "nT6SfcfJ1o3QAY5ukylx663OMRvk7fRBOFZIEDYMXcg": {
+      "email": "bb@bb.com",
+      "ts": 1762658734
+    },
+    "FTHU_T6FBFbu4yS6fL9SVOwWgUXdZe_2Wb3MBVdd-ds": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763033101
+    },
+    "spheMw-J3XG8Q0TVvk6DXOqqBXFIIYsAwCLo7K4bS5k": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763088540
+    },
+    "VhTHB93MASqjT0LQz_gSl-zE7NYbu15LGyAr5vXcoqQ": {
+      "email": "andre@brvs.com.br",
+      "ts": 1763132669
+    },
+    "dZRIvqQwNwomVoTF2XE2baCW3O7tuDFFGtKsAi3M3Os": {
+      "email": "andre@brvs.com.br",
+      "ts": 1763133776
+    },
+    "Xly1uzc8IzACFb6_yesp0LbKcHYsv-f3YSuOBZYrYp4": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763150194
+    },
+    "bkOwUNycdRHnXycf6g2UWFirhIGP33TNMlaeXyqb6W0": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1763167315
+    },
+    "FssR2V-WqZpV4jHaSFIXLKE6veiRKD9tJxZZ6dHiMkA": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763168432
+    },
+    "-Ooamcnc6kgaufTzYMRRa277HIHz1nD3wWMFOP5m0Bw": {
+      "email": "cadublack778@gmail.com",
+      "ts": 1763168661
+    },
+    "-2ephFRX-c9zwatQ15NOhh7EgRbGUkvUJ7TTlWaKDJ8": {
+      "email": "edialidab@yahoo.com",
+      "ts": 1763170958
+    },
+    "JlMW7U-XjGIlyUiQA9U7tDTd2IuyU0ZKXVjwZEYXEyA": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763173491
+    },
+    "w0rbo2GDV4reMDPyipE48dVAd6vSzBH9wBDsrVubSkE": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763184449
+    },
+    "ee05xv_ups_rO9hnjfqPhbMiYq7YJKj2CShR21pTkvs": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763238128
+    },
+    "SMkNd2hIoKJpoxieAVPZd48dwg3wrWAA1wMDGHByyeg": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763254299
+    },
+    "zqxvFV0AucM-BS2Yv52gwuQaxMbc0LJ7LSNFyTE0xYU": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763257449
+    },
+    "4G_WrLJcXfLoVg3f5_lmh88Sc2dDorenvIGXBCZfrYQ": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763262220
+    },
+    "elaKZsVcDAiEFCY0JxrkEHWOzqvnULrNnWifZkfRN4o": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763302761
+    },
+    "Iuc9ocY_BgQq5JQzO3Z-uMJ6LIKnRB3COleCb4PJzoY": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763313311
+    },
+    "kSYS4Ey6E6GVVyKT6xwYphEJ8o2eWUIJeaTiz7c3P04": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763314476
+    },
+    "8tmxHsRSpTBb7KJaujpmeiCBxAU9faA4hD0i1iA9C3E": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763331900
+    },
+    "KS4ikchYjh7JsfLRrCY0rrhwmjkX-eRNxfMbR_hqkGY": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763331967
+    },
+    "7K-P58M4vaIPeaqn_xtDZv6QnZ0it4RZ3Zv7KAZkLmI": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763332209
+    },
+    "bBJpQItWPO8rTAivhDB2f1CidAsvaBuNsl8KK9mzILE": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763332289
+    },
+    "MFm23lrlNA5M-FUAN21q0G3jdStH5WgZbF_TurUFR9Q": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763333225
+    },
+    "J6HeoyaUEW4jzWY9PH_HQKiVI1mVxA6wjUM2KhXxmMg": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763434754
+    },
+    "F40qccMEF_UJLyuRBZRAmkPUPFSOyuU2YrU19OgV2BI": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763435525
+    },
+    "n6DH0d3wrK18v9Sa_t-W_Ed52tf0GPxZwJtxhX3N1tE": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763436598
+    },
+    "4xxUL3qSqX0RQDovVQUPtYZLEjqXFk7WTL8WlJ2UNkU": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763516200
+    },
+    "pbicyQxUrG1UoNDFs53miN7OnTucJ8lHx6TBPGBMkLg": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763520242
+    },
+    "g4832p5SEaLTDWyT-PFhHTfpx19M5GX7QP1Hc40uI88": {
+      "email": "joaopaulosuisso@gmail.com",
+      "exp": 1763680242
+    },
+    "EdSDrFzssWpMDkwmT-zzceIqcbODZ0RjI-QEatU3Vqw": {
+      "email": "joaopaulosuisso@gmail.com",
+      "exp": 1763680278
+    },
+    "HXNq-BF5-QLCZL1cIMetCbPXUx00QeDj3UPOebK5ars": {
+      "email": "yuri.mkt.vendas@gmail.com",
+      "exp": 1763686533
+    },
+    "Vb2NAuZsOfUZVpqnT-FL9QzJPbOyDtIiC-St-PLHzHQ": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763686916
+    },
+    "bh2VEeFHinFHJjQsGFO1fkYBADp_8kKf1t2b2ekTFvM": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763850990
+    },
+    "Iq7YQO0l71UIZWPoo8rOnDnnh7OszGW8IXmtwNy6DY4": {
+      "email": "cezar@soomei.com.br",
+      "exp": 1763854401
+    },
+    "r11IQrBzW_FmmBjaX6K4iyJF_fVkAjFt0emfgr9EJ1Q": {
+      "email": "joaopaulosuisso@gmail.com",
+      "exp": 1764096561
+    },
+    "wqKBynCNKDSGUFaJYcrg2Ne3ElLW32_cf9nsvcNvFl0": {
+      "email": "joaopaulosuisso@gmail.com",
+      "exp": 1764096591
+    }
+  },
+  "verify_tokens": {},
+  "sessions_admin": {
+    "23zYObdYarqBMcQ_VRTDPGbBY6A8AY-hkFQzafjCGOo": {
+      "email": "admin@soomei.com.br",
+      "ts": 1761415025
+    },
+    "6myLqJyyvSUB8Q8XQOsUJUt1_FOXcljHLuUK3Y2Vxb0": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761417174,
+      "csrf": "j6pol12ZF466ttr7_HsFi0cTvWdoYSGI69PcLeQ7698"
+    },
+    "menWUaZ3prB9kkbyAcOmRuO59A93OJEX-0tBIEdgk9A": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761430616,
+      "csrf": "K4mTKiNOJ4jLlV2GPVjXrpEG7qGGSJl1cIOwLsx-hEs"
+    },
+    "2Rqwjp_ueFpgoHqkOvcQ4t09RXUgd66UpOR5gcR__uI": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761446853,
+      "csrf": "IxQ8UTndpa5xj_0pf0DPOnJ0bKDprBVE1O2s2I9R2jw"
+    },
+    "hV6Qx8gwFQdPOxavqzqkjDvRASCtZzgi_1mwREpX9uA": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761520761,
+      "csrf": "ssSNbinq_ST538JGTzf2QUiOpkgX20Q0lp0QmyDk-3A"
+    },
+    "Cr6P8DEvqyze8X6pVg7iZpDlgLJhQNqxj69wO-847Fw": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761521709,
+      "csrf": "bEVQ3UOzxJlGJ-FPxJATH7Nuq4yFuTXa5bDXj1d0I5o"
+    },
+    "7Muj-8IkHnoGR5DeCX-PmpAIHwMoahFMsWHCn8M8_Uw": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1761589738,
+      "csrf": "YA-YWvmiYyp0dE20qCRC5XMrV-RBkDvgg45grhiuXwg"
+    },
+    "3_m_eOS1SUZOc8kszaY6BvH-53yHmakCSrThiqdAIfw": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1762642357,
+      "csrf": "Dd3Ym_xZarIe7dKoxG285FHY4mfBVZckkms8_5zWocM"
+    },
+    "kdt_OE-kM6h8QrViM__X0Bt-k0cvVJ9zyGPq4YD-oRQ": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1762650936,
+      "csrf": "bImiuXlTrFssIvOQqyVEg7yL_A4JEYjVL9qpdDHkvZA"
+    },
+    "_I4wxCTEBNM0e_j7xNeMIorbBGQHPR-eoSrpIzVQ55k": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763150682,
+      "csrf": "uYXQ5kY9RJfa9oxMsufw-lXOTXRLkn6YIDjISEjORk0"
+    },
+    "tBjyX0x2ztjQAw2LTmgptnEb494ST8AalAICVxfuLZY": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763184474,
+      "csrf": "OBMpDWwbH0_kVmb7iXnPFigUjRvSEtaKla1taLBa3wA"
+    },
+    "DegHb_PflME8WCSHine_WKmB0BAUFylQY0s_eGzNJxw": {
+      "email": "cezar@soomei.com.br",
+      "ts": 1763433893,
+      "csrf": "mPjb1H5OA2DvF93k3U2oIocysHROuJvPTnnMLEWZHGQ",
+      "exp": 1763477093
+    }
+  },
+  "custom_domains": {},
+  "reset_tokens": {}
+}
