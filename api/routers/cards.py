@@ -1006,6 +1006,31 @@ def visitor_public_card(
     secondary_image = raw_cover if (raw_cover and raw_cover != primary_image) else ""
     og_image_url = html.escape(_absolute_asset_url(primary_image, base=card_base))
     og_image_second = html.escape(_absolute_asset_url(secondary_image, base=card_base)) if secondary_image else ""
+    quick_link_icons = {
+        "facebook": '<path fill="currentColor" d="M22 12A10 10 0 1 0 10.5 21.9v-6.9H7.9v-3h2.6V9.2c0-2.6 1.6-4 3.9-4 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 3h-2.4v6.9A10 10 0 0 0 22 12z"/>',
+        "linkedin": '<path fill="currentColor" d="M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z"/>',
+        "instagram": '<rect x="3" y="3" width="18" height="18" rx="5" ry="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor"/>',
+        "youtube": '<path fill="currentColor" d="M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z"/>',
+    }
+    quick_link_items = []
+    for label, href, plat in other_links[:4]:
+        escaped_label = html.escape(label or plat.title())
+        target_attrs = " target='_blank' rel='noopener'" if href.startswith("http") else ""
+        icon = quick_link_icons.get(
+            plat,
+            '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>',
+        )
+        quick_link_items.append(
+            f"<div class='qa-item'>"
+            f"<a class='icon-btn brand-{plat}' href='{html.escape(href)}'{target_attrs} title='{escaped_label}' aria-label='{escaped_label}'>"
+            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>"
+            f"{icon}</svg></a><div class='qa-label'>{escaped_label}</div></div>"
+        )
+    quick_links_block = (
+        "<div class='quick-actions'>" + "".join(quick_link_items) + "</div>"
+        if quick_link_items
+        else ""
+    )
     html_doc = f"""<!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
     <link rel='stylesheet' href='{CSS_HREF}'><title>Soomei | {html.escape(prof.get('full_name',''))}</title>
@@ -1032,7 +1057,7 @@ def visitor_public_card(
           <p class='title'>{html.escape(prof.get('title',''))}</p>
           {view_chip}
         </header>
-          {f"""
+          {f'''
             <div class='google-review'>
               <a href='{html.escape(google_review_url)}' target='_blank' rel='noopener' class='btn-google-review'>
                 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='18' height='18' class='g-icon'>
@@ -1044,21 +1069,21 @@ def visitor_public_card(
                 ★★★★★ Avaliar no Google
               </a>
             </div>
-          """ if google_review_url and google_review_show else ""}
+          ''' if google_review_url and google_review_show else ""}
           <div class='section-divider'></div>
           <div class='quick-actions qa4'>
           <div class='qa-item'>
             {(
-              f"""
+              f'''
               <a class='icon-btn brand-wa' href='https://wa.me/{wa_digits}?text={share_text}' target='_blank' rel='noopener' title='WhatsApp' aria-label='WhatsApp'>
                 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>
                   <path fill='currentColor' d='M20.52 3.48A11.86 11.86 0 0 0 12.02 0C5.39 0 .04 5.35.04 11.98c0 2.11.56 4.16 1.62 5.98L0 24l6.2-1.62a11.96 11.96 0 0 0 5.82 1.49h0c6.63 0 12.02-5.35 12.02-11.98 0-3.21-1.25-6.23-3.52-8.41ZM12.02 22.1h0c-1.9 0-3.76-.5-5.39-1.44l-.39-.23-3.68.96.98-3.59-.25-.37A9.77 9.77 0 0 1 2 11.98C2 6.48 6.52 2 12.02 2c2.62 0 5.08 1.02 6.93 2.86A9.71 9.71 0 0 1 22.06 12c0 5.5-4.52 10.1-10.04 10.1Zm5.53-7.49c-.3-.15-1.78-.88-2.05-.98-.27-.1-.47-.15-.68.15-.2.3-.78.98-.96 1.18-.18.2-.36.22-.66.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.13-.13.3-.34.45-.51.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.08-.15-.68-1.63-.93-2.23-.25-.6-.5-.52-.68-.53l-.58-.01c-.2 0-.52.08-.8.37-.27.3-1.05 1.03-1.05 2.5s1.07 2.9 1.23 3.1c.15.2 2.1 3.2 5.07 4.48.71.31 1.27.5 1.7.64.72.23 1.37.2 1.88.12.57-.08 1.78-.73 2.03-1.44.25-.7.25-1.3.18-1.43-.07-.13-.27-.2-.57-.35Z'/>
                 </svg>
               </a>
               <div class='qa-label'>WhatsApp</div>
-              """
+              '''
             ) if wa_digits else (
-              """
+              '''
 
               <div class='icon-btn disabled' title='WhatsApp indisponvel' aria-disabled='true'>
 
@@ -1072,7 +1097,7 @@ def visitor_public_card(
 
               <div class='qa-label'>WhatsApp</div>
 
-              """
+              '''
             )}
           </div>
           <div class='qa-item'>
@@ -1143,36 +1168,7 @@ def visitor_public_card(
             <p class='muted' style='font-size:11px'>Atencao: Nao e recomendado imprimir este codigo em placas ou cartao, pois ele nao sera atualizado online. Utilize o codigo QRCode Online para impressao.</p>
           </div>
         </div><div class='section-divider'></div>
-        {(
-          "<div class='quick-actions'>" +
-          "".join([
-            (
-              f"<div class='qa-item'>"
-              f"<a class='icon-btn brand-{plat}' href='{html.escape(href)}' {'target=\'_blank\' rel=\'noopener\'' if (href.startswith('http')) else ''} title='{html.escape(label or plat.title())}' aria-label='{html.escape(label or plat.title())}'>"
-              f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>"
-              f"{(
-                  '<path fill=\"currentColor\" d=\"M22 12A10 10 0 1 0 10.5 21.9v-6.9H7.9v-3h2.6V9.2c0-2.6 1.6-4 3.9-4 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 3h-2.4v6.9A10 10 0 0 0 22 12z\"/>'
-                  if plat == 'facebook' else (
-                    '<path fill=\"currentColor\" d=\"M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z\"/>'
-                    if plat == 'linkedin' else (
-                    '<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"5\" ry=\"5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>'
-                    '<circle cx=\"12\" cy=\"12\" r=\"4\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>'
-                    '<circle cx=\"17.5\" cy=\"6.5\" r=\"1.5\" fill=\"currentColor\"/>'
-                    if plat == 'instagram' else (
-                    '<path fill=\"currentColor\" d=\"M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z\"/>'
-                    if plat == 'youtube' else
-                    '<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>'
-                    ))
-                  )
-                )}"
-              f"</svg>"
-              f"</a>"
-              f"<div class='qa-label'>{html.escape(label or plat.title())}</div>"
-              f"</div>"
-            ) for (label, href, plat) in other_links[:4]
-          ]) +
-          "</div>"
-        ) if (len(other_links) > 0) else ""}
+        {quick_links_block}
         {portfolio_section}
         <div class='fixed-actions'>
           {(
@@ -1197,7 +1193,7 @@ def visitor_public_card(
             f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
             f"<path fill='currentColor' d='M12 2C8.69 2 6 4.69 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.31-2.69-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z'/>"
             f"</svg> "
-            f"Endere\u00e7o</a>"
+            f"Endereço</a>"
           ) if maps_href else ('')}
           {(
             f"<a class='btn fixed pix' id='payPixBtn' href='/{html.escape(slug)}?pix=amount'>"

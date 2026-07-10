@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import html
 import io
@@ -10,7 +12,7 @@ import re
 import urllib.parse as urlparse
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from api.core import csrf
 from api.core.config import get_settings
@@ -47,6 +49,7 @@ DEFAULT_AVATAR = "/static/img/user01.png"
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 JPEG_MAGIC = b"\xFF\xD8\xFF"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
 
 _FOOTER_SLOT = "<span id='footerActionSlot' class='footer-auth-slot'></span>"
 _FOOTER_PLACEHOLDER = "{footer_action_html}"
@@ -119,6 +122,29 @@ def _has_valid_signature(data: bytes, content_type: str) -> bool:
     if content_type == "image/png":
         return data.startswith(PNG_MAGIC)
     return False
+
+
+def _decode_image_data_url(data_url: str, content_type: str = "") -> tuple[bytes, str]:
+    value = (data_url or "").strip()
+    ctype = (content_type or "").strip().lower()
+    if "," not in value:
+        raise HTTPException(400, "Dados da foto invalidos.")
+    header, encoded = value.split(",", 1)
+    if not ctype and header.startswith("data:"):
+        ctype = header[5:].split(";", 1)[0].lower()
+    if ctype not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, "Formato de imagem nao suportado (use JPEG ou PNG).")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(400, "Dados da foto invalidos.") from exc
+    if not data:
+        raise HTTPException(400, "Imagem vazia.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "Imagem excede 2MB.")
+    if not _has_valid_signature(data, ctype):
+        raise HTTPException(400, "Arquivo de imagem invalido.")
+    return data, ctype
 
 
 def _save_resized_image(data: bytes, filename: str, max_size: tuple[int, int]) -> str:
@@ -245,6 +271,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     csrf_token_value = csrf.ensure_csrf_token(request)
     csrf_token_html = html.escape(csrf_token_value)
     csrf_token_js = json.dumps(csrf_token_value)
+    csrf_token_query = urlparse.quote(csrf_token_value, safe="")
     footer_action_html = _owner_logout_form(slug, csrf_token_value)
     portfolio_slots = []
     for idx, src in enumerate(portfolio_images, start=1):
@@ -263,8 +290,9 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                   <span class='muted'>|</span>
                   <a href='#' class='photo-change muted' data-remove='{idx}'>Remover</a>
                 </div>
-                <input type='file' name='portfolio{idx}' id='portfolioInput{idx}' accept='image/jpeg,image/png' style='display:none'>
+                <input type='file' id='portfolioInput{idx}' accept='image/jpeg,image/png' style='display:none'>
                 <input type='hidden' name='portfolio_remove{idx}' id='portfolioRemove{idx}' value='0'>
+                <input type='hidden' name='portfolio_data_url{idx}' id='portfolioDataUrl{idx}' value=''>
               </div>
             """
         )
@@ -274,6 +302,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       (function(){
         var MAX_SLOTS = 5;
         var MAX_UPLOAD = """ + str(MAX_UPLOAD_BYTES) + """;
+        window.soomeiImagePayloads = window.soomeiImagePayloads || {photo:'', cover:'', portfolio:{}};
         var toggle = document.getElementById('portfolioEnabled');
         var toggleLabel = document.getElementById('portfolioToggleLabel');
         var toggleUi = toggle ? toggle.nextElementSibling : null;
@@ -294,6 +323,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
         }
         function wireSlot(idx){
           var input = document.getElementById('portfolioInput' + idx);
+          var dataInput = document.getElementById('portfolioDataUrl' + idx);
           var thumb = document.getElementById('pfThumb' + idx);
           var removeFlag = document.getElementById('portfolioRemove' + idx);
           var trigger = document.querySelector('[data-trigger=\"' + idx + '\"]');
@@ -304,6 +334,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               thumb.innerHTML = buildEmptyContent(idx);
             }
             if (removeFlag){ removeFlag.value = '1'; }
+            if (dataInput){ dataInput.value = ''; }
+            window.soomeiImagePayloads.portfolio[idx] = '';
             if (input){ input.value = ''; }
           }
           if (trigger && input){
@@ -340,6 +372,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 thumb.classList.remove('is-empty');
                 thumb.innerHTML = '<img src=\"' + src + '\" alt=\"Foto ' + idx + '\"><div class=\"thumb-glow\"></div>';
                 if (removeFlag){ removeFlag.value = '0'; }
+                if (dataInput){ dataInput.value = src; }
+                window.soomeiImagePayloads.portfolio[idx] = src;
               };
               reader.readAsDataURL(f);
             });
@@ -517,7 +551,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       </script>
       <main class='wrap'>
       {notice}
-      <form id='editForm' method='post' action='/edit/{html.escape(slug)}' enctype='multipart/form-data'>
+      <form id='editForm' method='post' action='/edit/{html.escape(slug)}?csrf_token={csrf_token_query}'>
         <input type='hidden' name='csrf_token' value='{csrf_token_html}'>
         <div class='topbar'>
           <h1 class='page-title'>Editar Perfil</h1>
@@ -544,8 +578,9 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                   <a href='#' id='coverRemove' class='photo-change muted' onclick="document.getElementById('coverRemoveFlag').value='1';document.getElementById('coverPreview').classList.add('is-empty');document.getElementById('coverPlaceholder').style.display='block';var img=document.getElementById('coverImg'); if(img){{img.src='';img.style.display='none';}} return false;">Remover capa</a>
                   <span class='muted hint'>Sugerimos 1200x630px. Otimizamos automaticamente após o envio.</span>
                 </div>
-                <input type='file' id='coverInput' name='cover' accept='image/jpeg,image/png' style='display:none'>
+                <input type='file' id='coverInput' accept='image/jpeg,image/png' style='display:none'>
                 <input type='hidden' id='coverRemoveFlag' name='cover_remove' value='0'>
+                <input type='hidden' id='coverDataUrl' name='cover_data_url' value=''>
               </div>
               <div>
                 <div class='avatar-preview-wrap'>
@@ -563,7 +598,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                     <div class='muted' style='font-size:12px;margin-top:4px'>Aceitamos JPG/PNG; otimizamos automaticamente após o envio.</div>
                   </div>
                 </div>
-                <input type='file' id='photoInput' name='photo' accept='image/jpeg,image/png' style='display:none'>
+                <input type='file' id='photoInput' accept='image/jpeg,image/png' style='display:none'>
+                <input type='hidden' id='photoDataUrl' name='photo_data_url' value=''>
               </div>
               <div class='form-control'>
                 <label for='themeColor'>Cor do cartão</label>
@@ -892,8 +928,49 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             input.addEventListener('blur', updatePrimaryState);
           }});
           updatePrimaryState();
+          window.soomeiUploadProfilePhoto = async function(token, selectedPhoto){{
+            if (!selectedPhoto) return null;
+            var photoDataUrl = await new Promise(function(resolve, reject){{
+              var reader = new FileReader();
+              reader.onload = function(){{ resolve(reader.result || ''); }};
+              reader.onerror = function(){{ reject(new Error('Nao foi possivel ler a foto.')); }};
+              reader.readAsDataURL(selectedPhoto);
+            }});
+            var photoResponse = await fetch(
+              '/edit/{html.escape(slug)}/photo?csrf_token=' + encodeURIComponent(token || ''),
+              {{
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {{
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': token || ''
+                }},
+                body: JSON.stringify({{
+                  content_type: selectedPhoto.type || '',
+                  filename: selectedPhoto.name || 'foto.jpg',
+                  data_url: photoDataUrl
+                }})
+              }}
+            );
+            if (!photoResponse.ok) {{
+              var photoDetail = 'Falha ao salvar a foto.';
+              try {{
+                var photoPayload = await photoResponse.json();
+                if (photoPayload && photoPayload.detail) photoDetail = photoPayload.detail;
+              }} catch (_photoParseError) {{}}
+              throw new Error(photoDetail);
+            }}
+            return photoResponse.json();
+          }};
           if (form){{
             form.addEventListener('submit', function(e){{
+              var csrfInput = form.querySelector("input[name='csrf_token']");
+              if (csrfInput && csrfInput.value){{
+                var csrfCookie = 'csrf_token=' + encodeURIComponent(csrfInput.value)
+                  + '; Path=/; Max-Age=604800; SameSite=Strict';
+                if (window.location.protocol === 'https:') csrfCookie += '; Secure';
+                document.cookie = csrfCookie;
+              }}
               if (!updatePrimaryState()){{
                 e.preventDefault();
                 e.stopPropagation();
@@ -901,7 +978,97 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                   try{{ primaryHint.focus(); }}catch(_e){{}}
                   try{{ primaryHint.scrollIntoView({{behavior:'smooth', block:'center'}}); }}catch(_e){{}}
                 }}
+                return;
               }}
+              e.preventDefault();
+              window.setTimeout(async function(){{
+                var token = csrfInput ? csrfInput.value : '';
+                if (window.soomeiLoader && window.soomeiLoader.show) window.soomeiLoader.show();
+                try {{
+                  var photoControl = document.getElementById('photoInput');
+                  var photoDataInput = document.getElementById('photoDataUrl');
+                  var selectedPhoto = photoControl && photoControl.files && photoControl.files[0];
+                  function readFileAsDataUrl(file) {{
+                    return new Promise(function(resolve, reject){{
+                      var reader = new FileReader();
+                      reader.onload = function(){{ resolve(reader.result || ''); }};
+                      reader.onerror = function(){{ reject(new Error('Nao foi possivel ler a imagem.')); }};
+                      reader.readAsDataURL(file);
+                    }});
+                  }}
+                  if (selectedPhoto && photoDataInput && !photoDataInput.value) {{
+                    photoDataInput.value = await readFileAsDataUrl(selectedPhoto);
+                  }}
+                  if (photoDataInput && photoDataInput.value) {{
+                    window.soomeiImagePayloads = window.soomeiImagePayloads || {{photo:'', cover:'', portfolio:{{}}}};
+                    window.soomeiImagePayloads.photo = photoDataInput.value;
+                  }}
+                  var coverControl = document.getElementById('coverInput');
+                  var coverDataInput = document.getElementById('coverDataUrl');
+                  var selectedCover = coverControl && coverControl.files && coverControl.files[0];
+                  if (selectedCover && coverDataInput && !coverDataInput.value) {{
+                    coverDataInput.value = await readFileAsDataUrl(selectedCover);
+                  }}
+                  if (coverDataInput && coverDataInput.value) {{
+                    window.soomeiImagePayloads = window.soomeiImagePayloads || {{photo:'', cover:'', portfolio:{{}}}};
+                    window.soomeiImagePayloads.cover = coverDataInput.value;
+                  }}
+                  for (var pfIdx = 1; pfIdx <= 5; pfIdx += 1) {{
+                    var pfControl = document.getElementById('portfolioInput' + pfIdx);
+                    var pfDataInput = document.getElementById('portfolioDataUrl' + pfIdx);
+                    var pfFile = pfControl && pfControl.files && pfControl.files[0];
+                    if (pfFile && pfDataInput && !pfDataInput.value) {{
+                      pfDataInput.value = await readFileAsDataUrl(pfFile);
+                    }}
+                    if (pfDataInput && pfDataInput.value) {{
+                      window.soomeiImagePayloads = window.soomeiImagePayloads || {{photo:'', cover:'', portfolio:{{}}}};
+                      window.soomeiImagePayloads.portfolio[pfIdx] = pfDataInput.value;
+                    }}
+                  }}
+                  var formData = new FormData();
+                  var controls = document.querySelectorAll('input[name], select[name], textarea[name]');
+                  Array.prototype.forEach.call(controls, function(control){{
+                    if (!control.name || control.disabled || control === photoControl) return;
+                    var type = (control.type || '').toLowerCase();
+                    if (type === 'submit' || type === 'button' || type === 'reset') return;
+                    if ((type === 'checkbox' || type === 'radio') && !control.checked) return;
+                    if (type === 'file') return;
+                    formData.append(control.name, control.value || '');
+                  }});
+                  formData.set('csrf_token', token);
+                  var imagePayloads = window.soomeiImagePayloads || {{}};
+                  if (imagePayloads.photo) formData.set('photo_data_url', imagePayloads.photo);
+                  if (imagePayloads.cover) formData.set('cover_data_url', imagePayloads.cover);
+                  if (imagePayloads.portfolio) {{
+                    for (var imageIdx = 1; imageIdx <= 5; imageIdx += 1) {{
+                      if (imagePayloads.portfolio[imageIdx]) {{
+                        formData.set('portfolio_data_url' + imageIdx, imagePayloads.portfolio[imageIdx]);
+                      }}
+                    }}
+                  }}
+                  var response = await fetch(form.action, {{
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin',
+                    headers: {{'X-CSRF-Token': token}},
+                    redirect: 'follow'
+                  }});
+                  if (response.ok) {{
+                    window.location.assign(response.url || ('/' + encodeURIComponent('{html.escape(slug)}')));
+                    return;
+                  }}
+                  var detail = 'Falha ao salvar o perfil.';
+                  try {{
+                    var payload = await response.json();
+                    if (payload && payload.detail) detail = payload.detail;
+                  }} catch (_parseError) {{}}
+                  window.alert(detail);
+                }} catch (_requestError) {{
+                  window.alert('Falha de rede ao salvar o perfil.');
+                }} finally {{
+                  if (window.soomeiLoader && window.soomeiLoader.hide) window.soomeiLoader.hide();
+                }}
+              }}, 0);
             }});
           }}
           var togglePwd = document.getElementById('togglePassword');
@@ -1180,26 +1347,37 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       <script>
       (function(){{
         var MAX_UPLOAD = {MAX_UPLOAD_BYTES};
+        window.soomeiImagePayloads = window.soomeiImagePayloads || {{
+          photo: '',
+          cover: '',
+          portfolio: {{}}
+        }};
         var input = document.getElementById('photoInput');
         if (input) {{
           var img = document.getElementById('avatarImg');
+          var photoDataInput = document.getElementById('photoDataUrl');
           input.addEventListener('change', function(){{
             var f = input.files && input.files[0];
             if (!f) return;
             var ok = /^(image\/jpeg|image\/png)$/i.test((f.type || ''));
             if (!ok) {{ alert('Formato de imagem nao suportado (use JPEG ou PNG)'); input.value=''; return; }}
             if (f.size > MAX_UPLOAD) {{ alert('Imagem excede 2MB. Escolha uma foto menor.'); input.value=''; return; }}
-            var url = URL.createObjectURL(f);
-            if (img) {{
-              img.src = url;
-            }}
+            var reader = new FileReader();
+            reader.onload = function(evt){{
+              var dataUrl = (evt && evt.target && evt.target.result) ? evt.target.result : '';
+              if (photoDataInput) photoDataInput.value = dataUrl;
+              window.soomeiImagePayloads.photo = dataUrl;
+              if (img && dataUrl) img.src = dataUrl;
+            }};
+            reader.readAsDataURL(f);
           }});
         }}
         var coverInput = document.getElementById('coverInput');
         if (coverInput) {{
           var coverImg = document.getElementById('coverImg');
-          var coverPlaceholder = document.getElementById('coverPlaceholder');
-          var coverRemoveFlag = document.getElementById('coverRemoveFlag');
+              var coverPlaceholder = document.getElementById('coverPlaceholder');
+              var coverRemoveFlag = document.getElementById('coverRemoveFlag');
+              var coverDataInput = document.getElementById('coverDataUrl');
           coverInput.addEventListener('change', function(){{
             var f = coverInput.files && coverInput.files[0];
             if (!f) return;
@@ -1215,6 +1393,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               if (coverPlaceholder && coverImg && coverImg.src) {{
                 coverPlaceholder.style.display = 'none';
               }}
+              if (coverDataInput) coverDataInput.value = coverImg ? coverImg.src : '';
+              window.soomeiImagePayloads.cover = coverImg ? coverImg.src : '';
               if (coverRemoveFlag) coverRemoveFlag.value = '0';
             }};
             reader.readAsDataURL(f);
@@ -1226,6 +1406,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               if (coverImg) {{ coverImg.src = ''; coverImg.style.display = 'none'; }}
               if (coverPlaceholder) {{ coverPlaceholder.style.display = 'block'; }}
               if (coverRemoveFlag) {{ coverRemoveFlag.value = '1'; }}
+              if (coverDataInput) {{ coverDataInput.value = ''; }}
+              window.soomeiImagePayloads.cover = '';
               if (coverInput) coverInput.value = '';
             }});
           }}
@@ -1477,13 +1659,42 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       {portfolio_script_block}
     </main></body></html>
     """
-    response = HTMLResponse(_apply_brand_footer(html_form, footer_action_html))
+    response = HTMLResponse(
+        _apply_brand_footer(html_form, footer_action_html),
+        headers={"Cache-Control": "no-store"},
+    )
     csrf.set_csrf_cookie(response, csrf_token_value)
     if saved_cookie:
         response.delete_cookie("flash_edit_saved", path="/edit")
     if pwd_cookie:
         response.delete_cookie("flash_edit_pwd", path="/edit")
     return response
+
+
+@router.post("/{slug}/photo")
+async def save_profile_photo(slug: str, request: Request):
+    _db, uid, card = find_card_by_slug(slug)
+    if not card:
+        raise HTTPException(404, "Cartao nao encontrado")
+    owner = card.get("user", "")
+    if current_user_email(request) != owner:
+        raise HTTPException(403, "Nao autorizado")
+    csrf.validate_csrf(request, None)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(400, "Dados da foto invalidos.") from exc
+    data, _content_type = _decode_image_data_url(
+        str(payload.get("data_url") or ""),
+        str(payload.get("content_type") or ""),
+    )
+    photo_url = await asyncio.to_thread(_save_resized_image, data, f"{uid}.jpg", (800, 800))
+    prof = _sql_repo.get_profile(owner) or {}
+    prof["photo_url"] = photo_url
+    _sql_repo.upsert_profile(owner, prof)
+    return JSONResponse({"ok": True, "photo_url": photo_url})
+
+
 @router.post("/{slug}")
 async def save_edit(slug: str, request: Request, full_name: str = Form(""), title: str = Form(""),
                 whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
@@ -1510,6 +1721,12 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 portfolio_remove3: str = Form("0"),
                 portfolio_remove4: str = Form("0"),
                 portfolio_remove5: str = Form("0"),
+                cover_data_url: str = Form(""),
+                portfolio_data_url1: str = Form(""),
+                portfolio_data_url2: str = Form(""),
+                portfolio_data_url3: str = Form(""),
+                portfolio_data_url4: str = Form(""),
+                portfolio_data_url5: str = Form(""),
                 photo: UploadFile | None = File(None),
                 cover: UploadFile | None = File(None),
                 portfolio1: UploadFile | None = File(None),
@@ -1517,6 +1734,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 portfolio3: UploadFile | None = File(None),
                 portfolio4: UploadFile | None = File(None),
                 portfolio5: UploadFile | None = File(None),
+                photo_data_url: str = Form(""),
                 csrf_token: str = Form("")):
     db, uid, card = find_card_by_slug(slug)
     if not card:
@@ -1529,11 +1747,89 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     def redirect_error(msg: str):
         return RedirectResponse(f"/edit/{slug}?error={urlparse.quote_plus(msg)}", status_code=303)
     prof = _sql_repo.get_profile(owner) or {}
+    required_name = (full_name or "").strip()
+    required_title = (title or "").strip()
+    required_whatsapp = sanitize_phone(whatsapp)
+    required_email = (email_public or "").strip()
+    photo_data_url_value = photo_data_url.strip() if isinstance(photo_data_url, str) else ""
+    cover_data_url_value = cover_data_url.strip() if isinstance(cover_data_url, str) else ""
+    portfolio_data_url_values = [
+        value.strip() if isinstance(value, str) else ""
+        for value in (
+            portfolio_data_url1,
+            portfolio_data_url2,
+            portfolio_data_url3,
+            portfolio_data_url4,
+            portfolio_data_url5,
+        )
+    ]
+    if not any((required_name, required_title, required_whatsapp, required_email, photo_data_url_value, cover_data_url_value, *portfolio_data_url_values)):
+        try:
+            raw_form = await request.form()
+        except Exception:
+            raw_form = {}
+        if raw_form:
+            required_name = str(raw_form.get("full_name") or "").strip()
+            required_title = str(raw_form.get("title") or "").strip()
+            required_whatsapp = sanitize_phone(str(raw_form.get("whatsapp") or ""))
+            required_email = str(raw_form.get("email_public") or "").strip()
+            photo_data_url_value = str(raw_form.get("photo_data_url") or "").strip()
+            cover_data_url_value = str(raw_form.get("cover_data_url") or "").strip()
+            portfolio_data_url_values = [
+                str(raw_form.get(f"portfolio_data_url{idx}") or "").strip()
+                for idx in range(1, 6)
+            ]
+    photo_only_submission = bool(
+        photo
+        and photo.filename
+        and not any((required_name, required_title, required_whatsapp, required_email))
+    )
+    if photo_only_submission:
+        ct = (photo.content_type or "").lower()
+        if ct not in ALLOWED_IMAGE_TYPES:
+            return redirect_error("Formato de imagem nao suportado (use JPEG ou PNG).")
+        data = await photo.read()
+        if not data:
+            return redirect_error("Imagem vazia.")
+        if len(data) > MAX_UPLOAD_BYTES:
+            return redirect_error("Imagem excede 2MB.")
+        if not _has_valid_signature(data, ct):
+            return redirect_error("Arquivo de imagem invalido.")
+        prof["photo_url"] = await asyncio.to_thread(
+            _save_resized_image,
+            data,
+            f"{uid}.jpg",
+            (800, 800),
+        )
+        _sql_repo.upsert_profile(owner, prof)
+        return RedirectResponse(f"/{slug}", status_code=303)
+    if photo_data_url_value:
+        try:
+            data, _content_type = _decode_image_data_url(photo_data_url_value)
+        except HTTPException as exc:
+            return redirect_error(str(exc.detail))
+        prof["photo_url"] = await asyncio.to_thread(
+            _save_resized_image,
+            data,
+            f"{uid}.jpg",
+            (800, 800),
+        )
+        _sql_repo.upsert_profile(owner, prof)
+        if not required_name or not required_title or not (required_whatsapp or required_email):
+            if profile_complete(prof):
+                return RedirectResponse(f"/{slug}", status_code=303)
+    if not required_name or not required_title or not (required_whatsapp or required_email):
+        if profile_complete(prof):
+            return RedirectResponse(f"/{slug}", status_code=303)
+        return redirect_error(
+            "Envio incompleto: informe nome, cargo e pelo menos um contato. "
+            "O perfil anterior foi preservado."
+        )
     prof.update({
-        "full_name": full_name.strip(),
-        "title": title.strip(),
-        "whatsapp": sanitize_phone(whatsapp),
-        "email_public": email_public.strip(),
+        "full_name": required_name,
+        "title": required_title,
+        "whatsapp": required_whatsapp,
+        "email_public": required_email,
         "site_url": (site_url or "").strip(),
         "address": (address or "").strip(),
         "google_review_url": (google_review_url or "").strip(),
@@ -1570,7 +1866,6 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     portfolio_slots = [(p or "").strip() for p in existing_portfolio[:5]]
     while len(portfolio_slots) < 5:
         portfolio_slots.append("")
-    allowed_types = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
     remove_flags = [
         (portfolio_remove1 or "").strip(),
         (portfolio_remove2 or "").strip(),
@@ -1585,10 +1880,22 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     portfolio_tasks: list[tuple[int, asyncio.Task]] = []
     safe_uid = re.sub(r"[^A-Za-z0-9_-]+", "", uid)
     uid_dir = safe_uid or uid
+    for idx, data_url_value in enumerate(portfolio_data_url_values):
+        if data_url_value:
+            try:
+                data, _content_type = _decode_image_data_url(data_url_value)
+            except HTTPException as exc:
+                return redirect_error(str(exc.detail))
+            task = asyncio.create_task(
+                asyncio.to_thread(_save_resized_image, data, f"{uid_dir}/portfolio_{idx+1}.jpg", (1600, 900))
+            )
+            portfolio_tasks.append((idx, task))
     for idx, file_obj in enumerate(portfolio_files):
         if file_obj and file_obj.filename:
+            if portfolio_data_url_values[idx]:
+                continue
             ct = (file_obj.content_type or "").lower()
-            if ct not in allowed_types:
+            if ct not in ALLOWED_IMAGE_TYPES:
                 return redirect_error("Formato de imagem nao suportado (use JPEG ou PNG).")
             data = await file_obj.read()
             if not data:
@@ -1630,7 +1937,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         pwd_changed = True
     if photo and photo.filename:
         ct = (photo.content_type or "").lower()
-        if ct not in allowed_types:
+        if ct not in ALLOWED_IMAGE_TYPES:
             return redirect_error("Formato de imagem nao suportado (use JPEG ou PNG).")
         data = await photo.read()
         if not data:
@@ -1642,9 +1949,15 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         prof["photo_url"] = await asyncio.to_thread(_save_resized_image, data, f"{uid}.jpg", (800, 800))
     if (cover_remove or "").strip() == "1":
         prof["cover_url"] = ""
+    elif cover_data_url_value:
+        try:
+            data, _content_type = _decode_image_data_url(cover_data_url_value)
+        except HTTPException as exc:
+            return redirect_error(str(exc.detail))
+        prof["cover_url"] = await asyncio.to_thread(_save_resized_image, data, f"{uid}_cover.jpg", (1600, 900))
     elif cover and cover.filename:
         ct = (cover.content_type or "").lower()
-        if ct not in allowed_types:
+        if ct not in ALLOWED_IMAGE_TYPES:
             return redirect_error("Formato de imagem nao suportado (use JPEG ou PNG).")
         data = await cover.read()
         if not data:
