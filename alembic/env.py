@@ -18,7 +18,10 @@ database_url = (settings.database_url or "").strip()
 if not database_url:
     raise RuntimeError("DATABASE_URL must be configured to run Alembic migrations.")
 
-config.set_main_option("sqlalchemy.url", database_url)
+# Alembic stores this option in a ConfigParser, where ``%`` enables
+# interpolation. URL-encoded credentials (for example, ``%40`` for ``@``)
+# therefore need their percent signs escaped before being assigned.
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 
