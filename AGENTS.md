@@ -59,7 +59,7 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
   - Usuários: listar; indica se é admin (pela allowlist) e status de verificação de e-mail.
 - UI: Pico.css via CDN para rapidez; pode evoluir para Tailwind + DaisyUI.
 - Execução Local (Admin):
-  - `uvicorn api.admin_app:app --reload --port 8001`
+  - `uvicorn api.admin_app:create_admin_app --reload --port 8001`
 - Produção (Admin):
   - Variáveis: `ADMIN_HOST=adm.seu-dominio`, `ADMIN_EMAILS=email1,email2`.
   - Cookies: ativar `Secure` atrás de HTTPS/reverse-proxy.
@@ -85,8 +85,8 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
   - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`
   - `Referrer-Policy: no-referrer-when-downgrade`
   - `Strict-Transport-Security` (via proxy)
-- Rate limiting: `api.core.rate_limiter.rate_limit_ip` cobre slug-check/update, login/register/forgot e custom-domain; falta proteger `/auth/verify`/reenvios e `/login` do admin. Além disso, o limiter atual é in-memory por processo e não escala para múltiplos workers/instâncias.
-- Admin: `api.admin_app` ainda não reutiliza o middleware de headers de segurança da app pública e mantém `GET /logout`; antes de produção, preferir POST + CSRF e alinhar CSP/XFO/HSTS entre apps.
+- Rate limiting: `api.core.rate_limiter.rate_limit_ip` já cobre slug-check/update, login/register/forgot, `/auth/verify`, reenvios, custom-domain e `/login` do admin. O gap remanescente é operacional: o limiter continua in-memory por processo e não escala para múltiplos workers/instâncias.
+- Admin: `api.admin_app` já reutiliza o middleware compartilhado de headers de segurança e expõe `POST /logout` com CSRF. Antes de produção mais séria, faltam 2FA/TOTP, trilha de auditoria e rate limit distribuído.
 - Auditoria/Observabilidade: Sentry/OTel para erros; logs estruturados com correlação (request-id) ainda pendentes.
 - Segredos: variáveis de ambiente/secret manager. Nunca commitar chaves (KV/Queue IDs reais).
 
@@ -97,13 +97,13 @@ Rotas estáveis (não quebrar sem migração): `/onboard/*`, `/auth/*`, `/u/*`, 
   - CDN para assets estáticos (`web/`)
   - ETag/Last-Modified nas páginas estáticas simples
   - Worker: considerar caches curtíssimos para redirects `/{uid}` quando `vanity` estável (invalidação por evento)
-- Banco: além de PK/unique do ORM, faltam índices explícitos para consultas frequentes (`cards.owner_email`, `cards.status`, `sessions.expires_at`, `verify_tokens.email`, `reset_tokens.email`, `custom_domains.card_uid`). Hoje há filtragem em memória em partes do admin e das checagens de domínio.
+- Banco: além de PK/unique do ORM, já existem índices explícitos para consultas frequentes (`cards.owner_email`, `cards.status`, `sessions.expires_at`, `verify_tokens.email`, `reset_tokens.email`, `custom_domains.card_uid`) no ORM e no baseline do Alembic. Dashboard/admin/domínios críticos já usam paginação/filtros SQL em vez de full scan em memória.
 - Métricas: `metrics_views` é incrementado de forma síncrona a cada visita; para volume real, mover coleta para fila/eventos e agregar de forma assíncrona.
 - Não bloquear loop: operações pesadas (QR, vCard com foto, imagem) ainda acontecem durante requests; o fluxo de upload já usa `asyncio.to_thread` em `card_edit`, mas a geração pública continua síncrona e deve ser cacheada/precomputada quando houver tráfego maior.
-- Estado atual crítico: `sync_card_from_json` ainda é chamado em caminhos de leitura de `cards`/`card_edit`; como o helper persiste no SQL, isso gera write amplification e atualiza `updated_at` em acessos públicos.
+- Estado atual crítico: `sync_card_from_json` foi removido dos caminhos de leitura públicos e de edição; o helper fica restrito a import/backfill legado.
 
 ## Dados e Evolução para Produção
-- Fonte de dados: Postgres (`users`, `cards`, `profiles`, `sessions`, `sessions_admin`, `verify_tokens`, `reset_tokens`, `custom_domains`) via `api.db.models`/`create_tables`. Alembic/migrations versionadas ainda pendentes.
+- Fonte de dados: Postgres (`users`, `cards`, `profiles`, `sessions`, `sessions_admin`, `verify_tokens`, `reset_tokens`, `custom_domains`) via `api.db.models`/`create_tables`, com baseline versionado em `alembic/` (`20260505_0001`). Próximas mudanças de schema devem seguir migration incremental, não `create_all()` ad-hoc.
 - `db/schema.sql` está defasado e não representa o runtime atual; não tratar esse arquivo como fonte de verdade até ser reescrito ou substituído por migrations versionadas.
 - Import legado: `api/data.json` pode ser carregado via `python scripts/migrate_to_postgres.py`; não é usado em runtime.
 - Edge/read model: falta uma projeção oficial Postgres → Cloudflare KV (`CARDS`) para manter o Worker consistente com slug/status/dono.
@@ -124,21 +124,26 @@ python -m venv .venv
 .\.venv\Scripts\activate  # Windows
 pip install -r api\requirements.txt
 ```
-2) API:
+2) Banco/migrations:
+```
+set DATABASE_URL=postgresql+psycopg://usuario:senha@localhost:5432/soomei
+alembic upgrade head
+```
+3) API:
 ```
 set PUBLIC_BASE_URL=http://localhost:8000
-uvicorn api.app:app --reload --port 8000
+uvicorn api.app:create_app --reload --port 8000
 ```
-2.1) Admin:
+3.1) Admin:
 ```
-uvicorn api.admin_app:app --reload --port 8001
+uvicorn api.admin_app:create_admin_app --reload --port 8001
 ```
-3) Worker (opcional):
+4) Worker (opcional):
 ```
 cd cloudflare
 wrangler dev --var API_BASE=http://localhost:8000
 ```
-4) Scripts:
+5) Scripts:
 ```
 python scripts\add_card.py --uid abc123
 python scripts\reset_card.py --uid abc123
@@ -164,14 +169,15 @@ Notas de Segurança do Admin
 - [x] E-mail verificado requerido no login do admin.
 - [x] CSRF obrigatório em POSTs do admin + validação de origem via `ADMIN_HOST`.
 - [x] Cookie `Secure` e `SameSite=Strict` (o `admin_session` sempre usa HttpOnly+SameSite=Strict e liga `Secure` quando `ADMIN_COOKIE_SECURE=1` ou `APP_ENV=prod`).
-- [ ] Rate limit em `/login` do admin.
+- [x] Rate limit em `/login` do admin.
 - [ ] 2FA (TOTP) para contas admin (futuro).
 
 Checklist de Segurança em Produção
 - [x] HTTPS forçado (HSTS via proxy) — o middleware de segurança injeta `Strict-Transport-Security` automaticamente quando `APP_ENV=prod`; basta manter o app atrás de HTTPS real/proxy.
 - [x] Cookies `Secure; HttpOnly; SameSite=Lax`/`Strict` (cookies de sessão/admin já aplicam `HttpOnly` + `SameSite=Strict` e habilitam `Secure` quando `APP_ENV=prod`; o cookie de CSRF segue exposto por design).
 - [x] CSRF em endpoints state-changing (FastAPI usa `api.core.csrf` com cookie + header e validação de origem).
-- [ ] Rate limiting completo (login/register/forgot e slug/custom-domain já limitados; falta `/auth/verify`, reenvios e `/login` do admin).
+- [x] Rate limiting funcional nos endpoints críticos do público e no `/login` do admin.
+- [ ] Rate limiting distribuído/centralizado para múltiplas instâncias.
 - [x] CSP e cabeçalhos de segurança ativos (middleware injeta CSP opinativa + XFO, X-Content-Type-Options, Referrer-Policy; HSTS quando `APP_ENV=prod`).
 - [x] Limites de upload e validação de arquivo (fluxo `/edit/{slug}` agora limita a 2MB e valida assinatura JPEG/PNG antes de salvar).
 - [x] Hash de senha com argon2/bcrypt (`api.core.security` usa Argon2id).
@@ -203,38 +209,43 @@ Checklist de Segurança em Produção
 
 ### Modularizacao e estado atual
 - Dados/adapters:
-  - Postgres em `api.db` (`session.py`, `models.py`, `create_tables.py`). `SQLRepository` cobre CRUD de usuarios/cards/perfis/tokens/sessoes/dominios; `sync_card_from_json` ficou so para import/backfill (rotas `cards`/`card_edit` ainda chamam, mas a fonte e o SQL).
+  - Postgres em `api.db` (`session.py`, `models.py`, `create_tables.py`). `SQLRepository` cobre CRUD de usuarios/cards/perfis/tokens/sessoes/dominios, mais buscas paginadas/agrupamentos para admin (`search_cards`, `search_users`, `dashboard_card_counts`, `top_cards_by_views`, `list_cards_with_custom_domains`).
+  - `sync_card_from_json` ficou restrito a import/backfill legado; as rotas públicas e de edição não persistem mais durante leitura/render.
 - Dominio/Servicos:
   - `api.domain.slugs` segue com regras/reservados; `api.services.slug_service` usa apenas o repositorio SQL.
   - `api.services.card_service` resolve cards direto no banco; helpers de sync so para legado.
   - `api.services.session_service` usa tabela `sessions`; `api.services.auth_service` usa Postgres para registro/login/verificacao/reset.
-  - `api.services.custom_domain_service`/`domain_service` consultam somente SQL (`custom_domains` + meta JSON no card).
-- Core cross-cutting: `api.core.config`, `security` (argon2), `csrf`, `rate_limiter`, `mailer` e `utils`.
+  - `api.services.custom_domain_service`/`domain_service` consultam somente SQL (`custom_domains` + meta JSON no card), inclusive checagem de conflito sem full scan em memória.
+- Core cross-cutting: `api.core.config`, `security` (argon2), `csrf`, `rate_limiter`, `http_security`, `mailer` e `utils`.
 - Routers FastAPI:
-  - `auth`, `slug`, `custom_domain`, `pages`, `hooks`, `card_edit` e `cards` operam sobre Postgres (sem fallback JSON); `cards`/`card_edit` ainda chamam `sync_card_from_json` em caminhos de leitura e precisam parar de fazer persistência durante GET/render.
-  - `card_edit.py` e `cards.py` mantêm duplicação relevante de fluxo `/edit`, upload, HTML e custom-domain; antes de crescer novas features, consolidar em um único módulo/use-case.
-  - Há colisões de rota que hoje funcionam por ordem de inclusão, não por desenho explícito: `POST /auth/register` aparece em `pages.py` e `auth.py`; `/edit/{slug}` está implementado em dois routers.
+  - `auth`, `slug`, `custom_domain`, `pages`, `hooks`, `card_edit` e `cards` operam sobre Postgres (sem fallback JSON).
+  - O fluxo de edição público agora vive apenas em `api/routers/card_edit.py`; `cards.py` ficou concentrado nas rotas públicas/QR/vCard/host customizado.
+  - As colisões de rota foram removidas: `POST /auth/register` existe apenas em `auth.py`, e `GET/POST /edit/{slug}` existe apenas em `card_edit.py`.
   - Inicializacao: `api.app:create_app()` e `api.admin_app:create_admin_app()`; `api.app_factory` expoe ambos (`public_app`, `admin_app`). Uvicorn: `uvicorn api.app:create_app` (publico) e `uvicorn api.admin_app:create_admin_app` (admin).
-  - `api.admin_app.py` usa `SQLRepository` para login/sessoes admin, dashboard, CRUD/reset de cartoes, dominios e usuarios.
+  - `api.admin_app.py` usa `SQLRepository` para login/sessoes admin, dashboard, CRUD/reset de cartoes, dominios e usuarios, com paginação/filtros SQL e middleware de segurança compartilhado.
   - Scripts `scripts/add_card.py` e `scripts/reset_card.py` operam no Postgres; `scripts/migrate_to_postgres.py` e utilitario unico para importar JSON legado.
 
-### Lacunas confirmadas na auditoria (2026-05-04)
-1. **Writes em leitura**:
-   - `api/routers/cards.py` e `api/routers/card_edit.py` ainda chamam `SQLRepository.sync_card_from_json` ao carregar cartão. Como o helper faz `commit`, cada visita pública pode virar escrita no banco.
-2. **Fonte de verdade duplicada no edge**:
-   - O Worker usa KV `CARDS`, mas não existe rotina oficial que publique no KV as mudanças feitas no Postgres (ativação, bloqueio, reset, slug, owner, domínio).
-3. **Escalabilidade limitada por full scan**:
-   - Admin, checagens de custom-domain e fallback de lookup por host ainda carregam cartões em memória e filtram em Python. Isso não sustenta crescimento de base.
-4. **Sobreposição de rotas e código duplicado**:
-   - `cards.py` e `card_edit.py` repetem HTML/JS/upload; `pages.py` registra rota duplicada para `/auth/register`. Isso aumenta risco de regressão e comportamento implícito.
-5. **Prontidão operacional incompleta**:
-   - Sem Alembic, health/readyz, logs estruturados, CI de PR, Dockerfile, deploy do Worker no pipeline e cobertura de testes para rotas críticas.
-6. **Documentação defasada**:
-   - `README.md`, `CHANGELOG.md` e `db/schema.sql` não refletem integralmente o runtime atual e precisam ser tratados como backlog de documentação/infra.
+### Status da fase 1 (2026-05-05)
+1. **Writes em leitura removidos**:
+   - `cards.py` e `card_edit.py` não chamam mais `sync_card_from_json` durante GET/render.
+2. **Rotas duplicadas eliminadas**:
+   - `POST /auth/register` ficou apenas em `auth.py`; `GET/POST /edit/{slug}` ficou apenas em `card_edit.py`.
+3. **Consultas críticas migradas para SQL**:
+   - Dashboard/admin/listagens/domínios usam paginação, filtros e agregações em SQL; lookup e conflito de domínio deixaram de depender de full scan em memória.
+4. **Segurança operacional reforçada**:
+   - `/auth/verify`, reenvios e `/login` do admin passaram a usar rate limit; o admin agora usa middleware compartilhado de headers e `POST /logout` com CSRF.
+5. **Migrations e índices versionados**:
+   - Baseline Alembic em `alembic/versions/20260505_0001_baseline_schema.py`, com índices para os campos mais consultados.
+6. **Front consolidado no básico**:
+   - Onboarding, login, slug select, confirmação de e-mail e edição passaram a reutilizar CSS compartilhado em `web/card.css`; `templates/base.html` usa `css_href` fingerprintado.
+7. **Backlog real remanescente**:
+   - Worker/KV ainda sem sincronização Postgres → edge.
+   - Sem `healthz`/`readyz`, logs estruturados, auditoria, CI de PR e deploy do Worker no pipeline.
+   - `README.md`, `CHANGELOG.md` e `db/schema.sql` seguem defasados em relação ao runtime.
 
 ### Proximas etapas
-1. **Corrigir inconsistencias de runtime**: remover `sync_card_from_json` de leituras, eliminar rotas duplicadas, unificar `card_edit.py`/`cards.py` no fluxo de edição e revisar `db/schema.sql`/docs para o estado real.
-2. **Fechar o loop Postgres → edge**: criar projeção/sincronização de `cards` para KV `CARDS` a cada mutação relevante (create, activate, block, reset, slug, custom-domain) e definir estratégia de invalidação/cache no Worker.
-3. **Escalar consultas e dados**: Alembic/migrations versionadas, índices reais, paginação e filtros SQL no admin, remoção de full scans em domínio customizado, quotas/limpeza para uploads e desenho de métricas assíncronas.
-4. **Segurança e operação**: rate limit distribuído para auth/admin, auditoria mínima (login, reset/bloqueio, custom-domain), 2FA/TOTP no admin, headers de segurança também no admin, logout via POST, logging estruturado com request-id, health/readyz e métricas.
-5. **Pipeline/infra**: CI com lint+pytest, ambiente dev reproduzível, Docker hardening (usuário não-root, FS read-only, healthcheck), deploy automatizado com migrations + Worker e secrets via secret manager.
+1. **Fechar o loop Postgres → edge**: criar projeção/sincronização de `cards` para KV `CARDS` a cada mutação relevante (create, activate, block, reset, slug, custom-domain) e definir estratégia de invalidação/cache no Worker.
+2. **Observabilidade e operação**: adicionar `healthz`/`readyz`, logs estruturados com request-id, auditoria mínima (login, reset/bloqueio, custom-domain) e métricas.
+3. **Segurança de produção**: trocar o rate limit in-memory por backend distribuído, evoluir admin para 2FA/TOTP e revisar quotas/limpeza de uploads.
+4. **Pipeline/infra**: CI com lint+pytest, ambiente dev reproduzível, Docker hardening (usuário não-root, FS read-only, healthcheck), deploy automatizado com migrations + Worker e secrets via secret manager.
+5. **Documentação/infra legada**: alinhar `README.md`, `CHANGELOG.md` e `db/schema.sql` ao runtime real ou aposentá-los em favor de migrations/documentação nova.

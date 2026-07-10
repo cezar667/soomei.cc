@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Confirmar PIN{% endblock %}
+{% block content %}
+  <section class="card card-public carbon card-center">
+    <h1>Confirmar PIN</h1>
+    <p>Informe o PIN da sua carta para continuar a ativacao.</p>
+    {% if error %}
+      <p class="banner bad">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/onboard/{{ uid }}/pin" class="grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>PIN</label>
+      <input name="pin" type="password" inputmode="numeric" pattern="[0-9]*" required>
+      <button class="btn">Continuar</button>
+    </form>
+    <p class="muted stack-top-sm">Nao sabe o PIN? Ele esta impresso na carta/etiqueta do cartao.</p>
+  </section>
+{% endblock %}

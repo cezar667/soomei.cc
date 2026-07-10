@@ -1,33 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Ativar cartao{% endblock %}
 {% block content %}
-  <style>
-    .terms-row{display:flex;align-items:center;gap:8px;margin:10px 0 0}
-    .terms-label{display:flex;align-items:center;gap:10px}
-    .terms-row input[type=checkbox]{margin:0}
-    .terms-link{color:#8ab4f8;text-decoration:none;font-weight:600}
-    .terms-text{line-height:1.2}
-    .onboard-cta{margin-top:18px}
-    .hint{font-size:12px;margin:4px 0 0}
-    .ok{color:#7bd88f}
-    .bad{color:#f88}
-    .nice-check{appearance:none;-webkit-appearance:none;width:18px;height:18px;border:2px solid #8ab4f8;border-radius:4px;background:#0b0b0c;display:inline-block;position:relative;cursor:pointer}
-    .nice-check:focus-visible{outline:2px solid #8ab4f8;outline-offset:2px}
-    .nice-check:checked{background:#8ab4f8;border-color:#8ab4f8}
-    .nice-check:checked::after{content:'';position:absolute;left:4px;top:1px;width:5px;height:10px;border:2px solid #0b0b0c;border-top:0;border-left:0;transform:rotate(45deg)}
-    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000;padding:12px}
-    .modal-backdrop.show{display:flex}
-    .modal{background:#111114;border:1px solid #242427;border-radius:12px;max-width:840px;width:92%;max-height:85vh;overflow:auto;padding:12px}
-    .modal header{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}
-    .modal header h2{margin:0;font-size:18px;color:#eaeaea}
-    .modal .close{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-    .modal iframe{width:100%;height:70vh;border:0;background:#0b0b0c}
-    .legal{line-height:1.5;margin-bottom:10px}
-    .legal ol{padding-left:20px}
-    .loading-overlay{position:fixed;inset:0;background:rgba(11,11,12,.8);display:none;align-items:center;justify-content:center;z-index:2000}
-    .loading-overlay.show{display:flex}
-    .loading-spinner{width:96px;height:96px;object-fit:contain;pointer-events:none}
-  </style>
   <div class="loading-overlay" id="onboardLoading" aria-hidden="true" role="status" aria-live="polite" aria-label="Processando">
     <img src="/static/img/soomei_loading.gif" alt="Processando..." class="loading-spinner">
   </div>
@@ -37,7 +10,7 @@
     {% if error and error|trim %}
     <div id="formAlert" class="banner" role="alert" aria-live="polite">{{ error }}</div>
     {% else %}
-    <div id="formAlert" class="banner" role="alert" aria-live="polite" style="display:none"></div>
+    <div id="formAlert" class="banner hidden" role="alert" aria-live="polite"></div>
     {% endif %}
     <form id="onbForm" method="post" action="/auth/register">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -51,7 +24,7 @@
       <label for="passwordInput">Nova senha</label>
       <input id="passwordInput" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="Minimo de 8 caracteres">
       <label for="vanityInput">Link do seu cartao (opcional)</label>
-      <input id="vanityInput" name="vanity" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" value="{{ vanity }}" autocapitalize="none" autocorrect="off" inputmode="url" style="text-transform:lowercase">
+      <input id="vanityInput" name="vanity" class="input-lower" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" value="{{ vanity }}" autocapitalize="none" autocorrect="off" inputmode="url">
       <div id="slugMsg" class="hint">Use 3-30 caracteres, todos minusculos, sem caracteres especiais</div>
       <div class="terms-row">
         <label class="terms-label">
@@ -63,7 +36,7 @@
     </form>
   </section>
   <div id="termsBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal">
+    <div class="modal modal--wide">
       <header>
         <h2>Termos de Uso e Privacidade</h2>
         <button class="close" id="closeTerms" aria-label="Fechar" title="Fechar">&#10005;</button>
@@ -74,7 +47,7 @@
   {% set welcome_class = 'modal-backdrop show' if show_welcome else 'modal-backdrop' %}
   {% set welcome_aria = 'false' if show_welcome else 'true' %}
   <div id="welcomeBackdrop" class="{{ welcome_class }}" role="dialog" aria-modal="true" aria-hidden="{{ welcome_aria }}">
-    <div class="modal">
+    <div class="modal modal--wide">
       <header>
         <h2>Bem-vindo(a) a Soomei</h2>
         <button class="close" id="closeWelcome" aria-label="Fechar" title="Fechar">&#10005;</button>
@@ -90,7 +63,7 @@
         </ol>
         <p class="muted">Dica: mantenha seu PIN em sigilo. Se tiver duvidas, fale com o suporte.</p>
       </div>
-      <div style="text-align:right;margin-top:10px">
+      <div class="align-right stack-top-sm">
         <a href="#" class="btn" id="startWelcome">Vamos comecar</a>
       </div>
     </div>
@@ -169,7 +142,7 @@
             try{ e.preventDefault(); e.stopImmediatePropagation(); }catch(_e){}
             if(alertBox){
               alertBox.textContent = msg;
-              alertBox.style.display = 'block';
+              alertBox.classList.remove('hidden');
             }
             if(focusEl){
               try{ focusEl.focus(); }catch(_e){}
@@ -211,37 +184,6 @@
             });
         }, true);
       })();
-      var form = document.getElementById('onbForm');
-      if (form && emailEl && emailMsg){
-        form.addEventListener('submit', function(e){
-          if (form.dataset.submitting === '1'){ return; }
-          var v = (emailEl.value||'').trim();
-          if (!v) return;
-          e.preventDefault();
-          emailMsg.innerHTML = '';
-          var btn = form.querySelector('button');
-          if (btn) btn.disabled = true;
-          function allowSubmit(){
-            form.dataset.submitting = '1';
-            showLoading();
-            form.submit();
-          }
-          fetch('/auth/check_email?value='+encodeURIComponent(v))
-            .then(function(r){ return r.json(); })
-            .then(function(j){
-              if (j && j.available){ allowSubmit(); }
-              else {
-                setMsg(emailMsg, false, 'E-mail ja cadastrado');
-                if (btn) btn.disabled = false;
-                emailEl.focus();
-              }
-            })
-            .catch(function(){
-              if (btn) btn.disabled = false;
-              allowSubmit();
-            });
-        });
-      }
       if (slugEl && slugMsg){
         var t2;
         slugEl.addEventListener('input', function(){
@@ -272,16 +214,6 @@
           var vv = slugEl.value||'';
           var ll = vv.toLowerCase();
           if (vv!==ll) slugEl.value = ll;
-        });
-      }
-      var colorEl = document.getElementById('themeColor');
-      var prev = document.getElementById('colorPreview');
-      if (colorEl && prev){
-        colorEl.addEventListener('input', function(){
-          var c = (colorEl.value||'').trim();
-          if (/^#[0-9a-fA-F]{6}$/.test(c)){
-            prev.style.backgroundColor = c + '30';
-          }
         });
       }
     })();

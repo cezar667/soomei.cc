@@ -24,11 +24,6 @@
 {% block scripts %}
   <script>
     (function(){
-      // Styles (scoped) for feedback
-      var style = document.createElement('style');
-      style.textContent = '.hint{font-size:12px;margin:4px 0 0}.ok{color:#7bd88f}.bad{color:#f88}#slug.is-ok{border-color:#43a047;background:rgba(67,160,71,.09)}#slug.is-bad{border-color:#e53935;background:rgba(229,57,53,.08)} .tooltip-err{display:inline-block;background:#2a2211;border:1px solid #4d3b12;color:#e5c17a;padding:6px 8px;border-radius:8px;margin-top:4px} .slug-input-row{position:relative;display:flex;align-items:center;gap:8px} .icon-btn.icon-sm{width:26px;height:26px;font-size:14px} .info-tip{position:absolute;right:0;top:100%;margin-top:6px;display:none;max-width:320px;background:#111114;border:1px solid #242427;border-radius:8px;padding:8px 10px;color:#eaeaea;box-shadow:0 2px 8px rgba(0,0,0,.45);z-index:1000} .info-tip.show{display:block}';
-      document.head.appendChild(style);
-
       const el = document.getElementById('slug');
       const msg = document.getElementById('msg');
       if (!el || !msg) return;

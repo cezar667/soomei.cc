@@ -152,8 +152,6 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
-    if uid and card:
-        _sql_repo.sync_card_from_json(uid, card)
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:
@@ -363,72 +361,6 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
     <link rel='stylesheet' href='{CSS_HREF}'><title>Soomei - Editar</title>
-    <style>
-      .modal-backdrop{{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:1000}}
-      .modal-backdrop.show{{display:flex}}
-      .modal{{background:#111114;border:1px solid #242427;border-radius:12px;max-width:840px;width:92%;max-height:85vh;overflow:auto;padding:12px}}
-      .modal header{{display:flex;justify-content:space-between;align-items:center;margin:4px 6px 10px}}
-      .modal header h2{{margin:0;font-size:18px;color:#eaeaea}}
-      .modal .close{{background:#ffffff;color:#0b0b0c;border:1px solid #e5e7eb;border-radius:999px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}}
-      .modal iframe{{width:100%;height:70vh;border:0;background:#0b0b0c}}
-      .banner.bad{{background:#3a1717;border-color:#5c2323;color:#f5b8b8}}
-      .edit-sections{{display:flex;flex-direction:column;gap:18px;margin-top:12px}}
-      .edit-section{{background:#111114;border:1px solid #242427;border-radius:16px;padding:18px}}
-      .collapsible-head{{display:flex;flex-direction:row;align-items:flex-start;justify-content:space-between;gap:12px}}
-      .collapsible-head > div{{flex:1}}
-      .section-kicker{{text-transform:uppercase;font-size:11px;letter-spacing:.3px;color:#9aa0a6;margin:0 0 6px}}
-      .section-head{{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}}
-      .section-title{{margin:0;font-size:20px}}
-      .section-desc{{margin:0;font-size:13px;color:#9aa0a6}}
-      .collapsible-body{{margin-top:12px}}
-      .collapsible-body.is-collapsed{{display:none}}
-      .collapse-btn{{background:transparent;border:1px solid #2a2a2a;color:#eaeaea;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;cursor:pointer}}
-      .collapse-btn .collapse-icon{{transition:transform .2s}}
-      .collapse-btn.is-collapsed .collapse-icon{{transform:rotate(-90deg)}}
-      .section-grid{{display:grid;gap:14px}}
-      .section-grid.two-col{{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}}
-      .form-control{{display:flex;flex-direction:column;gap:6px}}
-      .form-control label{{font-weight:600;font-size:13px;color:#eaeaea}}
-      .form-control input{{border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea;padding:10px;border-radius:10px}}
-      .required-pill{{display:inline-flex;align-items:center;background:#2f1c1c;color:#f8baba;font-size:10px;text-transform:uppercase;letter-spacing:.3px;padding:1px 6px;border-radius:999px;margin-left:8px}}
-      .primary-required-hint{{font-size:12px;color:#9aa0a6;margin-top:6px}}
-      .primary-required-hint.is-error{{color:#f8baba}}
-      .btn[disabled]{{opacity:.55;cursor:not-allowed}}
-      .form-control.full{{grid-column:1 / -1}}
-      .visual-grid{{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}}
-      .cover-preview{{width:100%;height:150px;border:1px dashed #2a2a2a;border-radius:12px;background:#0f0f10;display:flex;align-items:center;justify-content:center;overflow:hidden}}
-      .cover-preview img{{width:100%;height:100%;object-fit:cover;display:block}}
-      .cover-placeholder{{color:#9aa0a6;font-size:13px;text-align:center}}
-      .cover-actions{{display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap}}
-      .cta-row{{display:flex;flex-direction:column;gap:16px}}
-      .cta-card{{border:1px solid #242427;border-radius:12px;padding:16px;background:#0f0f10}}
-      .cta-card h4{{margin:0 0 6px;font-size:15px}}
-      .cta-card p{{margin:0 0 10px;font-size:13px;color:#9aa0a6}}
-      .panel-actions{{display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
-      .links-grid-edit{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}}
-      .portfolio-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}}
-      .portfolio-slot{{border:1px solid #242427;border-radius:12px;padding:12px;background:#0f0f10;position:relative;overflow:hidden}}
-      .portfolio-thumb{{position:relative;border:1px dashed #2a2a2a;border-radius:10px;height:160px;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 20% 20%,rgba(255,255,255,.05),transparent 45%),radial-gradient(circle at 80% 0%,rgba(255,255,255,.04),transparent 30%),#0c0c0f;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}}
-      .portfolio-thumb.is-empty{{border-style:dashed}}
-      .portfolio-thumb img{{width:100%;height:100%;object-fit:cover;display:block}}
-      .portfolio-thumb .placeholder{{color:#7f8591;font-size:13px}}
-      .portfolio-thumb:hover{{transform:translateY(-3px);box-shadow:0 10px 26px rgba(0,0,0,.3);border-color:#2f77ff40}}
-      .thumb-glow{{position:absolute;inset:0;border-radius:10px;background:linear-gradient(120deg,rgba(255,255,255,.08),rgba(0,0,0,.02));mix-blend-mode:screen;pointer-events:none}}
-      .portfolio-actions{{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px}}
-      .portfolio-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}}
-      .portfolio-hint{{margin:0;color:#9aa0a6;font-size:12px}}
-      .portfolio-toggle-label{{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#9aa0a6}}
-      .password-fields{{margin-top:14px;display:grid;gap:12px}}
-      .password-fields.is-hidden{{display:none}}
-      .btn.ghost{{background:transparent;border:1px solid #2a2a2a;color:#eaeaea}}
-      .btn.primary{{background:#eaeaea;color:#0b0b0c;font-weight:600}}
-      .edit-actions{{position:sticky;bottom:0;padding:0;margin-top:24px;background:linear-gradient(180deg,rgba(11,11,12,0) 0%,rgba(11,11,12,.85) 30%,rgba(11,11,12,1) 70%)}}
-      .edit-actions-inner{{display:flex;gap:12px;padding:12px 0;border-top:1px solid #1f1f1f}}
-      .edit-actions-inner .btn{{flex:1;text-align:center}}
-      .loading-overlay{{position:fixed;inset:0;background:rgba(11,11,12,.8);display:none;align-items:center;justify-content:center;z-index:2000}}
-      .loading-overlay.show{{display:flex}}
-      .loading-spinner{{width:96px;height:96px;object-fit:contain;pointer-events:none}}
-    </style>
     </head>
     <body>
       <div class='loading-overlay' id='formLoading' aria-hidden='true' role='status' aria-live='polite' aria-label='Processando'>
@@ -1589,8 +1521,6 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
     db, uid, card = find_card_by_slug(slug)
     if not card:
         raise HTTPException(404, "Cartao nao encontrado")
-    if uid and card:
-        _sql_repo.sync_card_from_json(uid, card)
     owner = card.get("user", "")
     who = current_user_email(request)
     if who != owner:

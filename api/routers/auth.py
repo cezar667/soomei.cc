@@ -297,6 +297,7 @@ def do_login(request: Request, uid: str = Form(""), email: str = Form(...), pass
 
 @router.get("/verify")
 def verify_email(request: Request, token: str):
+    rate_limit_ip(request, "auth:verify", limit=10, window_seconds=300)
     try:
         result = auth_service.verify_email(token)
     except TokenInvalidError as exc:
@@ -398,6 +399,7 @@ def logout(request: Request, next: str = Form(None), csrf_token: str = Form(""))
 
 @router.post("/resend_verify")
 def resend_verify(request: Request, email: str = Form(""), csrf_token: str = Form("")):
+    rate_limit_ip(request, "auth:resend-verify", limit=5, window_seconds=300)
     csrf.validate_csrf(request, csrf_token)
     ok = auth_service.resend_verification(email)
     return {"ok": ok}
@@ -405,6 +407,7 @@ def resend_verify(request: Request, email: str = Form(""), csrf_token: str = For
 
 @router.post("/resend_verify_pending")
 def resend_verify_pending(request: Request, uid: str = Form(""), pin: str = Form(""), csrf_token: str = Form("")):
+    rate_limit_ip(request, "auth:resend-verify-pending", limit=5, window_seconds=300)
     csrf.validate_csrf(request, csrf_token)
     ok = auth_service.resend_verification_for_card(uid, pin)
     return {"ok": ok}
@@ -412,6 +415,7 @@ def resend_verify_pending(request: Request, uid: str = Form(""), pin: str = Form
 
 @router.post("/change_email_pending")
 def change_email_pending(request: Request, uid: str = Form(""), pin: str = Form(""), new_email: str = Form(""), csrf_token: str = Form("")):
+    rate_limit_ip(request, "auth:change-email-pending", limit=5, window_seconds=300)
     csrf.validate_csrf(request, csrf_token)
     updated, verify_path, reason = auth_service.change_pending_email(uid, pin, new_email)
     return {"ok": bool(updated), "email": updated or "", "verify_path": verify_path or "", "reason": reason or ""}

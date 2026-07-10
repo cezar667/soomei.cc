@@ -17,9 +17,8 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from starlette.middleware.base import BaseHTTPMiddleware
-
 from api.core.config import get_settings
+from api.core.http_security import SecurityHeadersMiddleware
 from api.routers import auth as auth_router
 from api.routers import card_edit as card_edit_router
 from api.routers import cards as cards_router
@@ -29,32 +28,6 @@ from api.routers import pages as pages_router
 from api.routers import slug as slug_router
 from api.services.slug_service import SlugService
 from api.services.card_display import configure_public_base
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Inject baseline security headers (CSP, anti clickjacking, referrer policy)."""
-
-    def __init__(self, app, *, enforce_hsts: bool) -> None:
-        super().__init__(app)
-        self._enforce_hsts = enforce_hsts
-
-    async def dispatch(self, request, call_next):
-        response = await call_next(request)
-        response.headers.setdefault(
-            "Content-Security-Policy",
-            "default-src 'self'; "
-            "img-src 'self' data:; "
-            "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://cdn.jsdelivr.net; "
-            "connect-src 'self' https://cloudflareinsights.com https://static.cloudflareinsights.com",
-        )
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("Referrer-Policy", "no-referrer-when-downgrade")
-        if self._enforce_hsts:
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-        return response
-
 
 app = FastAPI(title="Soomei Card API v2")
 
@@ -126,6 +99,7 @@ except Exception:
     _css_fp = "card.css"
 CSS_HREF = f"/static/{_css_fp}"
 app.state.css_href = CSS_HREF
+templates.env.globals["css_href"] = CSS_HREF
 cards_router.set_css_href(CSS_HREF)
 card_edit_router.set_css_href(CSS_HREF)
 app.state.templates = templates

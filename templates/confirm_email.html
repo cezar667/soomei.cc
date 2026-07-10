@@ -9,12 +9,12 @@
         <p class="muted">E-mail atual: <strong id="currentEmail">{{ email }}</strong></p>
       {% endif %}
       {% if app_env != "prod" and dev_verify_path %}
-        <p style="margin-top:10px"><a class="btn" id="devVerifyLink" href="{{ dev_verify_path }}">Confirmar e-mail agora (dev)</a></p>
+        <p class="confirm-dev"><a class="btn" id="devVerifyLink" href="{{ dev_verify_path }}">Confirmar e-mail agora (dev)</a></p>
       {% endif %}
       {% if uid %}
-      <div style="margin-top:12px">
+      <div class="stack-top-md">
         <button id="openPendingEmail" class="btn">Corrigir ou reenviar e-mail</button>
-        <div id="pendingEmailCard" class="card" style="margin-top:10px; display:none">
+        <div id="pendingEmailCard" class="card pending-email-card hidden">
           <h3>Corrigir e reenviar</h3>
           <form id="pendingEmailForm">
             <input type="hidden" name="uid" value="{{ uid }}">
@@ -22,11 +22,11 @@
             <input id="pendingNewEmail" type="email" name="new_email" required autocomplete="email">
             <label for="pendingPin">PIN da carta</label>
             <input id="pendingPin" type="password" name="pin" inputmode="numeric" pattern="[0-9]*" required autocomplete="one-time-code">
-            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
+            <div class="pending-email-actions">
               <button class="btn" type="submit">Corrigir e reenviar</button>
               <button class="secondary" type="button" id="resendPendingBtn">Reenviar para <span id="resendEmailLabel">{{ email }}</span></button>
             </div>
-            <p id="pendingEmailMsg" class="muted" style="margin-top:8px"></p>
+            <p id="pendingEmailMsg" class="muted pending-email-msg"></p>
           </form>
         </div>
       </div>
@@ -58,7 +58,7 @@
       if (openCard && card){
         openCard.addEventListener('click', function(e){
           e.preventDefault();
-          card.style.display = 'block';
+          card.classList.remove('hidden');
           openCard.setAttribute('aria-expanded','true');
           openCard.disabled = true;
         });
