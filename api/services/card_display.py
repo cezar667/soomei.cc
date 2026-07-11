@@ -31,6 +31,43 @@ DEFAULT_AVATAR = "/static/img/user01.png"
 
 FEATURED_DEFAULT_COLOR = "#FFB473"
 
+FEATURED_ICON_OPTIONS = {
+    "calendar": "Agenda",
+    "briefcase": "Projeto",
+    "star": "Destaque",
+    "play": "Conteúdo",
+    "link": "Link",
+    "gift": "Oferta",
+    "phone": "Contato",
+}
+
+_FEATURED_ICON_SVGS = {
+    "calendar": "<rect x='4' y='5' width='16' height='15' rx='3'></rect><path d='M8 3v4M16 3v4M4 10h16M8 14h.01M12 14h.01M16 14h.01'></path>",
+    "briefcase": "<rect x='3' y='7' width='18' height='13' rx='2'></rect><path d='M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M9 12v2h6v-2'></path>",
+    "star": "<path d='m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2 7.5 14 3 9.6l6.2-.9L12 3Z'></path>",
+    "play": "<path d='M8 5v14l11-7L8 5Z'></path>",
+    "link": "<path d='M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1'></path><path d='M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1'></path>",
+    "gift": "<rect x='3' y='8' width='18' height='13' rx='2'></rect><path d='M12 8v13M3 12h18M7.5 8A2.5 2.5 0 1 1 12 5.5V8M16.5 8A2.5 2.5 0 1 0 12 5.5V8'></path>",
+    "phone": "<path d='M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6.4 6.4l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2Z'></path>",
+}
+
+
+def normalize_featured_icon(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    return key if key in FEATURED_ICON_OPTIONS else "calendar"
+
+
+def featured_icon_svg(value: str | None) -> str:
+    key = normalize_featured_icon(value)
+    paths = _FEATURED_ICON_SVGS.get(key, _FEATURED_ICON_SVGS["calendar"])
+    return (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' "
+        "width='26' height='26' fill='none' stroke='currentColor' "
+        "stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+        f"{paths}</svg>"
+    )
+
+
 def normalize_external_url(value: str) -> str:
     """
     Garante que links externos tenham esquema quando o usuário não define (https://).

@@ -19,8 +19,10 @@ from api.core.config import get_settings
 from api.core.security import hash_password, verify_password
 from api.services.card_service import find_card_by_slug
 from api.services.card_display import (
+    FEATURED_ICON_OPTIONS,
     FEATURED_DEFAULT_COLOR,
     normalize_external_url,
+    normalize_featured_icon,
     profile_complete,
     resolve_photo,
     sanitize_phone,
@@ -189,6 +191,11 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     pwd_flag = bool(pwd_cookie or str(pwd) == "1")
     show_grev = bool(prof.get("google_review_show", True))
     featured_enabled = bool(prof.get("featured_enabled", True))
+    featured_icon = normalize_featured_icon(prof.get("featured_icon"))
+    featured_icon_options = "\n".join(
+        f"<option value='{html.escape(key)}' {'selected' if key == featured_icon else ''}>{html.escape(label)}</option>"
+        for key, label in FEATURED_ICON_OPTIONS.items()
+    )
     # Cor do tema do cartão (hex #RRGGBB)
     theme_base = prof.get("theme_color", "#000000") or "#000000"
     if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
@@ -391,6 +398,40 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       })();
       </script>
     """
+    featured_color_reset_onclick = html.escape(
+        (
+            "var c=document.getElementById('featuredColor');"
+            "if(c){"
+            "c.value=(c.getAttribute('data-default-color')||'#ffb473').toLowerCase();"
+            "c.dispatchEvent(new Event('input',{bubbles:true}));"
+            "c.dispatchEvent(new Event('change',{bubbles:true}));"
+            "}"
+            "return false;"
+        ),
+        quote=True,
+    )
+    password_toggle_onclick = html.escape(
+        (
+            "var p=document.getElementById('passwordFields'),m=document.getElementById('passwordMode');"
+            "if(p){"
+            "var open=p.classList.contains('is-hidden');"
+            "p.classList.toggle('is-hidden',!open);"
+            "this.textContent=open?'Cancelar alteracao de senha':'Alterar senha';"
+            "this.setAttribute('aria-expanded',open?'true':'false');"
+            "if(m)m.value=open?'1':'0';"
+            "if(!open){Array.prototype.forEach.call(p.querySelectorAll('input'),function(i){if(i.id!=='passwordMode')i.value='';});}"
+            "}"
+            "return false;"
+        ),
+        quote=True,
+    )
+    switch_label_onchange = html.escape(
+        (
+            "var l=this.parentElement&&this.parentElement.querySelector('[data-switch-label]');"
+            "if(l){l.textContent=this.checked?'Exibindo':'Oculto';}"
+        ),
+        quote=True,
+    )
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
     <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -551,10 +592,15 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
       </script>
       <main class='wrap'>
       {notice}
-      <form id='editForm' method='post' action='/edit/{html.escape(slug)}?csrf_token={csrf_token_query}'>
+      <form id='editForm' class='edit-form' method='post' action='/edit/{html.escape(slug)}?csrf_token={csrf_token_query}'>
         <input type='hidden' name='csrf_token' value='{csrf_token_html}'>
-        <div class='topbar'>
-          <h1 class='page-title'>Editar Perfil</h1>
+        <div class='topbar edit-hero'>
+          <div>
+            <p class='section-kicker'>Central do cartão</p>
+            <h1 class='page-title'>Editar Perfil</h1>
+            <p class='edit-hero-desc'>Organize a primeira impressão do seu cartão: foto, contato, links, pagamentos e segurança em um só lugar.</p>
+          </div>
+          <a class='edit-preview-chip' href='/{html.escape(slug)}'>Ver cartão</a>
         </div>
         <div class='edit-sections'>
           <section class='edit-section'>
@@ -604,7 +650,6 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <div class='form-control'>
                 <label for='themeColor'>Cor do cartão</label>
                 <input type='color' id='themeColor' name='theme_color' value='{html.escape(theme_base)}' style='height: 48px' aria-label='Cor do cartao'>
-                <span class='muted hint'>Essa cor é usada em botões e cartões auxiliares.</span>
               </div>
             </div>
           </section>
@@ -618,26 +663,32 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <div class='form-control'>
                 <label for='fullName'>Nome <span class='required-pill'>Obrigatorio</span></label>
                 <input id='fullName' name='full_name' value='{html.escape(prof.get('full_name',''))}' placeholder='Nome completo' required aria-label='Nome completo' autocomplete='name'>
+                <span class='field-hint'>É o nome principal exibido no topo do cartão.</span>
               </div>
               <div class='form-control'>
                 <label for='titleInput'>Cargo | Empresa <span class='required-pill'>Obrigatorio</span></label>
                 <input id='titleInput' name='title' value='{html.escape(prof.get('title',''))}' placeholder='Ex.: Diretor | Soomei' required aria-label='Cargo e empresa' autocomplete='organization-title'>
+                <span class='field-hint'>Use uma frase curta que explique quem você é profissionalmente.</span>
               </div>
               <div class='form-control'>
                 <label for='whatsapp'>WhatsApp <span class='required-pill'>Obrigatorio</span></label>
                 <input name='whatsapp' id='whatsapp' inputmode='numeric' autocomplete='tel' placeholder='+55 (00) 00000-0000' value='{html.escape(prof.get('whatsapp',''))}' maxlength='19' aria-label='WhatsApp'>
+                <span class='field-hint'>Será usado no botão principal de conversa.</span>
               </div>
               <div class='form-control'>
                 <label for='emailPublic'>Email público <span class='required-pill'>Obrigatorio</span></label>
                 <input id='emailPublic' name='email_public' type='email' value='{html.escape(prof.get('email_public',''))}' placeholder='contato@exemplo.com' aria-label='Email publico' autocomplete='email'>
+                <span class='field-hint'>Aparece como canal alternativo de contato.</span>
               </div>
               <div class='form-control'>
                 <label for='siteUrl'>Site</label>
                 <input id='siteUrl' name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}' aria-label='Site' autocomplete='url'>
+                <span class='field-hint'>Se preenchido, aparece nos botões finais do cartão.</span>
               </div>
               <div class='form-control full'>
                 <label for='addressInput'>Endereço</label>
                 <input id='addressInput' name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF' aria-label='Endereco' autocomplete='street-address'>
+                <span class='field-hint'>Quando preenchido, habilita o botão “Endereço” com link para mapa.</span>
               </div>
             </div>
             <div id='primaryInfoHint' class='primary-required-hint' role='status' aria-live='polite' tabindex='-1'>
@@ -669,44 +720,8 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                   <span id='slugInfo' class='muted' style='font-size:12px'>URL atual: /{html.escape(card.get('vanity', uid))}</span>
                 </div>
               </div>
-              <div class='cta-card'>
-                <h4>URL personalizada</h4>
-                {custom_domain_desc_html}
-                {custom_domain_panel_html}
-              <div class='cta-card highlight-config'>
-                <div style='display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px'>
-                  <div>
-                    <h4 style='margin:0'>Botão destaque</h4>
-                    <p style='margin:4px 0 0;font-size:13px;color:#9aa0a6'>Defina a principal ação que você quer que os visitantes realizem ao abrir seu cartão.</p>
-                  </div>
-                  <label class='switch' for='featuredEnabled' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
-                    <input type='checkbox' id='featuredEnabled' name='featured_enabled' value='1' {'checked' if featured_enabled else ''} style='display:none'>
-                    <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
-                      <span class='knob' style='position:absolute;top:3px;left:{'22px' if featured_enabled else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
-                    </span>
-                    <span class='muted' style='font-size:12px'>{'Exibindo' if featured_enabled else 'Oculto'}</span>
-                  </label>
-                </div>
-                <div class='form-control'>
-                <label for='featuredLabel'>Título do botão</label>
-                  <input id='featuredLabel' name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência' aria-label='Titulo do botao destaque'>
-                </div>
-                <div class='form-control'>
-                  <label for='featuredUrl'>Link (URL)</label>
-                  <input id='featuredUrl' name='featured_url' type='url' inputmode='url' placeholder='https://seusite.com/agendar' value='{html.escape(prof.get('featured_url',''))}' aria-label='Link do botao destaque'>
-                </div>
-                <div class='form-control'>
-                  <label for='featuredColor'>Cor principal</label>
-                  <div style='display:flex;align-items:center;gap:10px'>
-                    <input id='featuredColor' data-default-color='{FEATURED_DEFAULT_COLOR}' name='featured_color' type='color' value='{html.escape(prof.get('featured_color', FEATURED_DEFAULT_COLOR) or FEATURED_DEFAULT_COLOR)}' style='height:42px;padding:0 8px;border-radius:12px;flex:0 0 120px' aria-label='Cor do botao destaque'>
-                    <button type='button' class='btn ghost' id='featuredColorReset' style='flex:1'>Resetar cor</button>
-                  </div>
-                  <p class='muted hint'>Define o gradiente e o brilho do botão.</p>
-                </div>
-                <p class='muted hint'>Deixe em branco para ocultar o botão destaque.</p>
-              </div>
-            </div>
-        <div class='cta-card' style='margin-top:12px'>
+              
+        <div class='cta-card'>
           <div style='display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px'>
             <div style='display:flex;align-items:center;gap:8px;margin:0'>
               <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='18' height='18' class='g-icon'>
@@ -719,20 +734,27 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <!-- TOGGLE ON/OFF -->
             <label class='switch' for='googleReviewShow' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
-              <input type='checkbox' id='googleReviewShow' name='google_review_show' value='1' {'checked' if show_grev else ''} style='display:none'>
+              <input type='checkbox' id='googleReviewShow' name='google_review_show' value='1' {'checked' if show_grev else ''} onchange="{switch_label_onchange}" style='display:none'>
               <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
                 <span class='knob' style='position:absolute;top:3px;left:{'22px' if show_grev else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
               </span>
-              <span class='muted' style='font-size:12px'>{'Exibindo' if show_grev else 'Oculto'}</span>
+              <span class='muted' data-switch-label style='font-size:12px'>{'Exibindo' if show_grev else 'Oculto'}</span>
             </label>
           </div>
           <input id='googleReviewUrl' name='google_review_url' aria-label='Link de avaliacao do Google' type='url' placeholder='https://search.google.com/local/writereview?...'
                 value='{html.escape(prof.get("google_review_url", ""))}'>
+          <span class='field-hint'>Quando ativado, aparece como chamada para avaliação no cartão público.</span>
           <a class="link-google-review" target='_blank' rel='noopener'
             href='https://support.google.com/business/answer/3474122?hl=pt-BR#:~:text=Para%20encontrar%20o%20link%20da,Pesquisa%20Google%2C%20selecione%20Solicitar%20avalia%C3%A7%C3%B5es'>
             Toque aqui para ver como encontrar o link de Avaliação do Google Meu Negócio
           </a>
         </div>
+        <div class='cta-card'>
+                <h4>URL personalizada</h4>
+                {custom_domain_desc_html}
+                {custom_domain_panel_html}
+              </div>
+            </div>
           </section>
           <section class='edit-section' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Presença digital</p>
@@ -741,37 +763,79 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <p class='section-desc'>Adicione até quatro links personalizados.</p>
             </div>
             <div class='links-grid-edit'>
+              
+              <div class='cta-card highlight-config'>
+                <div style='display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px'>
+                  <div>
+                    <h4 style='margin:0'>Botão destaque</h4>
+                    <p style='margin:4px 0 0;font-size:13px;color:#9aa0a6'>Defina a principal ação que você quer que os visitantes realizem ao abrir seu cartão.</p>
+                  </div>
+                  <label class='switch' for='featuredEnabled' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+                    <input type='checkbox' id='featuredEnabled' name='featured_enabled' value='1' {'checked' if featured_enabled else ''} onchange="{switch_label_onchange}" style='display:none'>
+                    <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
+                      <span class='knob' style='position:absolute;top:3px;left:{'22px' if featured_enabled else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
+                    </span>
+                    <span class='muted' data-switch-label style='font-size:12px'>{'Exibindo' if featured_enabled else 'Oculto'}</span>
+                  </label>
+                </div>
+                <div class='form-control'>
+                <label for='featuredLabel'>Título do botão</label>
+                  <input id='featuredLabel' name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência' aria-label='Titulo do botao destaque'>
+                  <span class='field-hint'>Texto grande do botão especial exibido antes dos links extras.</span>
+                </div>
+                <div class='form-control'>
+                  <label for='featuredIcon'>Ícone do botão</label>
+                  <select id='featuredIcon' name='featured_icon' aria-label='Icone do botao destaque'>
+                    {featured_icon_options}
+                  </select>
+                  <span class='field-hint'>Escolha o símbolo que melhor representa a ação principal.</span>
+                </div>
+                <div class='form-control'>
+                  <label for='featuredUrl'>Link (URL)</label>
+                  <input id='featuredUrl' name='featured_url' type='url' inputmode='url' placeholder='https://seusite.com/agendar' value='{html.escape(prof.get('featured_url',''))}' aria-label='Link do botao destaque'>
+                  <span class='field-hint'>Destino aberto quando alguém tocar no botão destaque.</span>
+                </div>
+                <div class='form-control'>
+                  <label for='featuredColor'>Cor principal</label>
+                  <div style='display:flex;align-items:center;gap:10px'>
+                    <input id='featuredColor' data-default-color='{FEATURED_DEFAULT_COLOR.lower()}' name='featured_color' type='color' value='{html.escape((prof.get('featured_color', FEATURED_DEFAULT_COLOR) or FEATURED_DEFAULT_COLOR).lower())}' style='height:42px;padding:0 8px;border-radius:12px;flex:0 0 120px' aria-label='Cor do botao destaque'>
+                    <button type='button' class='btn ghost' id='featuredColorReset' onclick="{featured_color_reset_onclick}" style='flex:1'>Resetar cor</button>
+                  </div>
+                  <p class='muted hint'>Define o gradiente e o brilho do botão.</p>
+                </div>
+                <p class='muted hint'>Deixe em branco para ocultar o botão destaque.</p>
+              </div>
               <div class='form-control'>
                 <label for='label1'>Título do botão 1</label>
-                <input id='label1' name='label1' value='{html.escape(links[0].get('label',''))}' aria-label='Titulo do botao 1'>
+                <input id='label1' name='label1' value='{html.escape(links[0].get('label',''))}' placeholder='Instagram, LinkedIn, Curso...' aria-label='Titulo do botao 1'>
               </div>
               <div class='form-control'>
                 <label for='href1'>Link (URL)</label>
-                <input id='href1' name='href1' value='{html.escape(links[0].get('href',''))}' aria-label='Link do botao 1'>
+                <input id='href1' name='href1' value='{html.escape(links[0].get('href',''))}' placeholder='https://...' aria-label='Link do botao 1'>
               </div>
               <div class='form-control'>
                 <label for='label2'>Título do botão 2</label>
-                <input id='label2' name='label2' value='{html.escape(links[1].get('label',''))}' aria-label='Titulo do botao 2'>
+                <input id='label2' name='label2' value='{html.escape(links[1].get('label',''))}' placeholder='WhatsApp Business, Portfólio...' aria-label='Titulo do botao 2'>
               </div>
               <div class='form-control'>
                 <label for='href2'>Link (URL)</label>
-                <input id='href2' name='href2' value='{html.escape(links[1].get('href',''))}' aria-label='Link do botao 2'>
+                <input id='href2' name='href2' value='{html.escape(links[1].get('href',''))}' placeholder='https://...' aria-label='Link do botao 2'>
               </div>
               <div class='form-control'>
                 <label for='label3'>Título do botão 3</label>
-                <input id='label3' name='label3' value='{html.escape(links[2].get('label',''))}' aria-label='Titulo do botao 3'>
+                <input id='label3' name='label3' value='{html.escape(links[2].get('label',''))}' placeholder='Agendamento, Loja, Comunidade...' aria-label='Titulo do botao 3'>
               </div>
               <div class='form-control'>
                 <label for='href3'>Link (URL)</label>
-                <input id='href3' name='href3' value='{html.escape(links[2].get('href',''))}' aria-label='Link do botao 3'>
+                <input id='href3' name='href3' value='{html.escape(links[2].get('href',''))}' placeholder='https://...' aria-label='Link do botao 3'>
               </div>
               <div class='form-control'>
                 <label for='label4'>Título do botão 4</label>
-                <input id='label4' name='label4' value='{html.escape(links[3].get('label',''))}' aria-label='Titulo do botao 4'>
+                <input id='label4' name='label4' value='{html.escape(links[3].get('label',''))}' placeholder='Mentoria, Ebook, Evento...' aria-label='Titulo do botao 4'>
               </div>
               <div class='form-control'>
                 <label for='href4'>Link (URL)</label>
-                <input id='href4' name='href4' value='{html.escape(links[3].get('href',''))}' aria-label='Link do botao 4'>
+                <input id='href4' name='href4' value='{html.escape(links[3].get('href',''))}' placeholder='https://...' aria-label='Link do botao 4'>
               </div>
             </div>
           </section>
@@ -784,11 +848,11 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             <div class='portfolio-header'>
               <p class='portfolio-hint'>Deixe desativado para esconder o portfólio no cartão.</p>
               <label class='switch portfolio-toggle-label' for='portfolioEnabled'>
-                <input type='checkbox' id='portfolioEnabled' name='portfolio_enabled' value='1' {'checked' if portfolio_enabled else ''} style='display:none'>
+                <input type='checkbox' id='portfolioEnabled' name='portfolio_enabled' value='1' {'checked' if portfolio_enabled else ''} onchange="{switch_label_onchange}" style='display:none'>
                 <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
                   <span class='knob' style='position:absolute;top:3px;left:{'22px' if portfolio_enabled else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
                 </span>
-                <span class='muted' id='portfolioToggleLabel' style='font-size:12px'>{'Exibindo' if portfolio_enabled else 'Oculto'}</span>
+                <span class='muted' id='portfolioToggleLabel' data-switch-label style='font-size:12px'>{'Exibindo' if portfolio_enabled else 'Oculto'}</span>
               </label>
             </div>
             <div class='portfolio-grid'>
@@ -802,7 +866,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               <h2 class='section-title'>Senha e acesso</h2>
               <p class='section-desc'>Troque sua senha sempre que identificar atividade suspeita.</p>
             </div>
-            <button type='button' class='btn ghost' id='togglePassword' aria-expanded='false'>Alterar senha</button>
+            <button type='button' class='btn ghost' id='togglePassword' aria-expanded='false' onclick="{password_toggle_onclick}">Alterar senha</button>
             <div id='passwordFields' class='password-fields is-hidden'>
               <input type='hidden' name='password_mode' id='passwordMode' value='0'>
               <div class='form-control'>
@@ -1090,11 +1154,13 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 if (pwdMode){{ pwdMode.value = '0'; }}
               }}
             }}
-            togglePwd.addEventListener('click', function(e){{
-              e.preventDefault();
-              var open = pwdFields.classList.contains('is-hidden');
-              setState(open);
-            }});
+            if (!togglePwd.getAttribute('onclick')) {{
+              togglePwd.addEventListener('click', function(e){{
+                e.preventDefault();
+                var open = pwdFields.classList.contains('is-hidden');
+                setState(open);
+              }});
+            }}
             setState(false);
           }}
         }})();
@@ -1110,15 +1176,18 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             function paint(){{
               if (!ui || !knob) return;
               if (sw.checked){{
-                ui.style.background = '#4caf50';
+                ui.style.setProperty('background', 'linear-gradient(135deg,#4f8cff,#73d6ff)', 'important');
                 knob.style.left = '22px';
+                knob.style.transform = 'translateX(0)';
               }} else {{
-                ui.style.background = '#2a2a2a';
+                ui.style.setProperty('background', 'rgba(255,255,255,.1)', 'important');
                 knob.style.left = '3px';
+                knob.style.transform = 'translateX(0)';
               }}
-              var label = sw.parentElement && sw.parentElement.querySelector('.muted');
+              var label = sw.parentElement && (sw.parentElement.querySelector('[data-switch-label]') || sw.parentElement.querySelector('.muted'));
               if (label) label.textContent = sw.checked ? 'Exibindo' : 'Oculto';
             }}
+            sw.addEventListener('click', function(){{ setTimeout(paint, 0); }});
             sw.addEventListener('change', paint);
             paint();
           }}
@@ -1127,10 +1196,12 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           var featuredColor = document.getElementById('featuredColor');
           var featuredReset = document.getElementById('featuredColorReset');
           if (featuredColor && featuredReset){{
-            var defaultColor = featuredColor.getAttribute('data-default-color') || "{FEATURED_DEFAULT_COLOR}";
+            var defaultColor = (featuredColor.getAttribute('data-default-color') || "{FEATURED_DEFAULT_COLOR}").toLowerCase();
             featuredReset.addEventListener('click', function(ev){{
               ev.preventDefault();
               featuredColor.value = defaultColor;
+              featuredColor.dispatchEvent(new Event('input', {{ bubbles: true }}));
+              featuredColor.dispatchEvent(new Event('change', {{ bubbles: true }}));
             }});
           }}
           const UID = "{html.escape(uid)}";
@@ -1415,10 +1486,22 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
         // Atualiza preview de cor imediatamente ao selecionar
         var colorEl = document.getElementById('themeColor');
         var prev = document.getElementById('colorPreview');
+        function hexToRgba(hex, alpha){{
+          var m = /^#([0-9a-fA-F]{{6}})$/.exec(hex || '');
+          if (!m) return '';
+          var n = parseInt(m[1], 16);
+          var r = (n >> 16) & 255;
+          var g = (n >> 8) & 255;
+          var b = n & 255;
+          return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+        }}
         function updateColor(){{
           if (!colorEl || !prev) return;
           var c = (colorEl.value||'').trim();
-          if (/^#[0-9a-fA-F]{6}$/.test(c)) {{ prev.style.backgroundColor = c + '30'; }}
+          if (/^#[0-9a-fA-F]{{6}}$/.test(c)) {{
+            prev.style.backgroundColor = hexToRgba(c, 0.34);
+            prev.style.boxShadow = '0 16px 42px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 1px ' + hexToRgba(c, 0.34);
+          }}
         }}
        if (colorEl && prev) {{
           colorEl.addEventListener('input', updateColor);
@@ -1702,6 +1785,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 google_review_show: str = Form(""),
                 featured_label: str = Form(""),
                 featured_url: str = Form(""),
+               featured_icon: str = Form("calendar"),
                featured_color: str = Form("#FFB473"),
                featured_enabled: str = Form(""),
                label1: str = Form(""), href1: str = Form(""),
@@ -1847,6 +1931,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         prof["featured_url"] = ""
     prof["featured_enabled"] = feat_enabled_flag
     prof["featured_color"] = _normalize_hex_color(featured_color, FEATURED_DEFAULT_COLOR)
+    prof["featured_icon"] = normalize_featured_icon(featured_icon)
     # Atualiza chave Pix (pode ser vazia para limpar)
     prof["pix_key"] = (pix_key or "").strip()
     # Salva cor do tema (hex #RRGGBB)

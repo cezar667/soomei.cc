@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import base64
 import html
 import io
@@ -14,9 +14,11 @@ from api.services.card_service import find_card_by_slug
 from api.services.card_display import (
     DEFAULT_AVATAR,
     FEATURED_DEFAULT_COLOR,
+    featured_icon_svg,
     build_pix_emv,
     get_card_view_count,
     increment_card_view,
+    normalize_featured_icon,
     normalize_external_url,
     profile_complete,
     resolve_photo,
@@ -966,6 +968,7 @@ def visitor_public_card(
     featured_url = normalize_external_url(prof.get("featured_url", ""))
     featured_enabled = bool(prof.get("featured_enabled", True))
     featured_color = _normalize_hex_color(prof.get("featured_color"), FEATURED_DEFAULT_COLOR)
+    featured_icon = normalize_featured_icon(prof.get("featured_icon"))
     feat_start = _mix_hex_color(featured_color, 0.25)
     feat_end = _mix_hex_color(featured_color, -0.15)
     feat_shadow_rgb = _rgb_string(featured_color)
@@ -980,6 +983,7 @@ def visitor_public_card(
         )
         featured_block = f"""
         <a class='featured-cta' href='{html.escape(featured_url)}' target='_blank' rel='noopener' data-cta='featured-{html.escape(slug)}' style='{html.escape(featured_style)}'>
+          <span class='featured-cta__lead-icon' aria-hidden='true'>{featured_icon_svg(featured_icon)}</span>
           <div class='featured-cta__text'>
             <span class='featured-cta__eyebrow'>Em destaque</span>
             <span class='featured-cta__label'>{html.escape(featured_label)}</span>
@@ -1173,36 +1177,40 @@ def visitor_public_card(
         <div class='fixed-actions'>
           {(
             f"<a class='btn fixed website' target='_blank' rel='noopener' href='{html.escape(site_href)}'>"
+            f"<span class='fixed-action-icon'>"
             f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
             f"<circle cx='12' cy='12' r='10' stroke='currentColor' stroke-width='2' fill='none'/><path d='M2 12h20M12 2c3 3 3 19 0 20M12 2c-3 3-3 19 0 20' stroke='currentColor' stroke-width='2' fill='none'/></svg> "
-            f"Site</a>"
+            f"</span><span class='fixed-action-copy'><strong>Site</strong><small>Conheça mais</small></span><span class='fixed-action-arrow' aria-hidden='true'>→</span></a>"
           ) if site_href else (
             "<span class='btn fixed website disabled' role='button' aria-disabled='true' tabindex='-1'>"
-            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><circle cx='12' cy='12' r='10' stroke='currentColor' stroke-width='2' fill='none'/><path d='M2 12h20M12 2c3 3 3 19 0 20M12 2c-3 3-3 19 0 20' stroke='currentColor' stroke-width='2' fill='none'/></svg> Site</span>"
+            "<span class='fixed-action-icon'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><circle cx='12' cy='12' r='10' stroke='currentColor' stroke-width='2' fill='none'/><path d='M2 12h20M12 2c3 3 3 19 0 20M12 2c-3 3-3 19 0 20' stroke='currentColor' stroke-width='2' fill='none'/></svg></span><span class='fixed-action-copy'><strong>Site</strong><small>Não informado</small></span></span>"
           )}
           {(
             f"<a class='btn fixed email' href='mailto:{html.escape(email_pub)}'>"
-            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm8 6 9-6H3l9 6zm0 2L3 8v9h18V8l-9 6z'/></svg> "
-            f"E-mail</a>"
+            f"<span class='fixed-action-icon'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm8 6 9-6H3l9 6zm0 2L3 8v9h18V8l-9 6z'/></svg></span>"
+            f"<span class='fixed-action-copy'><strong>E-mail</strong><small>Enviar mensagem</small></span><span class='fixed-action-arrow' aria-hidden='true'>→</span></a>"
           ) if email_pub else (
             "<span class='btn fixed email disabled' role='button' aria-disabled='true' tabindex='-1'>"
-            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm8 6 9-6H3l9 6zm0 2L3 8v9h18V8l-9 6z'/></svg> E-mail</span>"
+            "<span class='fixed-action-icon'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm8 6 9-6H3l9 6zm0 2L3 8v9h18V8l-9 6z'/></svg></span><span class='fixed-action-copy'><strong>E-mail</strong><small>Não informado</small></span></span>"
           )}
           {(
             f"<a class='btn fixed maps' id='mapsBtn' target='_blank' rel='noopener' href='{html.escape(maps_href)}'>"
-            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
+            f"<span class='fixed-action-icon'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
             f"<path fill='currentColor' d='M12 2C8.69 2 6 4.69 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.31-2.69-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z'/>"
-            f"</svg> "
-            f"Endereço</a>"
-          ) if maps_href else ('')}
+            f"</svg></span>"
+            f"<span class='fixed-action-copy'><strong>Endereço</strong><small>Abrir no mapa</small></span><span class='fixed-action-arrow' aria-hidden='true'>→</span></a>"
+          ) if maps_href else (
+            "<span class='btn fixed maps disabled' role='button' aria-disabled='true' tabindex='-1'>"
+            "<span class='fixed-action-icon'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M12 2C8.69 2 6 4.69 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.31-2.69-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z'/></svg></span><span class='fixed-action-copy'><strong>Endereço</strong><small>Não informado</small></span></span>"
+          )}
           {(
             f"<a class='btn fixed pix' id='payPixBtn' href='/{html.escape(slug)}?pix=amount'>"
-            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
+            f"<span class='fixed-action-icon'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'>"
             f"<path fill='currentColor' d='M3 3h6v6H3V3zm2 2v2h2V5H5zm10-2h6v6h-6V3zm2 2v2h2V5h-2zM3 15h6v6H3v-6zm2 2v2h2v-2H5zm10 0h2v2h2v2h-4v-4zm0-4h2v2h-2v-2zm4 0h2v2h-2v-2z'/></svg> "
-            f"Pagamento Pix</a>"
+            f"</span><span class='fixed-action-copy'><strong>Pagamento Pix</strong><small>Pagar com QR Code</small></span><span class='fixed-action-arrow' aria-hidden='true'>→</span></a>"
           ) if pix_key else (
             "<span class='btn fixed pix disabled' role='button' aria-disabled='true' tabindex='-1'>"
-            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M3 3h6v6H3V3zm2 2v2h2V5H5zm10-2h6v6h-6V3zm2 2v2h2V5h-2zM3 15h6v6H3v-6zm2 2v2h2v-2H5zm10 0h2v2h2v2h-4v-4zm0-4h2v2h-2v-2zm4 0h2v2h-2v-2z'/></svg> Pagamento Pix</span>"
+            "<span class='fixed-action-icon'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='16' height='16'><path fill='currentColor' d='M3 3h6v6H3V3zm2 2v2h2V5H5zm10-2h6v6h-6V3zm2 2v2h2V5h-2zM3 15h6v6H3v-6zm2 2v2h2v-2H5zm10 0h2v2h2v2h-4v-4zm0-4h2v2h-2v-2zm4 0h2v2h-2v-2z'/></svg></span><span class='fixed-action-copy'><strong>Pagamento Pix</strong><small>Não configurado</small></span></span>"
           )}
         </div>
       </section>
@@ -1234,6 +1242,10 @@ def visitor_public_card(
     if request and csrf_token_value:
         csrf.set_csrf_cookie(response, csrf_token_value)
     return response
+
+
+
+
 @router.get("/u/{slug}", response_class=HTMLResponse)
 def public_card(slug: str, request: Request):
     db, uid, card = _find_card(slug)

@@ -112,6 +112,17 @@ def test_editor_renders_session_csrf_and_valid_javascript(monkeypatch):
 
     assert f"name='csrf_token' value='{expected}'" in body
     assert f"action='/edit/cezar?csrf_token={expected}'" in body
+    assert "class='edit-form'" in body
+    assert "Central do cartão" in body
+    assert "name='featured_icon'" in body
+    assert "<option value='calendar' selected>Agenda</option>" in body
+    assert "hexToRgba" in body
+    assert "id='featuredColorReset' onclick=" in body
+    assert "id='togglePassword' aria-expanded='false' onclick=" in body
+    assert "data-switch-label" in body
+    assert "l.textContent=this.checked?&#x27;Exibindo&#x27;:&#x27;Oculto&#x27;" in body
+    assert "featuredColor.dispatchEvent(new Event('input'" in body
+    assert "style.setProperty('background', 'linear-gradient(135deg,#4f8cff,#73d6ff)', 'important')" in body
     assert "Cache-Control" in response.headers
     assert "csrf_token=" in response.headers.get("set-cookie", "")
 
@@ -283,6 +294,7 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
             google_review_show="",
             featured_label="",
             featured_url="",
+            featured_icon="briefcase",
             featured_color="#FFB473",
             featured_enabled="",
             label1="",
@@ -333,6 +345,7 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
         "featured_label": "",
         "featured_url": "",
         "featured_enabled": False,
+        "featured_icon": "briefcase",
         "pix_key": "",
         "theme_color": "#000000",
         "links": [],
