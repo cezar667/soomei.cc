@@ -9,14 +9,18 @@ from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from sqlalchemy import func, or_, select
 
 from api.core import csrf
 from api.core.config import get_settings
 from api.core.http_security import SecurityHeadersMiddleware
 from api.core.rate_limiter import rate_limit_ip
 from api.core.security import hash_password, verify_password
+from api.db import models
+from api.db.session import get_session
 from api.domain.slugs import is_valid_slug
+from api.integrations.membership_platform.service import MembershipWebhookService
 from api.repositories.sql_repository import PageResult, SQLRepository
 
 
@@ -183,6 +187,57 @@ def _boolean_badge(value: bool) -> str:
     )
 
 
+def _webhook_status_badge(value: str) -> str:
+    status = (value or "").strip().upper()
+    classes = {
+        "PROCESSED": "active",
+        "RECEIVED": "pending",
+        "PROCESSING": "pending",
+        "RETRY_PENDING": "pending",
+        "IGNORED": "neutral",
+        "FAILED": "blocked",
+        "DEAD_LETTER": "blocked",
+    }
+    labels = {
+        "PROCESSED": "Processado",
+        "RECEIVED": "Recebido",
+        "PROCESSING": "Processando",
+        "RETRY_PENDING": "Retry pendente",
+        "IGNORED": "Ignorado",
+        "FAILED": "Falhou",
+        "DEAD_LETTER": "Fila morta",
+    }
+    klass = classes.get(status, "neutral")
+    label = labels.get(status, status or "—")
+    return f"<span class='admin-badge admin-badge--{klass}'>{html.escape(label)}</span>"
+
+
+def _subscription_status_badge(value: str) -> str:
+    status = (value or "").strip().upper()
+    klass = {
+        "ACTIVE": "active",
+        "PENDING": "pending",
+        "OVERDUE": "pending",
+        "SUSPENDED": "blocked",
+        "CANCELLED": "blocked",
+        "REFUNDED": "blocked",
+    }.get(status, "neutral")
+    return f"<span class='admin-badge admin-badge--{klass}'>{html.escape(status or '—')}</span>"
+
+
+def _dt(value) -> str:
+    if not value:
+        return "—"
+    try:
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except Exception:
+        return html.escape(str(value))
+
+
+def _json_pretty(value: object) -> str:
+    return html.escape(json.dumps(value or {}, ensure_ascii=False, indent=2, default=str))
+
+
 def _nav_link(path: str, label: str, current_path: str) -> str:
     active_match = current_path == path if path == "/" else current_path == path or current_path.startswith(path + "/")
     active = " is-active" if active_match else ""
@@ -212,6 +267,7 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
         "<div class='admin-nav__links'>"
         f"{_nav_link('/', 'Dashboard', current_path)}"
         f"{_nav_link('/cards', 'Cartões', current_path)}"
+        f"{_nav_link('/webhooks', 'Webhooks', current_path)}"
         f"{_nav_link('/domains', 'Domínios', current_path)}"
         f"{_nav_link('/users', 'Usuários', current_path)}"
         f"{logout_html}"
@@ -511,6 +567,117 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
           }}
           .admin-compact {{font-size:13px;color:var(--admin-muted);line-height:1.45}}
           .admin-domain-note {{white-space:normal;min-width:220px;color:#c7ced8}}
+          .admin-grid-2 {{
+            display:grid;
+            grid-template-columns:minmax(0,1.25fr) minmax(280px,.75fr);
+            gap:18px;
+            align-items:start;
+          }}
+          .admin-detail-list {{
+            display:grid;
+            grid-template-columns:180px minmax(0,1fr);
+            gap:8px 14px;
+            margin:0;
+          }}
+          .admin-detail-list dt {{
+            color:var(--admin-muted);
+            font-size:12px;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.12em;
+          }}
+          .admin-detail-list dd {{
+            margin:0;
+            min-width:0;
+            color:#e6ebf2;
+            word-break:break-word;
+          }}
+          .admin-code-block {{
+            max-height:640px;
+            overflow:auto;
+            white-space:pre-wrap;
+            word-break:break-word;
+          }}
+          .admin-filter-grid {{
+            display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+            gap:12px;
+            align-items:end;
+          }}
+          .admin-actions-row {{
+            display:flex;
+            gap:8px;
+            align-items:center;
+            flex-wrap:wrap;
+          }}
+          .admin-muted-cell {{
+            max-width:300px;
+            white-space:normal;
+            color:#c1c8d2;
+            line-height:1.35;
+          }}
+          .admin-dashboard-grid {{
+            display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+            gap:18px;
+            align-items:start;
+            margin-bottom:18px;
+          }}
+          .admin-chart-card {{
+            min-height:360px;
+          }}
+          .admin-chart-head {{
+            display:flex;
+            align-items:flex-start;
+            justify-content:space-between;
+            gap:14px;
+            flex-wrap:wrap;
+            margin-bottom:12px;
+          }}
+          .admin-chart-head h3 {{
+            margin:0;
+          }}
+          .admin-kpi-row {{
+            display:flex;
+            gap:10px;
+            flex-wrap:wrap;
+            margin:10px 0 14px;
+          }}
+          .admin-kpi-pill {{
+            display:inline-flex;
+            flex-direction:column;
+            gap:2px;
+            min-width:118px;
+            padding:10px 12px;
+            border:1px solid rgba(255,255,255,.09);
+            border-radius:16px;
+            background:rgba(255,255,255,.045);
+          }}
+          .admin-kpi-pill small {{
+            color:var(--admin-muted);
+            font-size:10px;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.12em;
+          }}
+          .admin-kpi-pill strong {{
+            color:#fff;
+            font-size:24px;
+            line-height:1;
+          }}
+          .admin-line-chart {{
+            width:100%;
+            min-height:230px;
+            border:1px solid rgba(255,255,255,.08);
+            border-radius:18px;
+            background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.015));
+            overflow:hidden;
+          }}
+          .admin-line-chart text {{
+            fill:#8f98a6;
+            font-size:11px;
+            font-weight:700;
+          }}
           .admin-login-shell {{
             min-height:calc(100vh - 52px);
             display:grid;
@@ -558,6 +725,8 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
             article {{border-radius:20px}}
             td,th {{white-space:normal}}
             table {{display:block;overflow-x:auto}}
+            .admin-grid-2 {{grid-template-columns:1fr}}
+            .admin-detail-list {{grid-template-columns:1fr}}
             .admin-login-card {{padding:24px 20px;border-radius:24px}}
           }}
         </style>
@@ -717,6 +886,109 @@ def _cleanup_user_if_orphan(email: str, keep_uid: str) -> None:
     repo.delete_user(email)
 
 
+def _dashboard_days(value: int) -> int:
+    try:
+        days = int(value or 30)
+    except (TypeError, ValueError):
+        return 30
+    if days <= 7:
+        return 7
+    if days <= 30:
+        return 30
+    if days <= 90:
+        return 90
+    if days <= 180:
+        return 180
+    return 365
+
+
+def _daily_series(model, date_column, *, days: int) -> list[tuple[datetime.date, int]]:
+    today = datetime.now(timezone.utc).date()
+    start_day = today - timedelta(days=days - 1)
+    buckets = {start_day + timedelta(days=offset): 0 for offset in range(days)}
+    with get_session() as session:
+        rows = session.execute(select(date_column).select_from(model).where(date_column >= datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc))).scalars().all()
+    for value in rows:
+        if not value:
+            continue
+        try:
+            day = value.astimezone(timezone.utc).date() if getattr(value, "tzinfo", None) else value.date()
+        except Exception:
+            continue
+        if day in buckets:
+            buckets[day] += 1
+    return list(buckets.items())
+
+
+def _sum_series(series: list[tuple[object, int]]) -> int:
+    return sum(int(value or 0) for _, value in series)
+
+
+def _line_chart_svg(series: list[tuple[datetime.date, int]], *, color: str, label: str) -> str:
+    width = 720
+    height = 250
+    pad_left = 46
+    pad_right = 18
+    pad_top = 22
+    pad_bottom = 42
+    chart_w = width - pad_left - pad_right
+    chart_h = height - pad_top - pad_bottom
+    max_value = max([value for _, value in series] + [1])
+    denom = max(1, len(series) - 1)
+    points = []
+    for index, (_day, value) in enumerate(series):
+        x = pad_left + (chart_w * index / denom)
+        y = pad_top + chart_h - (chart_h * int(value or 0) / max_value)
+        points.append((x, y, int(value or 0)))
+    point_attr = " ".join(f"{x:.2f},{y:.2f}" for x, y, _value in points)
+    circles = "".join(
+        f"<circle cx='{x:.2f}' cy='{y:.2f}' r='3.2'><title>{html.escape(str(day))}: {value}</title></circle>"
+        for (day, _), (x, y, value) in zip(series, points)
+        if value > 0 or len(series) <= 31
+    )
+    grid_lines = []
+    for step in range(4):
+        y = pad_top + chart_h * step / 3
+        value = round(max_value - (max_value * step / 3))
+        grid_lines.append(
+            f"<line x1='{pad_left}' y1='{y:.2f}' x2='{width - pad_right}' y2='{y:.2f}' stroke='rgba(255,255,255,.08)'/>"
+            f"<text x='8' y='{y + 4:.2f}'>{value}</text>"
+        )
+    first_label = series[0][0].strftime("%d/%m") if series else ""
+    last_label = series[-1][0].strftime("%d/%m") if series else ""
+    return (
+        f"<svg class='admin-line-chart' viewBox='0 0 {width} {height}' role='img' aria-label='{html.escape(label)}' preserveAspectRatio='none'>"
+        f"<defs><linearGradient id='chartFill{abs(hash(label))}' x1='0' x2='0' y1='0' y2='1'>"
+        f"<stop offset='0%' stop-color='{html.escape(color)}' stop-opacity='.24'/>"
+        f"<stop offset='100%' stop-color='{html.escape(color)}' stop-opacity='0'/></linearGradient></defs>"
+        f"{''.join(grid_lines)}"
+        f"<polygon points='{pad_left},{height - pad_bottom} {point_attr} {width - pad_right},{height - pad_bottom}' fill='url(#chartFill{abs(hash(label))})'/>"
+        f"<polyline points='{point_attr}' fill='none' stroke='{html.escape(color)}' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/>"
+        f"<g fill='{html.escape(color)}'>{circles}</g>"
+        f"<text x='{pad_left}' y='{height - 14}'>{html.escape(first_label)}</text>"
+        f"<text x='{width - pad_right - 44}' y='{height - 14}'>{html.escape(last_label)}</text>"
+        f"</svg>"
+    )
+
+
+def _external_subscription_counts() -> dict[str, int]:
+    with get_session() as session:
+        rows = session.execute(
+            select(models.ExternalSubscription.status, func.count(models.ExternalSubscription.id)).group_by(models.ExternalSubscription.status)
+        ).all()
+    return {str(status or "UNKNOWN").upper(): int(total or 0) for status, total in rows}
+
+
+def _recent_webhook_failures(limit: int = 5) -> list:
+    with get_session() as session:
+        return session.execute(
+            select(models.WebhookEvent)
+            .where(models.WebhookEvent.status.in_(["FAILED", "DEAD_LETTER", "RETRY_PENDING"]))
+            .order_by(models.WebhookEvent.received_at.desc())
+            .limit(limit)
+        ).scalars().all()
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(next: str = "/", error: str = ""):
     return _login_page(next_path=next or "/", error=error)
@@ -774,23 +1046,116 @@ def logout(request: Request, csrf_token: str = Form("")):
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
+def dashboard(request: Request, days: int = 30):
     try:
         require_admin(request)
     except HTTPException:
         return _redirect_login("/")
+    period_days = _dashboard_days(days)
     counts = repo.dashboard_card_counts()
     top_views = repo.top_cards_by_views(limit=5)
+    card_series = _daily_series(models.Card, models.Card.created_at, days=period_days)
+    webhook_series = _daily_series(models.WebhookEvent, models.WebhookEvent.received_at, days=period_days)
+    cards_created_period = _sum_series(card_series)
+    webhooks_period = _sum_series(webhook_series)
+    subscriptions = _external_subscription_counts()
+    active_subs = subscriptions.get("ACTIVE", 0)
+    attention_subs = sum(subscriptions.get(status, 0) for status in ("OVERDUE", "SUSPENDED", "CANCELLED", "REFUNDED"))
+    failure_rows = "".join(
+        "<tr>"
+        f"<td><a href='/webhooks/events/{html.escape(event.id)}'><code>{html.escape(event.external_event_id)}</code></a></td>"
+        f"<td>{_webhook_status_badge(event.status or '')}</td>"
+        f"<td>{html.escape(event.event_type or '')}</td>"
+        f"<td class='admin-muted-cell'>{html.escape(event.error_message or event.error_code or '')}</td>"
+        "</tr>"
+        for event in _recent_webhook_failures(limit=5)
+    )
+    subscription_rows = "".join(
+        "<tr>"
+        f"<td>{_subscription_status_badge(status)}</td>"
+        f"<td>{total}</td>"
+        "</tr>"
+        for status, total in sorted(subscriptions.items())
+    )
     rows = "".join(
         f"<tr><td>{html.escape(label)}</td><td>{views}</td></tr>"
         for label, views in top_views
     )
+    period_options = "".join(
+        f"<option value='{value}' {'selected' if period_days == value else ''}>{value} dias</option>"
+        for value in (7, 30, 90, 180, 365)
+    )
     body = f"""
+      <article>
+        <div class='admin-chart-head'>
+          <div>
+            <h1>Dashboard operacional</h1>
+            <p class='admin-compact'>Acompanhe crescimento dos cartões, atividade dos webhooks e saúde comercial da integração.</p>
+          </div>
+          <form method='get' action='/' class='admin-actions-row'>
+            <label>Período
+              <select name='days' onchange='this.form.submit()'>{period_options}</select>
+            </label>
+          </form>
+        </div>
+      </article>
       <section class='admin-summary'>
         <article><header>Total de cartões</header><strong>{counts.get('total', 0)}</strong></article>
         <article><header>Ativos</header><strong>{counts.get('active', 0)}</strong></article>
         <article><header>Pendentes</header><strong>{counts.get('pending', 0)}</strong></article>
         <article><header>Bloqueados</header><strong>{counts.get('blocked', 0)}</strong></article>
+      </section>
+      <section class='admin-dashboard-grid'>
+        <article class='admin-chart-card'>
+          <div class='admin-chart-head'>
+            <div>
+              <h3>Evolução de cartões</h3>
+              <p class='admin-compact'>Cartões criados dia a dia no período selecionado.</p>
+            </div>
+          </div>
+          <div class='admin-kpi-row'>
+            <span class='admin-kpi-pill'><small>Criados no período</small><strong>{cards_created_period}</strong></span>
+            <span class='admin-kpi-pill'><small>Último dia</small><strong>{card_series[-1][1] if card_series else 0}</strong></span>
+          </div>
+          {_line_chart_svg(card_series, color="#8ab4f8", label="Cartões criados por dia")}
+        </article>
+        <article class='admin-chart-card'>
+          <div class='admin-chart-head'>
+            <div>
+              <h3>Volume de webhooks</h3>
+              <p class='admin-compact'>Eventos recebidos pela integração no mesmo período.</p>
+            </div>
+          </div>
+          <div class='admin-kpi-row'>
+            <span class='admin-kpi-pill'><small>Eventos no período</small><strong>{webhooks_period}</strong></span>
+            <span class='admin-kpi-pill'><small>Último dia</small><strong>{webhook_series[-1][1] if webhook_series else 0}</strong></span>
+          </div>
+          {_line_chart_svg(webhook_series, color="#54e0ad", label="Webhooks recebidos por dia")}
+        </article>
+      </section>
+      <section class='admin-dashboard-grid'>
+        <article>
+          <h3>Assinaturas externas</h3>
+          <p class='admin-compact'>Resumo do estado comercial vindo da plataforma externa.</p>
+          <div class='admin-kpi-row'>
+            <span class='admin-kpi-pill'><small>Ativas</small><strong>{active_subs}</strong></span>
+            <span class='admin-kpi-pill'><small>Atenção</small><strong>{attention_subs}</strong></span>
+          </div>
+          <table role='grid'>
+            <thead><tr><th>Status</th><th>Total</th></tr></thead>
+            <tbody>{subscription_rows or '<tr><td colspan="2">Sem assinaturas externas.</td></tr>'}</tbody>
+          </table>
+          <p><a class='secondary' role='button' href='/webhooks/subscriptions'>Ver assinaturas</a></p>
+        </article>
+        <article>
+          <h3>Últimas falhas de webhook</h3>
+          <p class='admin-compact'>Eventos que exigem atenção operacional ou reprocessamento.</p>
+          <table role='grid'>
+            <thead><tr><th>Evento</th><th>Status</th><th>Tipo</th><th>Erro</th></tr></thead>
+            <tbody>{failure_rows or '<tr><td colspan="4">Nenhuma falha recente.</td></tr>'}</tbody>
+          </table>
+          <p><a class='secondary' role='button' href='/webhooks?status=FAILED'>Ver falhas</a></p>
+        </article>
       </section>
       <article>
         <h3>Top views</h3>
@@ -1134,6 +1499,497 @@ def domain_disable(request: Request, uid: str = Form(...), csrf_token: str = For
     if active_host:
         repo.unregister_custom_domain(active_host)
     return RedirectResponse("/domains?ok=disabled", status_code=303)
+
+
+def _webhooks_alert(request: Request) -> str:
+    ok = (request.query_params.get("ok") or "").strip()
+    if ok == "retry":
+        status = (request.query_params.get("status") or "").strip()
+        return _flash_markup("ok", f"Reprocessamento solicitado. Status atual: {status or '—'}")
+    error = (request.query_params.get("error") or "").strip()
+    error_map = {
+        "nao_encontrado": "Evento não encontrado.",
+        "csrf": "Sessão expirada. Tente novamente.",
+    }
+    return _flash_markup("error", error_map.get(error, error))
+
+
+def _webhook_event_filters(*, status: str = "", provider: str = "", event_type: str = "", q: str = "") -> list:
+    filters: list = []
+    if status:
+        filters.append(models.WebhookEvent.status == status.strip().upper())
+    if provider:
+        filters.append(func.lower(models.WebhookEvent.provider) == provider.strip().lower())
+    if event_type:
+        filters.append(func.lower(models.WebhookEvent.event_type) == event_type.strip().lower())
+    qnorm = (q or "").strip().lower()
+    if qnorm:
+        pattern = f"%{qnorm}%"
+        filters.append(
+            or_(
+                func.lower(models.WebhookEvent.id).like(pattern),
+                func.lower(models.WebhookEvent.external_event_id).like(pattern),
+                func.lower(models.WebhookEvent.event_type).like(pattern),
+                func.lower(func.coalesce(models.WebhookEvent.correlation_id, "")).like(pattern),
+                func.lower(func.coalesce(models.WebhookEvent.error_code, "")).like(pattern),
+                func.lower(func.coalesce(models.WebhookEvent.error_message, "")).like(pattern),
+            )
+        )
+    return filters
+
+
+def _webhook_events_page(*, status: str = "", provider: str = "", event_type: str = "", q: str = "", page: int = 1) -> PageResult:
+    stmt = select(models.WebhookEvent).where(*_webhook_event_filters(status=status, provider=provider, event_type=event_type, q=q))
+    return repo._page_from_statement(
+        stmt,
+        page=page,
+        page_size=PAGE_SIZE,
+        order_by=[models.WebhookEvent.received_at.desc()],
+    )
+
+
+def _webhook_counts() -> dict[str, int]:
+    with get_session() as session:
+        rows = session.execute(
+            select(models.WebhookEvent.status, func.count(models.WebhookEvent.id)).group_by(models.WebhookEvent.status)
+        ).all()
+    result = {str(status or "UNKNOWN"): int(total or 0) for status, total in rows}
+    result["TOTAL"] = sum(result.values())
+    return result
+
+
+def _webhook_retry_form(event_id: str, csrf_token: str, *, label: str = "Reprocessar") -> str:
+    return (
+        f"<form method='post' action='/webhooks/events/{html.escape(event_id)}/retry' class='admin-inline-form'>"
+        f"<input type='hidden' name='csrf_token' value='{html.escape(csrf_token)}'>"
+        f"<button class='secondary' type='submit'>{html.escape(label)}</button>"
+        "</form>"
+    )
+
+
+def _webhook_event_row(event, csrf_token: str) -> str:
+    retry = ""
+    if (event.status or "").upper() in {"RECEIVED", "FAILED", "RETRY_PENDING"}:
+        retry = _webhook_retry_form(event.id, csrf_token)
+    error = event.error_message or event.error_code or ""
+    return (
+        "<tr>"
+        f"<td><a href='/webhooks/events/{html.escape(event.id)}'><code>{html.escape(event.external_event_id)}</code></a></td>"
+        f"<td>{html.escape(event.provider or '')}</td>"
+        f"<td>{html.escape(event.event_type or '')}</td>"
+        f"<td>{_webhook_status_badge(event.status or '')}</td>"
+        f"<td>{int(event.attempts or 0)}</td>"
+        f"<td>{_dt(event.received_at)}</td>"
+        f"<td class='admin-muted-cell'>{html.escape(error)}</td>"
+        f"<td><div class='admin-actions-row'><a class='secondary' role='button' href='/webhooks/events/{html.escape(event.id)}'>Detalhes</a>{retry}</div></td>"
+        "</tr>"
+    )
+
+
+def _event_payload_data(event) -> dict:
+    payload = event.payload or {}
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    return data if isinstance(data, dict) else {}
+
+
+def _related_records_for_event(event) -> tuple[object | None, object | None, object | None]:
+    data = _event_payload_data(event)
+    customer_id = str(data.get("customer_id") or "").strip()
+    subscription_id = str(data.get("subscription_id") or data.get("order_id") or "").strip()
+    product_id = str(data.get("product_id") or "").strip()
+    provider = (event.provider or "").strip()
+    member = None
+    subscription = None
+    card = None
+    with get_session() as session:
+        if provider and customer_id:
+            member = session.execute(
+                select(models.Member)
+                .where(models.Member.provider == provider, models.Member.external_customer_id == customer_id)
+                .limit(1)
+            ).scalar_one_or_none()
+        if provider and subscription_id:
+            subscription = session.execute(
+                select(models.ExternalSubscription)
+                .where(
+                    models.ExternalSubscription.provider == provider,
+                    models.ExternalSubscription.external_subscription_id == subscription_id,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            card_filters = [
+                models.Card.external_provider == provider,
+                models.Card.external_subscription_id == subscription_id,
+            ]
+            if product_id:
+                card_filters.append(models.Card.external_product_id == product_id)
+            card = session.execute(select(models.Card).where(*card_filters).limit(1)).scalar_one_or_none()
+            if not card and product_id:
+                card = session.execute(
+                    select(models.Card)
+                    .where(
+                        models.Card.external_provider == provider,
+                        models.Card.external_subscription_id == subscription_id,
+                    )
+                    .limit(1)
+                ).scalar_one_or_none()
+        if not subscription and provider and customer_id:
+            subscription = session.execute(
+                select(models.ExternalSubscription)
+                .where(
+                    models.ExternalSubscription.provider == provider,
+                    models.ExternalSubscription.external_customer_id == customer_id,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+    return member, subscription, card
+
+
+def _status_history_rows(uid: str, *, limit: int = 20) -> str:
+    if not uid:
+        return ""
+    with get_session() as session:
+        rows = session.execute(
+            select(models.CardStatusHistory)
+            .where(models.CardStatusHistory.card_uid == uid)
+            .order_by(models.CardStatusHistory.created_at.desc())
+            .limit(limit)
+        ).scalars().all()
+    return "".join(
+        "<tr>"
+        f"<td>{_dt(row.created_at)}</td>"
+        f"<td>{html.escape(row.previous_status or '')}</td>"
+        f"<td>{html.escape(row.new_status or '')}</td>"
+        f"<td>{html.escape(row.reason or '')}</td>"
+        f"<td>{html.escape(row.external_event_id or '')}</td>"
+        "</tr>"
+        for row in rows
+    )
+
+
+@app.get("/webhooks", response_class=HTMLResponse)
+def list_webhooks(request: Request, status: str = "", provider: str = "", event_type: str = "", q: str = "", page: int = 1):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return _redirect_login("/webhooks")
+    csrf_token = _csrf_value(request)
+    page_result = _webhook_events_page(status=status, provider=provider, event_type=event_type, q=q, page=page)
+    counts = _webhook_counts()
+    rows = "\n".join(_webhook_event_row(event, csrf_token) for event in page_result.items)
+    status_options = ["", "RECEIVED", "PROCESSING", "PROCESSED", "FAILED", "RETRY_PENDING", "IGNORED", "DEAD_LETTER"]
+    status_select = "".join(
+        f"<option value='{html.escape(value)}' {'selected' if status.upper() == value else ''}>{html.escape(value or 'Todos os status')}</option>"
+        for value in status_options
+    )
+    body = f"""
+      <section class='admin-summary'>
+        <article><header>Total eventos</header><strong>{counts.get('TOTAL', 0)}</strong></article>
+        <article><header>Processados</header><strong>{counts.get('PROCESSED', 0)}</strong></article>
+        <article><header>Falhas</header><strong>{counts.get('FAILED', 0) + counts.get('DEAD_LETTER', 0)}</strong></article>
+        <article><header>Pendentes</header><strong>{counts.get('RECEIVED', 0) + counts.get('RETRY_PENDING', 0)}</strong></article>
+      </section>
+      <article>
+        <h3>Eventos de webhook</h3>
+        <p class='admin-compact'>Acompanhe recebimento, processamento, payload e tentativas da integração TheMembers/assinaturas.</p>
+        {_webhooks_alert(request)}
+        <form class='admin-filter-grid' method='get' action='/webhooks'>
+          <label>Busca <input name='q' placeholder='event id, tipo, erro, correlação' value='{html.escape(q)}'></label>
+          <label>Status <select name='status'>{status_select}</select></label>
+          <label>Provider <input name='provider' placeholder='themembers' value='{html.escape(provider)}'></label>
+          <label>Tipo <input name='event_type' placeholder='subscription.payment_approved' value='{html.escape(event_type)}'></label>
+          <button type='submit'>Filtrar</button>
+        </form>
+        <p class='admin-actions-row'>
+          <a class='secondary' role='button' href='/webhooks/subscriptions'>Ver assinaturas externas</a>
+        </p>
+        <table role='grid'>
+          <thead><tr><th>Evento externo</th><th>Provider</th><th>Tipo</th><th>Status</th><th>Tent.</th><th>Recebido</th><th>Erro</th><th>Ações</th></tr></thead>
+          <tbody>{rows or '<tr><td colspan="8">Nenhum evento encontrado.</td></tr>'}</tbody>
+        </table>
+        {_pager_html('/webhooks', page_result, q=q, status=status, provider=provider, event_type=event_type)}
+      </article>
+    """
+    return _layout(request, "Admin | Webhooks", body, csrf_token=csrf_token)
+
+
+@app.get("/webhooks/events/{event_id}", response_class=HTMLResponse)
+def webhook_event_detail(event_id: str, request: Request):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return _redirect_login(f"/webhooks/events/{event_id}")
+    with get_session() as session:
+        event = session.get(models.WebhookEvent, event_id)
+    if not event:
+        return RedirectResponse("/webhooks?error=nao_encontrado", status_code=303)
+    csrf_token = _csrf_value(request)
+    member, subscription, card = _related_records_for_event(event)
+    data = _event_payload_data(event)
+    retry_html = ""
+    if (event.status or "").upper() in {"RECEIVED", "FAILED", "RETRY_PENDING"}:
+        retry_html = _webhook_retry_form(event.id, csrf_token, label="Reprocessar agora")
+    card_uid = getattr(card, "uid", "") or ""
+    history_rows = _status_history_rows(card_uid) if card_uid else ""
+    related_html = f"""
+      <dl class='admin-detail-list'>
+        <dt>Cliente externo</dt><dd>{html.escape(str(data.get('customer_id') or ''))}</dd>
+        <dt>Assinatura/Pedido</dt><dd>{html.escape(str(data.get('subscription_id') or data.get('order_id') or ''))}</dd>
+        <dt>Produto</dt><dd>{html.escape(str(data.get('product_id') or ''))}</dd>
+        <dt>Membro local</dt><dd>{html.escape(getattr(member, 'email', '') or '—')}</dd>
+        <dt>Status assinatura</dt><dd>{_subscription_status_badge(getattr(subscription, 'status', '') or '')}</dd>
+        <dt>Cartão</dt><dd>{f"<a href='/cards/{html.escape(card_uid)}'><code>{html.escape(card_uid)}</code></a>" if card_uid else '—'}</dd>
+        <dt>Status cartão</dt><dd>{_status_badge(getattr(card, 'status', '') or '') if card else '—'}</dd>
+      </dl>
+    """
+    body = f"""
+      <article>
+        <p><a class='secondary' href='/webhooks' role='button'>← Voltar para eventos</a></p>
+        {_webhooks_alert(request)}
+        <div class='admin-actions-row'>{retry_html}</div>
+      </article>
+      <section class='admin-grid-2'>
+        <article>
+          <h3>Evento</h3>
+          <dl class='admin-detail-list'>
+            <dt>ID interno</dt><dd><code>{html.escape(event.id)}</code></dd>
+            <dt>Evento externo</dt><dd><code>{html.escape(event.external_event_id)}</code></dd>
+            <dt>Provider</dt><dd>{html.escape(event.provider or '')}</dd>
+            <dt>Tipo</dt><dd>{html.escape(event.event_type or '')}</dd>
+            <dt>Status</dt><dd>{_webhook_status_badge(event.status or '')}</dd>
+            <dt>Tentativas</dt><dd>{int(event.attempts or 0)}</dd>
+            <dt>Correlação</dt><dd>{html.escape(event.correlation_id or '—')}</dd>
+            <dt>Recebido</dt><dd>{_dt(event.received_at)}</dd>
+            <dt>Início processamento</dt><dd>{_dt(event.processing_started_at)}</dd>
+            <dt>Processado</dt><dd>{_dt(event.processed_at)}</dd>
+            <dt>Próximo retry</dt><dd>{_dt(event.next_retry_at)}</dd>
+            <dt>Código erro</dt><dd>{html.escape(event.error_code or '—')}</dd>
+            <dt>Mensagem erro</dt><dd>{html.escape(event.error_message or '—')}</dd>
+          </dl>
+        </article>
+        <article>
+          <h3>Relações</h3>
+          {related_html}
+        </article>
+      </section>
+      <article>
+        <h3>Payload recebido</h3>
+        <pre class='admin-code-block'>{_json_pretty(event.payload)}</pre>
+      </article>
+      <article>
+        <h3>Histórico do cartão relacionado</h3>
+        <table role='grid'>
+          <thead><tr><th>Data</th><th>Anterior</th><th>Novo</th><th>Motivo</th><th>Evento externo</th></tr></thead>
+          <tbody>{history_rows or '<tr><td colspan="5">Nenhum histórico relacionado.</td></tr>'}</tbody>
+        </table>
+      </article>
+    """
+    return _layout(request, "Admin | Evento webhook", body, csrf_token=csrf_token)
+
+
+def _subscription_filters(*, status: str = "", provider: str = "", q: str = "") -> list:
+    filters: list = []
+    if status:
+        filters.append(func.upper(models.ExternalSubscription.status) == status.strip().upper())
+    if provider:
+        filters.append(func.lower(models.ExternalSubscription.provider) == provider.strip().lower())
+    qnorm = (q or "").strip().lower()
+    if qnorm:
+        pattern = f"%{qnorm}%"
+        filters.append(
+            or_(
+                func.lower(models.ExternalSubscription.external_customer_id).like(pattern),
+                func.lower(func.coalesce(models.ExternalSubscription.external_subscription_id, "")).like(pattern),
+                func.lower(func.coalesce(models.ExternalSubscription.external_order_id, "")).like(pattern),
+                func.lower(func.coalesce(models.ExternalSubscription.external_product_id, "")).like(pattern),
+            )
+        )
+    return filters
+
+
+def _subscription_card(provider: str, subscription_id: str, product_id: str = ""):
+    if not provider or not subscription_id:
+        return None
+    filters = [models.Card.external_provider == provider, models.Card.external_subscription_id == subscription_id]
+    if product_id:
+        filters.append(models.Card.external_product_id == product_id)
+    with get_session() as session:
+        card = session.execute(select(models.Card).where(*filters).limit(1)).scalar_one_or_none()
+        if card or not product_id:
+            return card
+        return session.execute(
+            select(models.Card)
+            .where(models.Card.external_provider == provider, models.Card.external_subscription_id == subscription_id)
+            .limit(1)
+        ).scalar_one_or_none()
+
+
+def _subscriptions_page(*, status: str = "", provider: str = "", q: str = "", page: int = 1) -> PageResult:
+    stmt = select(models.ExternalSubscription).where(*_subscription_filters(status=status, provider=provider, q=q))
+    return repo._page_from_statement(
+        stmt,
+        page=page,
+        page_size=PAGE_SIZE,
+        order_by=[models.ExternalSubscription.updated_at.desc()],
+    )
+
+
+@app.get("/webhooks/subscriptions", response_class=HTMLResponse)
+def list_external_subscriptions(request: Request, status: str = "", provider: str = "", q: str = "", page: int = 1):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return _redirect_login("/webhooks/subscriptions")
+    page_result = _subscriptions_page(status=status, provider=provider, q=q, page=page)
+    rows = []
+    for sub in page_result.items:
+        card = _subscription_card(sub.provider, sub.external_subscription_id or "", sub.external_product_id or "")
+        card_link = (
+            f"<a href='/cards/{html.escape(card.uid)}'><code>{html.escape(card.uid)}</code></a>"
+            if card
+            else "—"
+        )
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(sub.provider or '')}</td>"
+            f"<td><code>{html.escape(sub.external_subscription_id or '')}</code></td>"
+            f"<td>{html.escape(sub.external_customer_id or '')}</td>"
+            f"<td>{html.escape(sub.external_product_id or '')}</td>"
+            f"<td>{_subscription_status_badge(sub.status or '')}</td>"
+            f"<td>{card_link}</td>"
+            f"<td>{_dt(sub.updated_at)}</td>"
+            "</tr>"
+        )
+    status_options = ["", "PENDING", "ACTIVE", "OVERDUE", "SUSPENDED", "CANCELLED", "REFUNDED"]
+    status_select = "".join(
+        f"<option value='{html.escape(value)}' {'selected' if status.upper() == value else ''}>{html.escape(value or 'Todos os status')}</option>"
+        for value in status_options
+    )
+    body = f"""
+      <article>
+        <p><a class='secondary' href='/webhooks' role='button'>← Eventos</a></p>
+        <h3>Assinaturas externas</h3>
+        <p class='admin-compact'>Visão consolidada do estado comercial recebido pela integração e sua relação com cartões Soomei.</p>
+        <form class='admin-filter-grid' method='get' action='/webhooks/subscriptions'>
+          <label>Busca <input name='q' placeholder='cliente, assinatura, pedido, produto' value='{html.escape(q)}'></label>
+          <label>Status <select name='status'>{status_select}</select></label>
+          <label>Provider <input name='provider' placeholder='themembers' value='{html.escape(provider)}'></label>
+          <button type='submit'>Filtrar</button>
+        </form>
+        <table role='grid'>
+          <thead><tr><th>Provider</th><th>Assinatura</th><th>Cliente externo</th><th>Produto</th><th>Status</th><th>Cartão</th><th>Atualizado</th></tr></thead>
+          <tbody>{''.join(rows) or '<tr><td colspan="7">Nenhuma assinatura encontrada.</td></tr>'}</tbody>
+        </table>
+        {_pager_html('/webhooks/subscriptions', page_result, q=q, status=status, provider=provider)}
+      </article>
+    """
+    return _layout(request, "Admin | Assinaturas externas", body, csrf_token=_csrf_value(request))
+
+
+@app.post("/webhooks/events/{event_id}/retry")
+def retry_webhook_event_page(event_id: str, request: Request, csrf_token: str = Form("")):
+    try:
+        _csrf_protect(request, csrf_token)
+        require_admin(request)
+    except HTTPException:
+        return RedirectResponse(f"/webhooks/events/{html.escape(event_id)}?error=csrf", status_code=303)
+    service = MembershipWebhookService()
+    event = service.process_event(event_id)
+    if not event:
+        return RedirectResponse("/webhooks?error=nao_encontrado", status_code=303)
+    return RedirectResponse(
+        f"/webhooks/events/{html.escape(event_id)}?ok=retry&status={html.escape(event.status or '')}",
+        status_code=303,
+    )
+
+
+@app.get("/api/v1/admin/webhook-events")
+def admin_list_webhook_events(request: Request, status: str = "", external_event_id: str = "", limit: int = 50):
+    require_admin(request)
+    safe_limit = max(1, min(int(limit or 50), 100))
+    filters = []
+    if status:
+        filters.append(models.WebhookEvent.status == status.strip().upper())
+    if external_event_id:
+        filters.append(models.WebhookEvent.external_event_id == external_event_id.strip())
+    with get_session() as session:
+        stmt = (
+            select(models.WebhookEvent)
+            .where(*filters)
+            .order_by(models.WebhookEvent.received_at.desc())
+            .limit(safe_limit)
+        )
+        rows = session.execute(stmt).scalars().all()
+    return JSONResponse(
+        {
+            "items": [
+                {
+                    "id": row.id,
+                    "provider": row.provider,
+                    "external_event_id": row.external_event_id,
+                    "event_type": row.event_type,
+                    "status": row.status,
+                    "attempts": row.attempts,
+                    "received_at": row.received_at.isoformat() if row.received_at else None,
+                    "processed_at": row.processed_at.isoformat() if row.processed_at else None,
+                    "next_retry_at": row.next_retry_at.isoformat() if row.next_retry_at else None,
+                    "error_code": row.error_code,
+                    "error_message": row.error_message,
+                    "correlation_id": row.correlation_id,
+                }
+                for row in rows
+            ]
+        }
+    )
+
+
+@app.get("/api/v1/admin/card-status-history/{uid}")
+def admin_card_status_history(uid: str, request: Request, limit: int = 50):
+    require_admin(request)
+    safe_limit = max(1, min(int(limit or 50), 100))
+    with get_session() as session:
+        stmt = (
+            select(models.CardStatusHistory)
+            .where(models.CardStatusHistory.card_uid == uid)
+            .order_by(models.CardStatusHistory.created_at.desc())
+            .limit(safe_limit)
+        )
+        rows = session.execute(stmt).scalars().all()
+    return JSONResponse(
+        {
+            "items": [
+                {
+                    "id": row.id,
+                    "card_uid": row.card_uid,
+                    "previous_status": row.previous_status,
+                    "new_status": row.new_status,
+                    "reason": row.reason,
+                    "source": row.source,
+                    "actor_id": row.actor_id,
+                    "external_event_id": row.external_event_id,
+                    "metadata": row.metadata_json,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                }
+                for row in rows
+            ]
+        }
+    )
+
+
+@app.post("/api/v1/admin/webhook-events/{event_id}/retry")
+def admin_retry_webhook_event(event_id: str, request: Request, csrf_token: str = Form("")):
+    _csrf_protect(request, csrf_token)
+    email = require_admin(request)
+    service = MembershipWebhookService()
+    event = service.process_event(event_id)
+    return JSONResponse(
+        {
+            "requested_by": email,
+            "event_id": event_id,
+            "status": event.status if event else "not_found",
+        },
+        status_code=200 if event else 404,
+    )
 
 
 def create_admin_app() -> FastAPI:

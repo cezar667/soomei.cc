@@ -55,6 +55,8 @@ def test_slug_select_template_keeps_contract_and_premium_design():
     assert "Escolha o link do seu cartão" in template
     assert 'method="post" action="/slug/select/{{ uid }}"' in template
     assert 'name="csrf_token"' in template
+    assert 'name="next" value="{{ next }}"' in template
+    assert 'href="{{ back_href }}"' in template
     assert 'name="value" id="slug"' in template
     assert 'data-current="{{ current }}"' in template
     assert 'id="slugPreview"' in template

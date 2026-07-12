@@ -121,6 +121,9 @@ def test_editor_renders_session_csrf_and_valid_javascript(monkeypatch):
     assert "id='togglePassword' aria-expanded='false' onclick=" in body
     assert "data-switch-label" in body
     assert "l.textContent=this.checked?&#x27;Exibindo&#x27;:&#x27;Oculto&#x27;" in body
+    assert "id='addSlug' class='btn ghost'" in body
+    assert "href='/slug/select/tksc4o?next=edit'" in body
+    assert "window.soomeiOpenSlugModal" in body
     assert "featuredColor.dispatchEvent(new Event('input'" in body
     assert "style.setProperty('background', 'linear-gradient(135deg,#4f8cff,#73d6ff)', 'important')" in body
     assert "Cache-Control" in response.headers

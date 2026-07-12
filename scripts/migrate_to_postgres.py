@@ -12,8 +12,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from api.repositories.sql_repository import SQLRepository
-from api.db.session import get_session
+from api.db.create_tables import create_all
+from api.db.session import get_engine, get_session
 from api.db.models import VerifyToken, ResetToken, UserSession, AdminSession, CustomDomain
+from sqlalchemy import text
 
 
 def _to_datetime(value) -> datetime | None:
@@ -42,7 +44,44 @@ def _load_json(path: Path) -> dict:
     return data
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split the repo migration SQL into simple executable statements."""
+    statements: list[str] = []
+    current: list[str] = []
+    for line in sql.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("--"):
+            continue
+        current.append(line)
+        if stripped.endswith(";"):
+            statements.append("\n".join(current).rstrip().rstrip(";"))
+            current = []
+    if current:
+        statements.append("\n".join(current).strip())
+    return [statement for statement in statements if statement.strip()]
+
+
+def _ensure_current_schema() -> None:
+    """
+    Ensure the current SQLAlchemy tables and incremental Postgres upgrades exist.
+
+    Base.metadata.create_all() creates missing tables, but it does not alter existing
+    tables. The membership webhook feature added columns to cards, so the legacy
+    JSON migration must apply that incremental SQL before loading Card rows.
+    """
+    create_all()
+    migration_path = ROOT / "db" / "migrations" / "20260712_membership_webhooks.sql"
+    if not migration_path.exists():
+        return
+    sql = migration_path.read_text(encoding="utf-8")
+    engine = get_engine()
+    with engine.begin() as conn:
+        for statement in _split_sql_statements(sql):
+            conn.execute(text(statement))
+
+
 def migrate() -> None:
+    _ensure_current_schema()
     repo = SQLRepository()
     data_file = Path(__file__).resolve().parents[1] / "api" / "data.json"
     db = _load_json(data_file)

@@ -149,7 +149,7 @@ def _public_message_response(
         <div class='status-card carbon'>
           <div class='status-glow' aria-hidden='true'></div>
           <div class='status-brand'>
-            <img src='/static/img/soomei-logo.svg' alt='Soomei' class='status-logo'>
+            <img src='/static/img/soomei_logo.png' alt='Soomei' class='status-logo'>
             <span>Soomei</span>
           </div>
           <div class='status-body'>
@@ -1510,7 +1510,7 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
           <section class='utility-card carbon' style='background-color: {html.escape(bg_hex)}'>
             <a class='utility-back' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
             <div class='utility-brand'>
-              <img src='/static/img/soomei-logo.svg' alt='Soomei' class='utility-logo'>
+              <img src='/static/img/soomei_logo.png' alt='Soomei' class='utility-logo'>
               <span>Soomei</span>
             </div>
             <p class='utility-kicker'>Contato sem internet</p>
@@ -1557,13 +1557,15 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
             <link rel='stylesheet' href='{CSS_HREF}'><title>Pagamento Pix</title></head><body>
             <main class='wrap utility-shell'>
-              <section class='utility-card carbon' style='background-color: {html.escape(bg_hex)}'>
+              <section class='utility-card utility-card--pix carbon' style='background-color: {html.escape(bg_hex)}'>
                 <a class='utility-back' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
                 <div class='utility-brand'>
-                  <img src='/static/img/soomei-logo.svg' alt='Soomei' class='utility-logo'>
+                  <img src='/static/img/soomei_logo.png' alt='Soomei' class='utility-logo'>
                   <span>Soomei</span>
                 </div>
+                <div class='utility-support'>
                 <p class='utility-kicker'>Pagamento instantâneo</p>
+                </div>
                 <h1>Gerar Pix</h1>
                 <p class='utility-intro'>Informe o valor para criar um QR Code pronto para pagamento. Se quiser deixar aberto, mantenha 0,00.</p>
                 {f"<img class='utility-avatar' src='{photo}' alt='foto'>" if photo else ""}
@@ -1660,13 +1662,15 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
             <link rel='stylesheet' href='{CSS_HREF}'><title>QRCode Pix</title></head><body>
             <main class='wrap utility-shell'>
-              <section class='utility-card carbon' style='background-color: {html.escape(bg_hex)}'>
+              <section class='utility-card utility-card--pix carbon' style='background-color: {html.escape(bg_hex)}'>
                 <a class='utility-back' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
                 <div class='utility-brand'>
-                  <img src='/static/img/soomei-logo.svg' alt='Soomei' class='utility-logo'>
+                  <img src='/static/img/soomei_logo.png' alt='Soomei' class='utility-logo'>
                   <span>Soomei</span>
                 </div>
+                <div class='utility-support'>
                 <p class='utility-kicker'>Pix pronto</p>
+                </div>
                 <h1>QRCode Pix</h1>
                 <p class='utility-intro'>Escaneie no app do banco ou copie o código Pix para concluir o pagamento.</p>
                 {f"<img class='utility-avatar' src='{photo}' alt='foto'>" if photo else ""}

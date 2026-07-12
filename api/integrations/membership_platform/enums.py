@@ -1,0 +1,81 @@
+"""Centralized enums for the membership webhook integration."""
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class ExternalEventType(StrEnum):
+    CUSTOMER_CREATED = "customer.created"
+    SUBSCRIPTION_CREATED = "subscription.created"
+    PAYMENT_APPROVED = "subscription.payment_approved"
+    PAYMENT_FAILED = "subscription.payment_failed"
+    SUBSCRIPTION_OVERDUE = "subscription.overdue"
+    SUBSCRIPTION_REACTIVATED = "subscription.reactivated"
+    SUBSCRIPTION_CANCELLED = "subscription.cancelled"
+    PAYMENT_REFUNDED = "payment.refunded"
+    CHARGEBACK_RECEIVED = "payment.chargeback"
+
+
+class InternalEventType(StrEnum):
+    CUSTOMER_CREATED = "CUSTOMER_CREATED"
+    SUBSCRIPTION_CREATED = "SUBSCRIPTION_CREATED"
+    PAYMENT_APPROVED = "PAYMENT_APPROVED"
+    PAYMENT_FAILED = "PAYMENT_FAILED"
+    SUBSCRIPTION_OVERDUE = "SUBSCRIPTION_OVERDUE"
+    SUBSCRIPTION_REACTIVATED = "SUBSCRIPTION_REACTIVATED"
+    SUBSCRIPTION_CANCELLED = "SUBSCRIPTION_CANCELLED"
+    PAYMENT_REFUNDED = "PAYMENT_REFUNDED"
+    CHARGEBACK_RECEIVED = "CHARGEBACK_RECEIVED"
+    UNSUPPORTED = "UNSUPPORTED"
+
+
+class WebhookEventStatus(StrEnum):
+    RECEIVED = "RECEIVED"
+    PROCESSING = "PROCESSING"
+    PROCESSED = "PROCESSED"
+    FAILED = "FAILED"
+    RETRY_PENDING = "RETRY_PENDING"
+    IGNORED = "IGNORED"
+    DEAD_LETTER = "DEAD_LETTER"
+
+
+class SubscriptionStatus(StrEnum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    OVERDUE = "OVERDUE"
+    SUSPENDED = "SUSPENDED"
+    CANCELLED = "CANCELLED"
+    REFUNDED = "REFUNDED"
+
+
+class CardStatusReason(StrEnum):
+    PAYMENT_APPROVED = "PAYMENT_APPROVED"
+    PAYMENT_OVERDUE = "PAYMENT_OVERDUE"
+    PAYMENT_REGULARIZED = "PAYMENT_REGULARIZED"
+    SUBSCRIPTION_CANCELLED = "SUBSCRIPTION_CANCELLED"
+    PAYMENT_REFUNDED = "PAYMENT_REFUNDED"
+    CHARGEBACK_RECEIVED = "CHARGEBACK_RECEIVED"
+    ADMIN_ACTION = "ADMIN_ACTION"
+    WEBHOOK_CREATED = "WEBHOOK_CREATED"
+
+
+class CardStatusSource(StrEnum):
+    WEBHOOK = "WEBHOOK"
+    ADMIN_PANEL = "ADMIN_PANEL"
+    MEMBER_PORTAL = "MEMBER_PORTAL"
+    SYSTEM = "SYSTEM"
+    SUPPORT = "SUPPORT"
+
+
+SUPPORTED_EVENT_MAP: dict[str, InternalEventType] = {
+    ExternalEventType.CUSTOMER_CREATED.value: InternalEventType.CUSTOMER_CREATED,
+    ExternalEventType.SUBSCRIPTION_CREATED.value: InternalEventType.SUBSCRIPTION_CREATED,
+    ExternalEventType.PAYMENT_APPROVED.value: InternalEventType.PAYMENT_APPROVED,
+    ExternalEventType.PAYMENT_FAILED.value: InternalEventType.PAYMENT_FAILED,
+    ExternalEventType.SUBSCRIPTION_OVERDUE.value: InternalEventType.SUBSCRIPTION_OVERDUE,
+    ExternalEventType.SUBSCRIPTION_REACTIVATED.value: InternalEventType.SUBSCRIPTION_REACTIVATED,
+    ExternalEventType.SUBSCRIPTION_CANCELLED.value: InternalEventType.SUBSCRIPTION_CANCELLED,
+    ExternalEventType.PAYMENT_REFUNDED.value: InternalEventType.PAYMENT_REFUNDED,
+    ExternalEventType.CHARGEBACK_RECEIVED.value: InternalEventType.CHARGEBACK_RECEIVED,
+}
+

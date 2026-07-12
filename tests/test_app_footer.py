@@ -19,6 +19,16 @@ def test_brand_footer_injects_soomei_watermark_and_action_slot():
     assert rendered.index("soomei-watermark") < rendered.index("{footer_action_html}")
 
 
+def test_brand_footer_stays_outside_utility_shell():
+    body = "<main class='wrap utility-shell'><section>pix</section></main>"
+
+    rendered = _brand_footer_inject(body)
+
+    assert "</main>" in rendered
+    assert rendered.index("</main>") < rendered.index("soomei-footer-mark")
+    assert rendered.index("utility-shell") < rendered.index("</main>")
+
+
 def test_base_template_has_standard_soomei_footer():
     template = Path("templates/base.html").read_text(encoding="utf-8")
 

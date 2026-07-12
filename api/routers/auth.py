@@ -111,7 +111,9 @@ def _auth_message_response(
               <img src='/static/img/soomei_logo.png' alt='Soomei' class='auth-logo'>
               <span>Soomei</span>
             </div>
+            <div class='auth-support'>
             <p class='auth-kicker'>{html.escape(kicker)}</p>
+            </div>
             <h1>{html.escape(heading)}</h1>
             <p class='auth-intro'>{html.escape(message)}</p>
             <div class='auth-actions'>
@@ -230,7 +232,9 @@ def reset_form(request: Request, token: str = "", error: str = ""):
               <img src='/static/img/soomei_logo.png' alt='Soomei' class='auth-logo'>
               <span>Soomei</span>
             </div>
+            <div class='auth-support'>
             <p class='auth-kicker'>Nova credencial</p>
+            </div>
             <h1>Definir nova senha</h1>
             <p class='auth-intro'>Crie uma senha com pelo menos 8 caracteres para continuar acessando sua conta.</p>
             {_banner(error, "bad")}
@@ -291,7 +295,9 @@ def reset_password(request: Request, token: str = Form(""), password: str = Form
               <img src='/static/img/soomei_logo.png' alt='Soomei' class='auth-logo'>
               <span>Soomei</span>
             </div>
+            <div class='auth-support'>
             <p class='auth-kicker'>Tudo certo</p>
+            </div>
             <h1>Senha atualizada</h1>
             <p class='auth-intro'>Senha redefinida com sucesso para <b>{html.escape(email)}</b>. Agora você já pode entrar novamente.</p>
             <div class='auth-actions'>

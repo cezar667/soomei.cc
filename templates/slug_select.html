@@ -17,6 +17,7 @@
 
       <form method="post" action="/slug/select/{{ uid }}" class="slug-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next }}">
         <div class="slug-field">
           <label for="slug">
             Slug
@@ -40,7 +41,7 @@
         </div>
 
         <div class="slug-actions">
-          <a class="btn slug-secondary" href="/{{ back_slug }}">Voltar</a>
+          <a class="btn slug-secondary" href="{{ back_href }}">Voltar</a>
           <button class="btn slug-submit">Salvar link público</button>
         </div>
       </form>

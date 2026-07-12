@@ -1,0 +1,648 @@
+{
+  "info": {
+    "_postman_id": "a8e06de4-1e25-4c26-861e-soomei-webhooks",
+    "name": "Soomei - Membership Webhooks",
+    "description": "Collection para validar o módulo de webhooks da plataforma externa de associados. O script de pré-request assina automaticamente o corpo bruto com HMAC-SHA256 usando `webhook_secret`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('run_id')) {",
+          "  pm.collectionVariables.set('run_id', Date.now().toString());",
+          "}",
+          "",
+          "const rawTemplate = pm.request.body && pm.request.body.raw ? pm.request.body.raw : '';",
+          "if (rawTemplate) {",
+          "  const rawBody = pm.variables.replaceIn(rawTemplate);",
+          "  const timestamp = Math.floor(Date.now() / 1000).toString();",
+          "  const secret = pm.collectionVariables.get('webhook_secret') || pm.environment.get('webhook_secret') || '';",
+          "  const signature = 'sha256=' + CryptoJS.HmacSHA256(timestamp + '.' + rawBody, secret).toString(CryptoJS.enc.Hex);",
+          "  let eventId = 'evt_unknown';",
+          "  try { eventId = JSON.parse(rawBody).event_id || eventId; } catch (e) {}",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "  pm.request.headers.upsert({ key: 'X-Webhook-Timestamp', value: timestamp });",
+          "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: signature });",
+          "  pm.request.headers.upsert({ key: 'X-Webhook-Event-Id', value: eventId });",
+          "  pm.request.headers.upsert({ key: 'X-Correlation-Id', value: 'postman-' + pm.collectionVariables.get('run_id') });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "webhook_secret",
+      "value": "segredo-teste-123",
+      "type": "secret"
+    },
+    {
+      "key": "run_id",
+      "value": "001"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Preparar rodada",
+      "item": [
+        {
+          "name": "Gerar novo run_id",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('run_id', Date.now().toString());",
+                  "console.log('Novo run_id:', pm.collectionVariables.get('run_id'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('run_id gerado', function () {",
+                  "  pm.expect(pm.collectionVariables.get('run_id')).to.not.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "login"
+              ]
+            },
+            "description": "Use este request antes da bateria para gerar um `run_id` novo e evitar duplicidade de eventos de execuções anteriores."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 - Fluxo principal da assinatura",
+      "item": [
+        {
+          "name": "Pagamento aprovado - cria associado, assinatura e cartão pendente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('evento recebido', function () { pm.expect(json.received).to.eql(true); });",
+                  "pm.test('primeira entrega não é duplicada', function () { pm.expect(json.duplicate).to.eql(false); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_payment_approved_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T12:00:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"order_id\": \"order_postman_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\",\n      \"phone\": \"5534999999999\",\n      \"document\": \"00000000000\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Pagamento aprovado duplicado - não duplica cartão",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('evento duplicado tratado como sucesso', function () {",
+                  "  pm.expect(json.received).to.eql(true);",
+                  "  pm.expect(json.duplicate).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_payment_approved_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T12:00:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"order_id\": \"order_postman_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\",\n      \"phone\": \"5534999999999\",\n      \"document\": \"00000000000\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Inadimplência - bloqueia cartão por pagamento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_overdue_{{run_id}}\",\n  \"event_type\": \"subscription.overdue\",\n  \"created_at\": \"2026-07-12T12:05:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"order_id\": \"order_postman_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Regularização - reativa se bloqueio foi por pagamento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_reactivated_{{run_id}}\",\n  \"event_type\": \"subscription.reactivated\",\n  \"created_at\": \"2026-07-12T12:10:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"order_id\": \"order_postman_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancelamento - bloqueia por cancelamento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_cancelled_{{run_id}}\",\n  \"event_type\": \"subscription.cancelled\",\n  \"created_at\": \"2026-07-12T12:15:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"order_id\": \"order_postman_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Eventos adicionais",
+      "item": [
+        {
+          "name": "Cliente criado - cria/atualiza associado sem assinatura obrigatória",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_customer_created_{{run_id}}\",\n  \"event_type\": \"customer.created\",\n  \"created_at\": \"2026-07-12T12:20:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_only_postman_{{run_id}}\",\n    \"customer\": {\n      \"name\": \"Cliente Sem Assinatura {{run_id}}\",\n      \"email\": \"cliente.sem.assinatura.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Assinatura criada - registra assinatura sem criar cartão ativo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_subscription_created_{{run_id}}\",\n  \"event_type\": \"subscription.created\",\n  \"created_at\": \"2026-07-12T12:25:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_subscription_only_{{run_id}}\",\n    \"subscription_id\": \"subscription_only_{{run_id}}\",\n    \"order_id\": \"order_subscription_only_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Assinatura {{run_id}}\",\n      \"email\": \"cliente.assinatura.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Estorno - bloqueia cartão",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_refunded_{{run_id}}\",\n  \"event_type\": \"payment.refunded\",\n  \"created_at\": \"2026-07-12T12:30:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"order_id\": \"order_postman_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Chargeback - bloqueia cartão",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_chargeback_{{run_id}}\",\n  \"event_type\": \"payment.chargeback\",\n  \"created_at\": \"2026-07-12T12:35:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"order_id\": \"order_postman_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Evento desconhecido - persiste e marca IGNORED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('evento desconhecido ainda é recebido com sucesso', function () {",
+                  "  pm.expect(json.received).to.eql(true);",
+                  "  pm.expect(json.duplicate).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_unknown_{{run_id}}\",\n  \"event_type\": \"subscription.future_event\",\n  \"created_at\": \"2026-07-12T12:40:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_postman_{{run_id}}\",\n    \"subscription_id\": \"subscription_postman_{{run_id}}\",\n    \"customer\": {\n      \"name\": \"Cliente Postman {{run_id}}\",\n      \"email\": \"cliente.postman.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Segurança e payload inválido",
+      "item": [
+        {
+          "name": "Assinatura inválida - retorna 401",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: 'sha256=assinatura-invalida' });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', function () { pm.response.to.have.status(401); });",
+                  "pm.test('não revela detalhes da validação', function () {",
+                  "  pm.expect(pm.response.json().detail).to.eql('Invalid webhook authentication');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_invalid_signature_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T12:45:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_security_{{run_id}}\",\n    \"subscription_id\": \"subscription_security_{{run_id}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Timestamp expirado - retorna 401",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rawBody = pm.variables.replaceIn(pm.request.body.raw || '');",
+                  "const oldTimestamp = (Math.floor(Date.now() / 1000) - 9999).toString();",
+                  "const secret = pm.collectionVariables.get('webhook_secret') || pm.environment.get('webhook_secret') || '';",
+                  "const signature = 'sha256=' + CryptoJS.HmacSHA256(oldTimestamp + '.' + rawBody, secret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'X-Webhook-Timestamp', value: oldTimestamp });",
+                  "pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: signature });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_expired_timestamp_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T12:50:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_security_{{run_id}}\",\n    \"subscription_id\": \"subscription_security_{{run_id}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Payload alterado após assinatura - retorna 401",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const secret = pm.collectionVariables.get('webhook_secret') || pm.environment.get('webhook_secret') || '';",
+                  "const signature = 'sha256=' + CryptoJS.HmacSHA256(timestamp + '.{\"altered\":true}', secret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'X-Webhook-Timestamp', value: timestamp });",
+                  "pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: signature });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_altered_payload_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T12:55:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_security_{{run_id}}\",\n    \"subscription_id\": \"subscription_security_{{run_id}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Payload inválido assinado corretamente - retorna 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_postman_invalid_payload_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T13:00:00Z\",\n  \"data\": {\n    \"subscription_id\": \"subscription_invalid_payload_{{run_id}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

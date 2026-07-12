@@ -3,7 +3,7 @@
 import html
 
 from fastapi import APIRouter, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from api.core import csrf
@@ -72,6 +72,12 @@ def _redirect_to_card(card: dict, uid: str) -> RedirectResponse:
     return RedirectResponse(f"/{html.escape(dest)}", status_code=303)
 
 
+def _wants_json_response(request: Request) -> bool:
+    requested_with = (request.headers.get("x-requested-with") or "").lower()
+    accept = (request.headers.get("accept") or "").lower()
+    return requested_with == "xmlhttprequest" or "application/json" in accept
+
+
 def _find_card_context(card_id: str) -> tuple[str | None, dict | None]:
     entity = _sql_repo.get_card_by_vanity(card_id) or _sql_repo.get_card_by_uid(card_id)
     if entity:
@@ -103,17 +109,33 @@ def slug_select(card_id: str, request: Request):
     templates = _get_templates(request)
     current = card.get("vanity", "") or ""
     back_slug = card.get("vanity", uid)
+    next_target = "edit" if request.query_params.get("next") == "edit" else ""
+    back_href = f"/edit/{html.escape(back_slug)}" if next_target == "edit" else f"/{html.escape(back_slug)}"
     token = csrf.ensure_csrf_token(request)
     response = templates.TemplateResponse(
         "slug_select.html",
-        {"request": request, "uid": uid, "current": current, "back_slug": back_slug, "csrf_token": token},
+        {
+            "request": request,
+            "uid": uid,
+            "current": current,
+            "back_slug": back_slug,
+            "back_href": back_href,
+            "next": next_target,
+            "csrf_token": token,
+        },
     )
     csrf.set_csrf_cookie(response, token)
     return response
 
 
 @router.post("/select/{card_id}")
-def slug_select_post(card_id: str, request: Request, value: str = Form(""), csrf_token: str = Form("")):
+def slug_select_post(
+    card_id: str,
+    request: Request,
+    value: str = Form(""),
+    csrf_token: str = Form(""),
+    next: str = Form(""),
+):
     uid, card = _find_card_context(card_id)
     if not card or not uid:
         raise HTTPException(404, "Cartao nao encontrado")
@@ -127,6 +149,15 @@ def slug_select_post(card_id: str, request: Request, value: str = Form(""), csrf
     try:
         new_slug = svc.assign_slug(uid, value)
     except InvalidSlugError:
+        if _wants_json_response(request):
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "invalid_slug",
+                    "message": "Use 3-30 caracteres: letras minúsculas, números e hífen.",
+                },
+                status_code=400,
+            )
         return _slug_message_response(
             request,
             heading="Link inválido",
@@ -134,6 +165,15 @@ def slug_select_post(card_id: str, request: Request, value: str = Form(""), csrf
             status_code=400,
         )
     except SlugUnavailableError:
+        if _wants_json_response(request):
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "slug_unavailable",
+                    "message": "Esse endereço já está em uso. Tente uma variação do seu nome ou marca.",
+                },
+                status_code=409,
+            )
         return _slug_message_response(
             request,
             heading="Link indisponível",
@@ -142,4 +182,14 @@ def slug_select_post(card_id: str, request: Request, value: str = Form(""), csrf
         )
     except CardNotFoundError:
         raise HTTPException(404, "Cartao nao encontrado")
-    return RedirectResponse(f"/{html.escape(new_slug)}", status_code=303)
+    if _wants_json_response(request):
+        return JSONResponse(
+            {
+                "ok": True,
+                "slug": new_slug,
+                "public_url": f"/{new_slug}",
+                "edit_url": f"/edit/{new_slug}",
+            }
+        )
+    redirect_path = f"/edit/{html.escape(new_slug)}" if next == "edit" else f"/{html.escape(new_slug)}"
+    return RedirectResponse(redirect_path, status_code=303)

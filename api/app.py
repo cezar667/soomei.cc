@@ -17,7 +17,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from api.core.config import get_settings
+from api.core.config import get_settings, validate_membership_webhook_settings
 from api.core.http_security import SecurityHeadersMiddleware
 from api.routers import auth as auth_router
 from api.routers import card_edit as card_edit_router
@@ -26,6 +26,7 @@ from api.routers import custom_domain as custom_domain_router
 from api.routers import hooks as hooks_router
 from api.routers import pages as pages_router
 from api.routers import slug as slug_router
+from api.integrations.membership_platform import router as membership_webhook_router
 from api.services.slug_service import SlugService
 from api.services.card_display import configure_public_base
 
@@ -45,6 +46,7 @@ app.mount("/static", CachedStaticFiles(directory=WEB), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE, "..", "templates"))
 
 settings = get_settings()
+validate_membership_webhook_settings(settings)
 PUBLIC_BASE = settings.public_base_url
 configure_public_base(PUBLIC_BASE)
 PUBLIC_VERSION = os.getenv("PUBLIC_VERSION")
@@ -129,13 +131,18 @@ def _brand_footer_inject(html_doc: str) -> str:
         "        <span class='soomei-footer-action'>{footer_action_html}</span>\n"
         "      </div>\n  "
     )
-    return html_doc.replace("</main>", snippet + "</main>", 1) if "</main>" in html_doc else (html_doc + snippet)
+    if "</main>" not in html_doc:
+        return html_doc + snippet
+    if "utility-shell" in html_doc:
+        return html_doc.replace("</main>", "</main>" + snippet, 1)
+    return html_doc.replace("</main>", snippet + "</main>", 1)
 
 
 app.include_router(auth_router.router)
 app.include_router(slug_router.router)
 app.include_router(custom_domain_router.router)
 app.include_router(hooks_router.router)
+app.include_router(membership_webhook_router.router)
 app.include_router(pages_router.router)
 app.include_router(card_edit_router.router)
 app.include_router(cards_router.router)

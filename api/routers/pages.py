@@ -111,7 +111,7 @@ def legal_terms(request: Request):
             <div class='status-card carbon'>
               <div class='status-glow' aria-hidden='true'></div>
               <div class='status-brand'>
-                <img src='/static/img/soomei-logo.svg' alt='Soomei' class='status-logo'>
+                <img src='/static/img/soomei_logo.png' alt='Soomei' class='status-logo'>
                 <span>Soomei</span>
               </div>
               <div class='status-body'>

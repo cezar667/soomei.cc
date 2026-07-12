@@ -718,7 +718,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <p>Escolha o endereço curto do seu cartão (ex.: /seu-nome).</p>
                 <div class='panel-actions'>
                   <input type='hidden' id='slugKey' value='{html.escape(card.get('vanity', uid))}'>
-                  <a href='#' id='addSlug' class='btn ghost'>Alterar slug</a>
+                  <a href='/slug/select/{html.escape(uid)}?next=edit' id='addSlug' class='btn ghost' onclick="if(window.soomeiOpenSlugModal){{window.soomeiOpenSlugModal(event);return false;}}">Alterar slug</a>
                   <span id='slugInfo' class='muted' style='font-size:12px'>URL atual: /{html.escape(card.get('vanity', uid))}</span>
                 </div>
               </div>
@@ -1285,7 +1285,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             '      <div id="slugMsg" class="hint slug-msg"></div>'+
             '      <div class="slug-modal-preview"><span>Prévia</span><code id="slugPreview">/'+(CURRENT||'')+'</code></div>'+
             '      <div class="slug-modal-tips"><span>✓ minúsculas</span><span>✓ números</span><span>✓ hífen</span></div>'+
-            '      <div class="slug-modal-actions"><button class="btn slug-submit" id="slugSave">Salvar novo link</button></div>'+
+            '      <div class="slug-modal-actions"><button type="button" class="btn slug-submit" id="slugSave">Salvar novo link</button></div>'+
             '    </div>'+
             '  </div>'+
             '</div>';
@@ -1320,6 +1320,11 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             // roda uma checagem inicial se já veio preenchido
             if (input.value) debounceCheck(input.value);
           }}
+          window.soomeiOpenSlugModal = function(event){{
+            if (event && event.preventDefault) event.preventDefault();
+            openModal();
+            return false;
+          }};
           function closeModal(){{
             var bd = document.getElementById('slugBackdrop');
             if (bd){{ bd.classList.remove('show'); bd.style.display = 'none'; }}
@@ -1339,6 +1344,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             var msg = document.getElementById('slugMsg');
             v = (v||'').trim().toLowerCase();
             if (!v){{ msg.textContent=''; el.classList.remove('is-ok','is-bad'); return; }}
+            if (v === CURRENT){{
+              msg.innerHTML = '<span class="ok">Slug atual</span>';
+              el.classList.add('is-ok'); el.classList.remove('is-bad'); return;
+            }}
             if (!/^[a-z0-9-]{{3,30}}$/.test(v)){{
               msg.innerHTML = '<span class="bad">Use 3-30 minúsculos/números/hífen.</span>';
               el.classList.remove('is-ok'); el.classList.add('is-bad'); return;
@@ -1380,35 +1389,47 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               var el = document.getElementById('slugInput');
               var v = (el.value||'').trim().toLowerCase();
               var msg = document.getElementById('slugMsg');
-              if (!el.classList.contains('is-ok')){{
-                msg.innerHTML = '<span class="bad tooltip-err">Escolha um slug disponível.</span>';
+              var saveBtn = document.getElementById('slugSave');
+              if (!/^[a-z0-9-]{{3,30}}$/.test(v)){{
+                msg.innerHTML = '<span class="bad tooltip-err">Use 3-30 minúsculos/números/hífen.</span>';
                 try{{ el.focus(); }}catch(_e){{}}
                 return;
               }}
+              msg.innerHTML = '<span class="muted">Salvando novo link...</span>';
+              if (saveBtn){{ saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }}
               if (loaderCtl && loaderCtl.show){{ loaderCtl.show(); }}
               try{{
                 var resp = await fetch('/slug/select/'+encodeURIComponent(UID), {{
                   method: 'POST',
-                  headers: {{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token': csrfValue}},
+                  headers: {{
+                    'Content-Type':'application/x-www-form-urlencoded',
+                    'Accept':'application/json',
+                    'X-Requested-With':'XMLHttpRequest',
+                    'X-CSRF-Token': csrfValue
+                  }},
                   body: 'value='+encodeURIComponent(v)+'&csrf_token='+encodeURIComponent(csrfValue)
                 }});
-                if (resp.ok){{
-                  window.location.href = '/edit/'+encodeURIComponent(v);
+                var payload = null;
+                try{{ payload = await resp.json(); }}catch(_jsonErr){{ payload = null; }}
+                if (resp.ok && payload && payload.ok){{
+                  window.location.assign(payload.edit_url || ('/edit/'+encodeURIComponent(payload.slug || v)));
                   return;
                 }} else if (resp.status === 409){{
-                  msg.innerHTML = '<span class="bad">Indisponível, tente outro.</span>';
+                  msg.innerHTML = '<span class="bad">'+((payload && payload.message) || 'Indisponível, tente outro.')+'</span>';
                 }} else {{
-                  msg.innerHTML = '<span class="bad">Erro ao salvar. Tente novamente.</span>';
+                  msg.innerHTML = '<span class="bad">'+((payload && payload.message) || 'Erro ao salvar. Tente novamente.')+'</span>';
                 }}
                 if (loaderCtl && loaderCtl.hide){{ loaderCtl.hide(); }}
               }}catch(_e){{
                 if (loaderCtl && loaderCtl.hide){{ loaderCtl.hide(); }}
                 msg.innerHTML = '<span class="bad">Erro de rede. Tente novamente.</span>';
+              }} finally {{
+                if (saveBtn){{ saveBtn.disabled = false; saveBtn.textContent = 'Salvar novo link'; }}
               }}
             }}
           }}, true);
           // abre modal
-          btn.addEventListener('click', function(e){{ e.preventDefault(); openModal(); }});
+          btn.addEventListener('click', window.soomeiOpenSlugModal);
           async function salvarSlug(novo) {{
             return fetch("/slug/select/" + encodeURIComponent(UID), {{
               method: "POST",

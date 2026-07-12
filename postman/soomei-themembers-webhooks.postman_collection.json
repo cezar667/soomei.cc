@@ -1,0 +1,494 @@
+{
+  "info": {
+    "_postman_id": "b7d7d30c-0f32-4eb6-94d7-soomei-themembers",
+    "name": "Soomei - TheMembers Webhooks",
+    "description": "Collection no formato nativo TheMembers. A segurança usa token no payload (`token`) conforme a documentação pública da TheMembers.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "themembers_token",
+      "value": "segredo-teste-123",
+      "type": "secret"
+    },
+    {
+      "key": "run_id",
+      "value": "001"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Preparar rodada",
+      "item": [
+        {
+          "name": "Gerar novo run_id",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('run_id', Date.now().toString());",
+                  "console.log('Novo run_id:', pm.collectionVariables.get('run_id'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('run_id gerado', function () {",
+                  "  pm.expect(pm.collectionVariables.get('run_id')).to.not.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "login"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 - Fluxo recomendado por acesso",
+      "item": [
+        {
+          "name": "Liberar acesso - cria cartão pendente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('recebido e não duplicado', function () {",
+                  "  pm.expect(json.received).to.eql(true);",
+                  "  pm.expect(json.duplicate).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "postman-themembers-{{run_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_access_granted_{{run_id}}\",\n  \"object\": \"access\",\n  \"event\": \"access.granted\",\n  \"created_at\": \"2026-07-12T12:00:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"access_tm_{{run_id}}\",\n    \"order\": { \"id\": \"order_tm_{{run_id}}\" },\n    \"product\": { \"id\": \"soomei-card-black\", \"name\": \"Soomei Card Black\" },\n    \"customer\": {\n      \"id\": \"customer_tm_{{run_id}}\",\n      \"name\": \"Cliente TheMembers {{run_id}}\",\n      \"email\": \"cliente.themembers.{{run_id}}@example.com\",\n      \"phone\": \"5534999999999\",\n      \"document\": \"00000000000\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Liberar acesso duplicado - não cria outro cartão",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('duplicado tratado como sucesso', function () {",
+                  "  pm.expect(json.received).to.eql(true);",
+                  "  pm.expect(json.duplicate).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_access_granted_{{run_id}}\",\n  \"object\": \"access\",\n  \"event\": \"access.granted\",\n  \"created_at\": \"2026-07-12T12:00:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"access_tm_{{run_id}}\",\n    \"order\": { \"id\": \"order_tm_{{run_id}}\" },\n    \"product\": { \"id\": \"soomei-card-black\", \"name\": \"Soomei Card Black\" },\n    \"customer\": {\n      \"id\": \"customer_tm_{{run_id}}\",\n      \"name\": \"Cliente TheMembers {{run_id}}\",\n      \"email\": \"cliente.themembers.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remover acesso - bloqueia cartão",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_access_removed_{{run_id}}\",\n  \"object\": \"access\",\n  \"event\": \"access.removed\",\n  \"created_at\": \"2026-07-12T12:05:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"access_tm_{{run_id}}\",\n    \"order\": { \"id\": \"order_tm_{{run_id}}\" },\n    \"product\": { \"id\": \"soomei-card-black\", \"name\": \"Soomei Card Black\" },\n    \"customer\": {\n      \"id\": \"customer_tm_{{run_id}}\",\n      \"name\": \"Cliente TheMembers {{run_id}}\",\n      \"email\": \"cliente.themembers.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Transacionais TheMembers",
+      "item": [
+        {
+          "name": "Transação aprovada - cria cartão pendente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_transaction_approved_{{run_id}}\",\n  \"object\": \"transaction\",\n  \"event\": \"transaction.approved\",\n  \"created_at\": \"2026-07-12T12:10:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"txn_tm_{{run_id}}\",\n    \"paid_at\": \"2026-07-12T12:10:00.000Z\",\n    \"payment_details\": {\n      \"payment_method\": \"pix\",\n      \"pix\": {\n        \"qrcode_url\": \"https://example.com/pix.png\",\n        \"qrcode_data\": \"000201010212\",\n        \"expiration\": \"2026-07-13 05:05:05\"\n      }\n    },\n    \"transaction\": {\n      \"currency\": \"brl\",\n      \"amount\": 40.0,\n      \"buyer_fees\": 2.33,\n      \"total_amount\": 42.33\n    },\n    \"order\": { \"id\": \"order_txn_tm_{{run_id}}\" },\n    \"product\": { \"id\": \"soomei-card-black\", \"name\": \"Soomei Card Black\" },\n    \"customer\": {\n      \"id\": \"customer_txn_tm_{{run_id}}\",\n      \"name\": \"Cliente Transação {{run_id}}\",\n      \"email\": \"cliente.transacao.{{run_id}}@example.com\",\n      \"phone\": \"5534999999999\",\n      \"document\": \"00000000000\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Transação negada - registra, mas não cria cartão",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_transaction_failed_{{run_id}}\",\n  \"object\": \"transaction\",\n  \"event\": \"transaction.failed\",\n  \"created_at\": \"2026-07-12T12:15:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"txn_failed_tm_{{run_id}}\",\n    \"paid_at\": null,\n    \"payment_details\": { \"payment_method\": \"credit_card\" },\n    \"transaction\": { \"currency\": \"brl\", \"amount\": 40.0, \"total_amount\": 42.33 },\n    \"order\": { \"id\": \"order_failed_tm_{{run_id}}\" },\n    \"product\": { \"id\": \"soomei-card-black\" },\n    \"customer\": {\n      \"id\": \"customer_failed_tm_{{run_id}}\",\n      \"name\": \"Cliente Falha {{run_id}}\",\n      \"email\": \"cliente.falha.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reembolsado - bloqueia cartão existente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_transaction_refunded_{{run_id}}\",\n  \"object\": \"transaction\",\n  \"event\": \"transaction.refunded\",\n  \"created_at\": \"2026-07-12T12:20:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"txn_tm_{{run_id}}\",\n    \"order\": { \"id\": \"order_txn_tm_{{run_id}}\" },\n    \"product\": { \"id\": \"soomei-card-black\" },\n    \"customer\": {\n      \"id\": \"customer_txn_tm_{{run_id}}\",\n      \"name\": \"Cliente Transação {{run_id}}\",\n      \"email\": \"cliente.transacao.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Chargeback - bloqueia cartão existente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_transaction_chargeback_{{run_id}}\",\n  \"object\": \"transaction\",\n  \"event\": \"transaction.chargeback\",\n  \"created_at\": \"2026-07-12T12:25:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"txn_tm_{{run_id}}\",\n    \"order\": { \"id\": \"order_txn_tm_{{run_id}}\" },\n    \"product\": { \"id\": \"soomei-card-black\" },\n    \"customer\": {\n      \"id\": \"customer_txn_tm_{{run_id}}\",\n      \"name\": \"Cliente Transação {{run_id}}\",\n      \"email\": \"cliente.transacao.{{run_id}}@example.com\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Segurança e compatibilidade",
+      "item": [
+        {
+          "name": "Evento desconhecido - persiste como IGNORED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "pm.test('evento recebido', function () { pm.expect(pm.response.json().received).to.eql(true); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_unknown_{{run_id}}\",\n  \"object\": \"transaction\",\n  \"event\": \"transaction.future_event\",\n  \"created_at\": \"2026-07-12T12:30:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"txn_unknown_tm_{{run_id}}\",\n    \"order\": { \"id\": \"order_unknown_tm_{{run_id}}\" },\n    \"customer\": { \"id\": \"customer_unknown_tm_{{run_id}}\", \"email\": \"cliente.unknown.{{run_id}}@example.com\" }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Token inválido - retorna 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', function () { pm.response.to.have.status(401); });",
+                  "pm.test('mensagem genérica', function () {",
+                  "  pm.expect(pm.response.json().detail).to.eql('Invalid webhook authentication');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"wh_tm_invalid_token_{{run_id}}\",\n  \"object\": \"transaction\",\n  \"event\": \"transaction.approved\",\n  \"created_at\": \"2026-07-12T12:35:00.000Z\",\n  \"token\": \"token-errado\",\n  \"data\": {\n    \"id\": \"txn_invalid_token_tm_{{run_id}}\",\n    \"customer\": { \"id\": \"customer_invalid_token_tm_{{run_id}}\", \"email\": \"cliente.invalid.token.{{run_id}}@example.com\" }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Payload sem id - retorna 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Entity', function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"transaction\",\n  \"event\": \"transaction.approved\",\n  \"created_at\": \"2026-07-12T12:40:00.000Z\",\n  \"token\": \"{{themembers_token}}\",\n  \"data\": {\n    \"id\": \"txn_invalid_tm_{{run_id}}\",\n    \"customer\": { \"id\": \"customer_invalid_tm_{{run_id}}\", \"email\": \"cliente.invalid.{{run_id}}@example.com\" }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
