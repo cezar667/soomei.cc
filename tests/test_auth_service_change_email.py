@@ -15,7 +15,7 @@ from api.db import session as db_session  # noqa: E402
 from api.core import config as core_config  # noqa: E402
 import api.services.auth_service as auth_service  # noqa: E402
 from api.repositories.sql_repository import SQLRepository  # noqa: E402
-from api.services.auth_service import AuthService  # noqa: E402
+from api.services.auth_service import AccountExistsError, AuthService  # noqa: E402
 
 
 @pytest.fixture()
@@ -95,3 +95,53 @@ def test_change_pending_email_requires_valid_pin(db_env, monkeypatch):
 
     card = repo.get_card_by_uid("uid999")
     assert card.owner_email == "owner@test.com"
+
+
+def test_register_rejects_existing_unverified_email_case_insensitive(db_env):
+    repo = SQLRepository()
+    svc = AuthService()
+
+    repo.upsert_user("owner@example.com", password_hash="hash")
+    repo.create_card("uid-new", "123456", vanity=None, owner_email=None)
+
+    with pytest.raises(AccountExistsError):
+        svc.register(
+            "uid-new",
+            "OWNER@example.com",
+            "123456",
+            "senha-segura",
+            accepted_terms=True,
+        )
+
+    card = repo.get_card_by_uid("uid-new")
+    assert card.owner_email is None
+    assert (card.status or "").lower() == "pending"
+
+
+def test_check_email_reports_existing_email_case_insensitive(db_env, monkeypatch):
+    import api.routers.auth as auth_router
+
+    repo = SQLRepository()
+    repo.upsert_user("owner@example.com", password_hash="hash")
+    monkeypatch.setattr(auth_router, "_sql_repo", repo)
+
+    assert auth_router.check_email("OWNER@example.com") == {"available": False}
+    assert auth_router.check_email("new@example.com") == {"available": True}
+    assert auth_router.check_email("email-invalido") == {"available": False, "reason": "invalid"}
+
+
+def test_change_pending_email_rejects_existing_unverified_email(db_env, monkeypatch):
+    repo = SQLRepository()
+    svc = AuthService()
+    monkeypatch.setattr(auth_service, "send_email", lambda *a, **kw: True)
+
+    repo.create_card("uid-owner", "111111", vanity="owner-card", owner_email="owner@example.com")
+    repo.assign_card_owner("uid-owner", "owner@example.com", status="active", vanity="owner-card")
+    repo.upsert_user("owner@example.com", password_hash="hash")
+    repo.upsert_user("used@example.com", password_hash="hash")
+
+    new_email, verify_path, reason = svc.change_pending_email("uid-owner", "111111", "USED@example.com")
+
+    assert new_email is None
+    assert verify_path is None
+    assert reason == "email_in_use"

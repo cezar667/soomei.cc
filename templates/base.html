@@ -10,7 +10,13 @@
     <main class="wrap">
       {% block content %}{% endblock %}
     </main>
-    <footer class="muted site-footer">&copy; 2025 Soomei</footer>
+    <footer class="muted site-footer soomei-footer-mark">
+      <a class="soomei-watermark" href="https://soomei.cc" target="_blank" rel="noopener" aria-label="Soomei">
+        <span class="soomei-watermark__brand">Soomei</span>
+        <span class="soomei-watermark__text">cartão digital</span>
+      </a>
+      <span class="footer-auth-slot"></span>
+    </footer>
     {% block scripts %}{% endblock %}
   </body>
   </html>

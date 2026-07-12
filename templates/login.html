@@ -2,21 +2,32 @@
 {% block title %}Entrar{% endblock %}
 {% block content %}
   <section class="login-shell">
-    <div class="carbon login-card">
-      <img src="/static/img/soomei_logo.png" alt="Soomei" class="login-logo">
+    <div class="login-card carbon">
+      <div class="login-glow" aria-hidden="true"></div>
+      <div class="login-brand">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="login-logo">
+        <span>Soomei</span>
+      </div>
       <div class="login-body">
-        <h1>Entrar na Soomei</h1>
-        <p class="muted">Acesse seu painel e atualize seu cartão digital.</p>
+        <p class="login-kicker">Acesso seguro</p>
+        <h1>Entre para gerenciar seu cartão digital</h1>
+        <p class="login-intro">Atualize seus contatos, fotos, portfólio e link público em poucos segundos.</p>
         <form method="post" action="/auth/login" class="login-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="uid" value="{{ uid }}">
-          <label for="loginEmail">Email</label>
-          <input id="loginEmail" name="email" type="email" required placeholder="voce@empresa.com" autocomplete="email">
-          <label for="loginPassword">Senha</label>
-          <input id="loginPassword" name="password" type="password" required placeholder="Sua senha" autocomplete="current-password">
-          <button class="btn primary login-btn">Entrar</button>
+          <div class="login-field">
+            <label for="loginEmail">E-mail</label>
+            <input id="loginEmail" name="email" type="email" required placeholder="voce@empresa.com" autocomplete="email">
+          </div>
+          <div class="login-field">
+            <label for="loginPassword">Senha</label>
+            <input id="loginPassword" name="password" type="password" required placeholder="Sua senha" autocomplete="current-password">
+          </div>
+          <button class="btn login-btn">Entrar no painel</button>
         </form>
-        <p><a class="muted" href="/auth/forgot">Esqueceu a senha?</a></p>
+        <div class="login-support">
+          <a href="/auth/forgot">Esqueceu a senha?</a>
+        </div>
         {% if error and error|trim %}
         <div id="formAlert" class="banner" role="alert" aria-live="polite">{{ error }}</div>
         {% else %}

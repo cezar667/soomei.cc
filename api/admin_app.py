@@ -82,6 +82,28 @@ def _csrf_protect(request: Request, form_token: str) -> None:
         raise HTTPException(403, "csrf invalido")
 
 
+def _login_csrf_protect(request: Request, form_token: str) -> None:
+    """
+    Valida o CSRF da tela de login do admin sem considerar o cookie público `session`.
+
+    Cookies não diferenciam porta; por isso, ao acessar localhost:8001, o navegador
+    também pode enviar o cookie `session` criado pela app pública em localhost:8000.
+    O helper compartilhado de CSRF troca a expectativa para um token derivado dessa
+    sessão pública, o que quebra o login do admin. Antes de existir `admin_session`,
+    o contrato correto é comparar o campo oculto com o cookie `csrf_token`.
+    """
+    if not _check_origin(request):
+        raise HTTPException(403, "origem invalida")
+    supplied = (form_token or "").strip()
+    cookie_token = (request.cookies.get(csrf.CSRF_COOKIE_NAME) or "").strip()
+    if not supplied:
+        raise HTTPException(403, "csrf ausente")
+    if not cookie_token:
+        raise HTTPException(403, "cookie csrf ausente")
+    if not secrets.compare_digest(cookie_token, supplied):
+        raise HTTPException(403, "csrf invalido")
+
+
 def require_admin(request: Request) -> str:
     token = request.cookies.get("admin_session")
     session = _load_admin_session(token)
@@ -139,15 +161,63 @@ def _flash_markup(kind: str, message: str) -> str:
     return f"<p class='{klass}' role='status'>{safe}</p>"
 
 
+def _status_badge(value: str) -> str:
+    status = (value or "").strip().lower()
+    labels = {
+        "active": "Ativo",
+        "pending": "Pendente",
+        "blocked": "Bloqueado",
+        "rejected": "Reprovado",
+        "disabled": "Desativado",
+    }
+    label = labels.get(status, status or "—")
+    klass = status if status in labels else "neutral"
+    return f"<span class='admin-badge admin-badge--{html.escape(klass)}'>{html.escape(label)}</span>"
+
+
+def _boolean_badge(value: bool) -> str:
+    return (
+        "<span class='admin-badge admin-badge--active'>Sim</span>"
+        if value
+        else "<span class='admin-badge admin-badge--neutral'>Não</span>"
+    )
+
+
+def _nav_link(path: str, label: str, current_path: str) -> str:
+    active_match = current_path == path if path == "/" else current_path == path or current_path.startswith(path + "/")
+    active = " is-active" if active_match else ""
+    return f"<a class='admin-nav-link{active}' href='{html.escape(path)}'>{html.escape(label)}</a>"
+
+
 def _layout(request: Request | None, title: str, body: str, *, csrf_token: str = "") -> HTMLResponse:
+    current_path = "/login"
+    if request is not None:
+        current_path = getattr(getattr(request, "url", None), "path", "") or "/"
     logout_html = ""
     if csrf_token:
         logout_html = (
             "<form method='post' action='/logout' class='admin-logout'>"
             f"<input type='hidden' name='csrf_token' value='{html.escape(csrf_token)}'>"
-            "<button type='submit'>Sair</button>"
+            "<button type='submit' class='admin-logout-btn'>Sair</button>"
             "</form>"
         )
+    is_login = current_path == "/login"
+    body_class = "admin-body admin-body--login" if is_login else "admin-body"
+    nav_html = "" if is_login else (
+        "<nav class='admin-nav'>"
+        "<a class='admin-brand' href='/'>"
+        "<span class='admin-brand__mark'>S</span>"
+        "<span><strong>Soomei Admin</strong><small>Gestão de cartões digitais</small></span>"
+        "</a>"
+        "<div class='admin-nav__links'>"
+        f"{_nav_link('/', 'Dashboard', current_path)}"
+        f"{_nav_link('/cards', 'Cartões', current_path)}"
+        f"{_nav_link('/domains', 'Domínios', current_path)}"
+        f"{_nav_link('/users', 'Usuários', current_path)}"
+        f"{logout_html}"
+        "</div>"
+        "</nav>"
+    )
     return HTMLResponse(
         f"""
         <!doctype html><html lang='pt-br'><head>
@@ -155,39 +225,345 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
         <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
         <title>{html.escape(title)}</title>
         <style>
-          table {{font-size:14px}}
-          td, th {{white-space:nowrap}}
-          .admin-shell {{padding-bottom:40px}}
-          .admin-nav {{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}}
-          .admin-nav ul {{align-items:center}}
-          .admin-nav__links {{display:flex;gap:12px;flex-wrap:wrap;align-items:center}}
-          .admin-nav__links a {{text-decoration:none}}
+          :root {{
+            --admin-bg:#08090c;
+            --admin-panel:#111318;
+            --admin-panel-2:#171a21;
+            --admin-border:rgba(255,255,255,.105);
+            --admin-muted:#929aa7;
+            --admin-text:#f3f5f8;
+            --admin-blue:#8ab4f8;
+            --admin-gold:#ffbf7a;
+            --admin-green:#54e0ad;
+            --admin-red:#ff8d8d;
+            --admin-radius:22px;
+          }}
+          * {{box-sizing:border-box}}
+          html {{background:var(--admin-bg)}}
+          .admin-body {{
+            min-height:100vh;
+            margin:0;
+            color:var(--admin-text);
+            background:
+              radial-gradient(circle at 18% -10%,rgba(138,180,248,.18),transparent 34%),
+              radial-gradient(circle at 88% 0%,rgba(255,191,122,.12),transparent 30%),
+              linear-gradient(180deg,#08090c,#0b0d12 45%,#08090c);
+          }}
+          .admin-body::before {{
+            content:"";
+            position:fixed;
+            inset:0;
+            pointer-events:none;
+            opacity:.34;
+            background-image:linear-gradient(135deg,rgba(255,255,255,.04) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.04) 50%,rgba(255,255,255,.04) 75%,transparent 75%,transparent);
+            background-size:18px 18px;
+            mask-image:linear-gradient(180deg,#000,transparent 70%);
+          }}
+          .admin-shell {{
+            position:relative;
+            z-index:1;
+            max-width:1240px;
+            padding:26px 18px 56px;
+          }}
+          .admin-nav {{
+            position:sticky;
+            top:14px;
+            z-index:10;
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:18px;
+            margin-bottom:26px;
+            padding:12px;
+            border:1px solid var(--admin-border);
+            border-radius:26px;
+            background:rgba(14,16,21,.82);
+            backdrop-filter:blur(18px);
+            box-shadow:0 20px 70px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.06);
+          }}
+          .admin-brand {{
+            display:inline-flex;
+            align-items:center;
+            gap:12px;
+            color:var(--admin-text);
+            text-decoration:none;
+            min-width:max-content;
+          }}
+          .admin-brand__mark {{
+            display:grid;
+            place-items:center;
+            width:42px;
+            height:42px;
+            border-radius:15px;
+            color:#0b0d12;
+            background:linear-gradient(135deg,#fff1d8,#ffbf7a);
+            font-weight:950;
+            box-shadow:0 12px 34px rgba(255,191,122,.22),inset 0 1px 0 rgba(255,255,255,.8);
+          }}
+          .admin-brand strong {{display:block;font-size:15px;letter-spacing:-.01em}}
+          .admin-brand small {{display:block;color:var(--admin-muted);font-size:11px;line-height:1.2}}
+          .admin-nav__links {{
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+            align-items:center;
+            justify-content:flex-end;
+          }}
+          .admin-nav-link,.admin-logout-btn,.admin-pager a.secondary {{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            min-height:38px;
+            margin:0;
+            padding:9px 13px;
+            border:1px solid rgba(255,255,255,.09);
+            border-radius:999px;
+            background:rgba(255,255,255,.045);
+            color:#c7ced8;
+            text-decoration:none;
+            font-size:13px;
+            font-weight:800;
+            line-height:1;
+            transition:transform .18s ease,border-color .18s ease,background .18s ease,color .18s ease,box-shadow .18s ease;
+          }}
+          .admin-nav-link:hover,.admin-logout-btn:hover,.admin-pager a.secondary:hover {{
+            transform:translateY(-1px);
+            color:#fff;
+            border-color:rgba(138,180,248,.32);
+            background:rgba(138,180,248,.12);
+            text-decoration:none;
+          }}
+          .admin-nav-link.is-active {{
+            color:#081018;
+            border-color:transparent;
+            background:linear-gradient(135deg,#ffffff,#dfe8ff);
+            box-shadow:0 12px 28px rgba(138,180,248,.2);
+          }}
           .admin-logout {{margin:0}}
-          .admin-logout button {{margin:0}}
-          .admin-summary {{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}}
-          .admin-summary article {{margin:0}}
-          .admin-pager {{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:14px}}
-          .admin-pager__status {{font-size:14px;color:var(--pico-muted-color)}}
-          .admin-flash {{display:block;padding:10px 12px;border-radius:10px}}
-          .admin-flash--ok {{background:#e9f8ee;color:#134b26}}
-          .admin-flash--error {{background:#fdecec;color:#7e1d1d}}
-          .admin-inline-form {{display:inline-flex;gap:6px;align-items:center;margin:0 4px 4px 0}}
-          .admin-inline-form button, .admin-inline-form a {{margin:0}}
-          .admin-compact {{font-size:13px;color:var(--pico-muted-color)}}
-          .admin-domain-note {{white-space:normal;min-width:220px}}
+          .admin-logout-btn {{
+            color:#ffcac3;
+            border-color:rgba(255,141,141,.18);
+            background:rgba(255,141,141,.08);
+          }}
+          h1,h2,h3,h4 {{letter-spacing:-.03em;color:var(--admin-text)}}
+          article {{
+            border:1px solid var(--admin-border);
+            border-radius:var(--admin-radius);
+            background:
+              radial-gradient(circle at 100% 0%,rgba(255,255,255,.06),transparent 34%),
+              linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.028));
+            box-shadow:0 18px 54px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.055);
+            overflow:hidden;
+          }}
+          article h3,article h4 {{margin-top:0}}
+          .admin-summary {{
+            display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+            gap:14px;
+            margin-bottom:18px;
+          }}
+          .admin-summary article {{
+            position:relative;
+            min-height:132px;
+            margin:0;
+            padding:20px;
+          }}
+          .admin-summary article::after {{
+            content:"";
+            position:absolute;
+            right:18px;
+            bottom:18px;
+            width:42px;
+            height:42px;
+            border-radius:16px;
+            background:linear-gradient(135deg,rgba(138,180,248,.2),rgba(255,191,122,.12));
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.1);
+          }}
+          .admin-summary header {{
+            margin:0 0 12px;
+            color:var(--admin-muted);
+            font-size:12px;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.14em;
+          }}
+          .admin-summary strong {{
+            display:block;
+            color:#fff;
+            font-size:clamp(34px,6vw,48px);
+            line-height:.9;
+            letter-spacing:-.06em;
+          }}
+          form.grid {{
+            align-items:end;
+            gap:12px;
+          }}
+          label {{color:#dce2ea;font-weight:750}}
+          input,select,textarea {{
+            min-height:46px;
+            border:1px solid rgba(255,255,255,.12)!important;
+            border-radius:14px!important;
+            background:rgba(5,6,8,.64)!important;
+            color:#f6f8fb!important;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.035)!important;
+          }}
+          input:focus,select:focus,textarea:focus {{
+            border-color:rgba(138,180,248,.72)!important;
+            box-shadow:0 0 0 4px rgba(138,180,248,.12),inset 0 1px 0 rgba(255,255,255,.05)!important;
+          }}
+          button,[role=button],a.secondary {{
+            border-radius:999px!important;
+            font-weight:850!important;
+          }}
+          button[type=submit]:not(.secondary):not(.admin-logout-btn) {{
+            border:0!important;
+            background:linear-gradient(135deg,#ffffff,#dfe8ff)!important;
+            color:#081018!important;
+            box-shadow:0 12px 30px rgba(138,180,248,.2)!important;
+          }}
+          .secondary {{
+            border-color:rgba(255,255,255,.11)!important;
+            background:rgba(255,255,255,.055)!important;
+            color:#dce2ea!important;
+          }}
+          .admin-table-wrap, table[role=grid] {{
+            border-radius:18px;
+          }}
+          table {{
+            width:100%;
+            overflow:hidden;
+            border:1px solid rgba(255,255,255,.08);
+            border-radius:18px;
+            background:rgba(4,5,7,.38);
+            font-size:14px;
+          }}
+          thead th {{
+            color:#aeb7c4;
+            background:rgba(255,255,255,.055);
+            font-size:11px;
+            text-transform:uppercase;
+            letter-spacing:.12em;
+          }}
+          td, th {{white-space:nowrap;border-color:rgba(255,255,255,.07)!important}}
+          tbody tr:hover {{background:rgba(138,180,248,.055)}}
+          code {{
+            border-radius:9px;
+            background:rgba(138,180,248,.09);
+            color:#b9d2ff;
+          }}
+          pre {{
+            border:1px solid rgba(255,255,255,.09);
+            border-radius:18px;
+            background:rgba(4,5,7,.62);
+            color:#cdd4de;
+          }}
+          .admin-badge {{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            min-height:26px;
+            padding:5px 9px;
+            border-radius:999px;
+            border:1px solid rgba(255,255,255,.1);
+            background:rgba(255,255,255,.06);
+            color:#dce2ea;
+            font-size:11px;
+            font-weight:900;
+            letter-spacing:.04em;
+          }}
+          .admin-badge--active {{border-color:rgba(84,224,173,.22);background:rgba(84,224,173,.1);color:#96f3c9}}
+          .admin-badge--pending {{border-color:rgba(255,191,122,.24);background:rgba(255,191,122,.1);color:#ffd2a3}}
+          .admin-badge--blocked,.admin-badge--rejected {{border-color:rgba(255,141,141,.24);background:rgba(255,141,141,.1);color:#ffb7b7}}
+          .admin-badge--disabled,.admin-badge--neutral {{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.055);color:#aeb7c4}}
+          .admin-pager {{
+            display:flex;
+            align-items:center;
+            justify-content:flex-end;
+            gap:10px;
+            margin-top:16px;
+          }}
+          .admin-pager__status {{
+            color:var(--admin-muted);
+            font-size:13px;
+            font-weight:750;
+          }}
+          .admin-flash {{
+            display:block;
+            margin:0 0 14px;
+            padding:12px 14px;
+            border-radius:15px;
+            border:1px solid rgba(255,255,255,.1);
+            font-weight:750;
+          }}
+          .admin-flash--ok {{background:rgba(84,224,173,.1);border-color:rgba(84,224,173,.22);color:#9af3c9}}
+          .admin-flash--error {{background:rgba(255,141,141,.1);border-color:rgba(255,141,141,.22);color:#ffc1c1}}
+          .admin-inline-form {{
+            display:inline-flex;
+            gap:6px;
+            align-items:center;
+            margin:0 5px 6px 0;
+          }}
+          .admin-inline-form button, .admin-inline-form a {{
+            min-height:34px;
+            margin:0;
+            padding:8px 10px;
+            font-size:12px;
+          }}
+          .admin-compact {{font-size:13px;color:var(--admin-muted);line-height:1.45}}
+          .admin-domain-note {{white-space:normal;min-width:220px;color:#c7ced8}}
+          .admin-login-shell {{
+            min-height:calc(100vh - 52px);
+            display:grid;
+            place-items:center;
+          }}
+          .admin-login-card {{
+            width:min(100%,460px);
+            margin:0 auto;
+            padding:30px;
+            border-radius:30px;
+            text-align:left;
+          }}
+          .admin-login-brand {{
+            display:flex;
+            align-items:center;
+            gap:14px;
+            margin-bottom:22px;
+          }}
+          .admin-login-brand .admin-brand__mark {{width:50px;height:50px;border-radius:18px}}
+          .admin-login-brand strong {{display:block;font-size:18px}}
+          .admin-login-brand small {{display:block;color:var(--admin-muted);font-size:12px}}
+          .admin-login-card h1 {{
+            margin:0;
+            font-size:clamp(32px,7vw,44px);
+            line-height:.95;
+          }}
+          .admin-login-card p {{
+            color:#aeb7c4;
+            line-height:1.5;
+          }}
+          .admin-login-card form {{margin-top:18px}}
+          .admin-login-card button[type=submit] {{width:100%;min-height:52px;margin-top:8px}}
+          .admin-login-footnote {{
+            margin:16px 0 0;
+            color:#727b89;
+            font-size:12px;
+            text-align:center;
+          }}
+          @media (max-width:760px) {{
+            .admin-shell {{padding:14px 12px 38px}}
+            .admin-nav {{position:relative;top:auto;align-items:flex-start;border-radius:22px}}
+            .admin-brand {{width:100%}}
+            .admin-nav__links {{width:100%;justify-content:flex-start}}
+            .admin-nav-link,.admin-logout-btn {{flex:1 1 auto}}
+            article {{border-radius:20px}}
+            td,th {{white-space:normal}}
+            table {{display:block;overflow-x:auto}}
+            .admin-login-card {{padding:24px 20px;border-radius:24px}}
+          }}
         </style>
-        </head><body>
+        </head><body class="{body_class}">
         <main class="container admin-shell">
-          <nav class="admin-nav">
-            <ul><li><strong>Admin</strong></li></ul>
-            <div class="admin-nav__links">
-              <a href="/">Dashboard</a>
-              <a href="/cards">Cartões</a>
-              <a href="/domains">Domínios</a>
-              <a href="/users">Usuários</a>
-              {logout_html}
-            </div>
-          </nav>
+          {nav_html}
           {body}
         </main>
         </body></html>
@@ -204,8 +580,14 @@ def _login_page(*, next_path: str = "/", error: str = "") -> HTMLResponse:
     }
     csrf_token = secrets.token_urlsafe(32)
     body = f"""
-      <article>
-        <h1>Admin</h1>
+      <section class='admin-login-shell'>
+      <article class='admin-login-card'>
+        <div class='admin-login-brand'>
+          <span class='admin-brand__mark'>S</span>
+          <span><strong>Soomei Admin</strong><small>Operação segura</small></span>
+        </div>
+        <h1>Entrar no painel</h1>
+        <p>Gerencie cartões, usuários, domínios personalizados e operações sensíveis da plataforma.</p>
         {_flash_markup('error', messages.get(error, ''))}
         <form method='post' action='/login'>
           <input type='hidden' name='next' value='{html.escape(next_path)}'>
@@ -216,7 +598,9 @@ def _login_page(*, next_path: str = "/", error: str = "") -> HTMLResponse:
           <input id='adminPassword' name='password' type='password' required autocomplete='current-password'>
           <button type='submit'>Entrar</button>
         </form>
+        <p class='admin-login-footnote'>Acesso restrito a contas verificadas e autorizadas.</p>
       </article>
+      </section>
     """
     response = _layout(None, "Admin | Login", body)
     csrf.set_csrf_cookie(response, csrf_token)
@@ -266,7 +650,7 @@ def _card_row(card, csrf_token: str) -> str:
         f"<td><code>{uid}</code></td>"
         f"<td>{html.escape(card.vanity or '')}</td>"
         f"<td>{owner}</td>"
-        f"<td>{html.escape(status)}</td>"
+        f"<td>{_status_badge(status)}</td>"
         f"<td>{int(card.metrics_views or 0)}</td>"
         f"<td>{''.join(actions)}</td>"
         "</tr>"
@@ -347,10 +731,8 @@ def do_login(
     csrf_token: str = Form(""),
 ):
     rate_limit_ip(request, "admin:login", limit=5, window_seconds=60)
-    if not _check_origin(request):
-        return RedirectResponse("/login?error=credenciais", status_code=303)
     try:
-        csrf.validate_csrf(request, csrf_token)
+        _login_csrf_protect(request, csrf_token)
     except HTTPException:
         return RedirectResponse("/login?error=csrf", status_code=303)
     user = repo.get_user(email)
@@ -405,13 +787,14 @@ def dashboard(request: Request):
     )
     body = f"""
       <section class='admin-summary'>
-        <article><header>Total</header><strong>{counts.get('total', 0)}</strong></article>
+        <article><header>Total de cartões</header><strong>{counts.get('total', 0)}</strong></article>
         <article><header>Ativos</header><strong>{counts.get('active', 0)}</strong></article>
         <article><header>Pendentes</header><strong>{counts.get('pending', 0)}</strong></article>
         <article><header>Bloqueados</header><strong>{counts.get('blocked', 0)}</strong></article>
       </section>
       <article>
         <h3>Top views</h3>
+        <p class='admin-compact'>Cartões com maior volume de visualizações públicas.</p>
         <table role='grid'>
           <thead><tr><th>Cartão</th><th>Views</th></tr></thead>
           <tbody>{rows or '<tr><td colspan="2">Sem dados.</td></tr>'}</tbody>
@@ -585,8 +968,8 @@ def list_users(request: Request, q: str = "", page: int = 1):
     rows = "".join(
         "<tr>"
         f"<td>{html.escape(user.email)}</td>"
-        f"<td>{'Sim' if user.email_verified_at else 'Não'}</td>"
-        f"<td>{'Sim' if _admin_allowed(user.email) else 'Não'}</td>"
+        f"<td>{_boolean_badge(bool(user.email_verified_at))}</td>"
+        f"<td>{_boolean_badge(_admin_allowed(user.email))}</td>"
         "</tr>"
         for user in page_result.items
     )
@@ -631,7 +1014,7 @@ def _domain_rows(cards: list[object]) -> str:
             f"<td>{html.escape(card.vanity or '')}</td>"
             f"<td>{html.escape(active)}</td>"
             f"<td>{html.escape(requested)}</td>"
-            f"<td>{html.escape(status)}</td>"
+            f"<td>{_status_badge(status)}</td>"
             f"<td class='admin-domain-note'>{html.escape(note)}</td>"
             "</tr>"
         )

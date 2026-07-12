@@ -1,11 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Cartão não encontrado{% endblock %}
 {% block content %}
-  <section class="card card-public carbon card-center">
-    <h1>Ops!</h1>
-    <p>Não foi possível encontrar esse cartão em nossa base.</p>
-    <p class="muted">Procure um de nossos especialistas.</p>
-    <p class="muted">Equipe Soomei</p>
+  <section class="status-shell">
+    <div class="status-card carbon">
+      <div class="status-glow" aria-hidden="true"></div>
+      <div class="status-brand">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="status-logo">
+        <span>Soomei</span>
+      </div>
+      <div class="status-body">
+        <p class="status-kicker">Link não encontrado</p>
+        <h1>Esse cartão não foi localizado</h1>
+        <p class="status-intro">O endereço pode estar incorreto, o cartão pode ter sido resetado ou ainda não foi provisionado na base.</p>
+        <div class="status-actions">
+          <a class="btn primary" href="/login">Entrar</a>
+          <a class="btn ghost" href="/">Voltar</a>
+        </div>
+        <p class="status-note">Se você acredita que isso é um erro, fale com a equipe Soomei.</p>
+      </div>
+    </div>
   </section>
 {% endblock %}
-

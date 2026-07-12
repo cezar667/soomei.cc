@@ -113,7 +113,9 @@ def _owner_logout_form(slug: str, csrf_token: str) -> str:
         "<form method='post' action='/auth/logout' class='logout-inline' data-skip-global-loading='true'>"
         f"<input type='hidden' name='csrf_token' value='{token_html}'>"
         f"<input type='hidden' name='next' value='/{slug_safe}'>"
-        "<button type='submit' class='muted link-btn' style='background:none;border:0;padding:0;margin:0;cursor:pointer'>Sair</button>"
+        "<button type='submit' class='footer-auth-btn footer-auth-btn--logout' aria-label='Sair do sistema'>"
+        "<span class='footer-auth-icon' aria-hidden='true'>↪</span><span>Sair</span>"
+        "</button>"
         "</form>"
     )
 
@@ -681,12 +683,12 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <span class='field-hint'>Aparece como canal alternativo de contato.</span>
               </div>
               <div class='form-control'>
-                <label for='siteUrl'>Site</label>
+                <label for='siteUrl'>Site <span class='notrequired-pill'>Opcional</span></label>
                 <input id='siteUrl' name='site_url' type='url' placeholder='https://seusite.com' value='{html.escape(prof.get('site_url',''))}' aria-label='Site' autocomplete='url'>
                 <span class='field-hint'>Se preenchido, aparece nos botões finais do cartão.</span>
               </div>
               <div class='form-control full'>
-                <label for='addressInput'>Endereço</label>
+                <label for='addressInput'>Endereço <span class='notrequired-pill'>Opcional</span></label>
                 <input id='addressInput' name='address' value='{html.escape(prof.get('address',''))}' placeholder='Rua, número - Cidade/UF' aria-label='Endereco' autocomplete='street-address'>
                 <span class='field-hint'>Quando preenchido, habilita o botão “Endereço” com link para mapa.</span>
               </div>
@@ -1254,13 +1256,12 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             + '#slugInput.is-ok{{border-color:#43a047;background:rgba(67,160,71,0.09)}}'
             + '#slugInput.is-bad{{border-color:#e53935;background:rgba(229,57,53,0.08)}}'
             + '.tooltip-err{{display:inline-block;background:#2a2211;border:1px solid #4d3b12;color:#e5c17a;padding:6px 8px;border-radius:8px;margin-top:4px}}'
-            + '.slug-input-row{{position:relative;display:flex;align-items:center;gap:8px}}'
+            + '.slug-input-row{{position:relative;display:flex;align-items:center}}'
             + '.icon-btn.icon-sm{{width:26px;height:26px;font-size:14px}}'
             + '.info-tip{{position:absolute;right:0;top:100%;margin-top:6px;display:none;max-width:320px;background:#111114;border:1px solid #242427;border-radius:8px;padding:8px 10px;color:#eaeaea;box-shadow:0 2px 8px rgba(0,0,0,.45);z-index:1000}}'
             + '.info-tip.show{{display:block}}';
             style.textContent +=
-              '.modal input{{width:100%;padding:10px;border-radius:10px;' +
-              'border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea}}';
+              '.slug-modal-input{{width:100%;text-transform:lowercase}}';
           document.head.appendChild(style);
           var btn = document.getElementById('addSlug');
           if (!btn) return;
@@ -1270,18 +1271,21 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             if (document.getElementById('slugBackdrop')) return;
             var html = ''+
             '<div class="modal-backdrop" id="slugBackdrop" role="dialog" aria-modal="true" aria-labelledby="slugTitle" style="display:none">'+
-            '  <div class="modal" id="slugModal">'+
-            '    <header><h2 id="slugTitle">Alterar slug</h2><button class="close" id="slugClose" aria-label="Fechar">×</button></header>'+
-            '    <div>'+
-            '      <label for="slugInput">Novo slug</label>'+
-            '      <div class="slug-input-row">'+
-            '        <input id="slugInput" placeholder="seu-nome" pattern="[a-z0-9-]{{3,30}}" inputmode="url" autocomplete="off" style="text-transform:lowercase;background:#0b0b0c;color:#eaeaea;border:1px solid #2a2a2a;border-radius:10px;padding:10px;width:100%">'+
-            '        <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que é um slug?" title="O que é um slug?">i</button>'+
-            '        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">Slug é o endereço curto da sua URL pública. Use 3-30 caracteres minúsculos, números ou hífen. Ex.: seu-nome</div>'+
+            '  <div class="modal slug-modal-card carbon" id="slugModal">'+
+            '    <header class="slug-modal-header"><div><p class="slug-modal-kicker">Endereço público</p><h2 id="slugTitle">Alterar link do cartão</h2></div><button class="close slug-modal-close" id="slugClose" aria-label="Fechar">×</button></header>'+
+            '    <div class="slug-modal-body">'+
+            '      <p class="slug-modal-intro">Escolha um endereço curto, memorável e profissional para compartilhar seu cartão.</p>'+
+            '      <label class="slug-modal-label" for="slugInput">Novo link</label>'+
+            '      <div class="slug-input-row slug-modal-row">'+
+            '        <span class="slug-prefix">soomei.cc/</span>'+
+            '        <input class="slug-modal-input" id="slugInput" placeholder="seu-nome" pattern="[a-z0-9-]{{3,30}}" inputmode="url" autocomplete="off">'+
+            '        <button type="button" class="slug-info-btn" id="slugInfoBtn" aria-label="O que é um slug?" title="O que é um slug?">i</button>'+
+            '        <div id="slugInfoTip" class="info-tip slug-info-tip" role="tooltip" aria-hidden="true">Slug é o endereço curto da sua URL pública. Use 3-30 caracteres minúsculos, números ou hífen. Ex.: seu-nome</div>'+
             '      </div>'+
-            '      <div id="slugMsg" class="hint"></div>'+
-            '      <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><span class="muted">Prévia:</span> <code id="slugPreview">/'+(CURRENT||'')+'</code></div>'+
-            '      <div style="text-align:right;margin-top:12px"><button class="btn" id="slugSave">Salvar</button></div>'+
+            '      <div id="slugMsg" class="hint slug-msg"></div>'+
+            '      <div class="slug-modal-preview"><span>Prévia</span><code id="slugPreview">/'+(CURRENT||'')+'</code></div>'+
+            '      <div class="slug-modal-tips"><span>✓ minúsculas</span><span>✓ números</span><span>✓ hífen</span></div>'+
+            '      <div class="slug-modal-actions"><button class="btn slug-submit" id="slugSave">Salvar novo link</button></div>'+
             '    </div>'+
             '  </div>'+
             '</div>';

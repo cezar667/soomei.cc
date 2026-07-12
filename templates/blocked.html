@@ -1,9 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Cartão bloqueado{% endblock %}
 {% block content %}
-  <section class="card card-public carbon card-center">
-    <h1>Cartão bloqueado</h1>
-    <p>Este cartão foi bloqueado. Entre em contato com o suporte.</p>
+  <section class="status-shell">
+    <div class="status-card carbon">
+      <div class="status-glow" aria-hidden="true"></div>
+      <div class="status-brand">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="status-logo">
+        <span>Soomei</span>
+      </div>
+      <div class="status-body">
+        <p class="status-kicker">Acesso pausado</p>
+        <h1>Cartão temporariamente bloqueado</h1>
+        <p class="status-intro">Este cartão está indisponível no momento. Para reativar ou entender o motivo, entre no sistema ou fale com o suporte.</p>
+        <div class="status-actions">
+          <a class="btn primary" href="/login">Entrar</a>
+          <a class="btn ghost" href="/">Voltar</a>
+        </div>
+      </div>
+    </div>
   </section>
 {% endblock %}
-

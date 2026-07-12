@@ -176,11 +176,11 @@ class AuthService:
         user = self.repository.get_user(owner)
         if user and user.email_verified_at:
             return None, None, "already_verified"
-        new_addr = (new_email or "").strip()
+        new_addr = (new_email or "").strip().lower()
         if not new_addr:
             return None, None, "invalid_email"
-        existing_new = self.repository.get_user(new_addr)
-        if existing_new and existing_new.email_verified_at:
+        existing_new = self.repository.get_user_by_email_ci(new_addr)
+        if existing_new and (existing_new.email or "").strip().lower() != owner.lower():
             return None, None, "email_in_use"
         old_profile = self.repository.get_profile(owner) or {}
         # clean old unverified
@@ -214,9 +214,11 @@ class AuthService:
     def register(self, uid: str, email: str, pin: str, password: str, vanity: str = "", accepted_terms: bool = False) -> RegisterResult:
         if not accepted_terms:
             raise RegistrationError("E necessario aceitar os termos")
-        raw_email = (email or "").strip()
+        raw_email = (email or "").strip().lower()
         if not raw_email:
             raise RegistrationError("Email obrigatorio")
+        if "@" not in raw_email:
+            raise RegistrationError("Email invalido")
         vanity_value = (vanity or "").strip()
         if vanity_value:
             if not is_valid_slug(vanity_value):
@@ -231,11 +233,9 @@ class AuthService:
         if len(password or "") < 8:
             raise RegistrationError("Senha muito curta. Use no minimo 8 caracteres")
         existing_owner = (card_entity.owner_email or "").strip()
-        existing_user = self.repository.get_user(raw_email)
-        if existing_user and existing_user.email_verified_at:
-            # Conta já existe e verificada
+        if self.repository.email_exists(raw_email):
             raise AccountExistsError("Conta ja existe")
-        if existing_owner and existing_owner != raw_email:
+        if existing_owner and existing_owner.lower() != raw_email:
             owner_user = self.repository.get_user(existing_owner)
             if owner_user and owner_user.email_verified_at:
                 raise AccountExistsError("Cartao ja foi ativado com outro email.")

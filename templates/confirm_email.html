@@ -1,27 +1,56 @@
 {% extends "base.html" %}
-{% block title %}{{ title|default("Confirme seu email") }}{% endblock %}
+{% block title %}{{ title|default("Confirme seu e-mail") }}{% endblock %}
 {% block content %}
-  <section class="card card-public carbon card-center">
-    <h1>{{ heading|default("Confirme seu email") }}</h1>
-    <div class="card-text">
-      {{ body_html|safe }}
+  <section class="confirm-shell">
+    <div class="confirm-card carbon">
+      <div class="confirm-hero">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="confirm-logo">
+        <p class="confirm-kicker">Última etapa</p>
+        <h1>{{ heading|default("Confirme seu e-mail") }}</h1>
+        <p class="confirm-subtitle">Enviamos um link seguro para validar sua conta e liberar a edição do seu cartão digital.</p>
+      </div>
+
+      <div class="confirm-message">
+        {{ body_html|safe }}
+      </div>
+
       {% if email %}
-        <p class="muted">E-mail atual: <strong id="currentEmail">{{ email }}</strong></p>
+        <div class="confirm-current-email" aria-label="E-mail atual">
+          <span>E-mail atual</span>
+          <strong id="currentEmail">{{ email }}</strong>
+        </div>
       {% endif %}
+
+      <ol class="confirm-steps" aria-label="Próximos passos">
+        <li><span>1</span><strong>Abra sua caixa de entrada</strong><small>Confira também spam ou promoções.</small></li>
+        <li><span>2</span><strong>Clique no link seguro</strong><small>Ele confirma que o e-mail é seu.</small></li>
+        <li><span>3</span><strong>Finalize seu cartão</strong><small>Você será direcionado automaticamente.</small></li>
+      </ol>
+
       {% if app_env != "prod" and dev_verify_path %}
         <p class="confirm-dev"><a class="btn" id="devVerifyLink" href="{{ dev_verify_path }}">Confirmar e-mail agora (dev)</a></p>
       {% endif %}
+
       {% if uid %}
-      <div class="stack-top-md">
-        <button id="openPendingEmail" class="btn">Corrigir ou reenviar e-mail</button>
-        <div id="pendingEmailCard" class="card pending-email-card hidden">
+      <div class="confirm-support">
+        <div>
+          <h2>Não recebeu?</h2>
+          <p>Você pode reenviar o link ou corrigir o e-mail usando o PIN do cartão.</p>
+        </div>
+        <button id="openPendingEmail" class="btn confirm-secondary">Corrigir ou reenviar e-mail</button>
+        <div id="pendingEmailCard" class="pending-email-card hidden">
           <h3>Corrigir e reenviar</h3>
-          <form id="pendingEmailForm">
+          <p class="muted">Informe o novo e-mail e o PIN do cartão para gerar um novo link de confirmação.</p>
+          <form id="pendingEmailForm" class="confirm-pending-form">
             <input type="hidden" name="uid" value="{{ uid }}">
-            <label for="pendingNewEmail">Novo e-mail</label>
-            <input id="pendingNewEmail" type="email" name="new_email" required autocomplete="email">
-            <label for="pendingPin">PIN da carta</label>
-            <input id="pendingPin" type="password" name="pin" inputmode="numeric" pattern="[0-9]*" required autocomplete="one-time-code">
+            <div>
+              <label for="pendingNewEmail">Novo e-mail</label>
+              <input id="pendingNewEmail" type="email" name="new_email" required autocomplete="email" placeholder="voce@empresa.com">
+            </div>
+            <div>
+              <label for="pendingPin">PIN do cartão</label>
+              <input id="pendingPin" type="password" name="pin" inputmode="numeric" pattern="[0-9]*" required autocomplete="one-time-code" placeholder="Somente números">
+            </div>
             <div class="pending-email-actions">
               <button class="btn" type="submit">Corrigir e reenviar</button>
               <button class="secondary" type="button" id="resendPendingBtn">Reenviar para <span id="resendEmailLabel">{{ email }}</span></button>
@@ -85,11 +114,11 @@
             } else {
               var reason = (j && j.reason) || '';
               if (reason === 'email_in_use'){
-                setMsg(false, 'Este e-mail ja esta confirmado em outro cartao.');
+                setMsg(false, 'Este e-mail já está cadastrado em outro cartão.');
               } else if (reason === 'invalid_pin'){
                 setMsg(false, 'PIN incorreto. Confira e tente novamente.');
               } else {
-                setMsg(false, 'Nao foi possivel atualizar o e-mail. Confira os dados e tente novamente.');
+                setMsg(false, 'Não foi possível atualizar o e-mail. Confira os dados e tente novamente.');
               }
             }
           }).catch(function(){ setMsg(false, 'Erro ao reenviar agora. Tente novamente.'); });
@@ -101,7 +130,7 @@
           var pinInput = form.querySelector('input[name=\"pin\"]');
           var pin = (pinInput && pinInput.value || '').replace(/\\D/g,'');
           if (!pin){
-            setMsg(false, 'Informe o PIN da carta para reenviar.');
+            setMsg(false, 'Informe o PIN do cartão para reenviar.');
             if (pinInput){ pinInput.focus(); }
             return;
           }
@@ -118,7 +147,7 @@
               var emailLabel = resendEmailLabel ? resendEmailLabel.textContent : '{{ email }}';
               setMsg(true, 'Reenviamos o link para ' + emailLabel + '.');
             } else {
-              setMsg(false, 'Nao foi possivel reenviar. Confira o PIN.');
+              setMsg(false, 'Não foi possível reenviar. Confira o PIN.');
             }
           }).catch(function(){ setMsg(false, 'Erro ao reenviar agora.'); });
         });

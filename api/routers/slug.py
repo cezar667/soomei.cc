@@ -36,6 +36,37 @@ def _get_templates(request: Request) -> Jinja2Templates:
     raise RuntimeError("Templates nao configurados")
 
 
+def _css_href(request: Request) -> str:
+    return getattr(getattr(request.app, "state", None), "css_href", "/static/card.css")
+
+
+def _slug_message_response(request: Request, *, heading: str, message: str, status_code: int) -> HTMLResponse:
+    css = _css_href(request)
+    html_doc = f"""
+    <!doctype html><html lang='pt-br'><head>
+      <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+      <link rel='stylesheet' href='{css}'><title>{html.escape(heading)}</title>
+    </head><body>
+      <main class='wrap'>
+        <section class='slug-shell'>
+          <div class='slug-card carbon'>
+            <div class='slug-hero'>
+              <img src='/static/img/soomei_logo.png' alt='Soomei' class='slug-logo'>
+              <p class='slug-kicker'>Link público</p>
+              <h1>{html.escape(heading)}</h1>
+              <p class='slug-intro'>{html.escape(message)}</p>
+            </div>
+            <div class='slug-actions'>
+              <a class='btn slug-secondary' href='/'>Voltar</a>
+            </div>
+          </div>
+        </section>
+      </main>
+    </body></html>
+    """
+    return HTMLResponse(html_doc, status_code=status_code)
+
+
 def _redirect_to_card(card: dict, uid: str) -> RedirectResponse:
     dest = card.get("vanity", uid)
     return RedirectResponse(f"/{html.escape(dest)}", status_code=303)
@@ -96,9 +127,19 @@ def slug_select_post(card_id: str, request: Request, value: str = Form(""), csrf
     try:
         new_slug = svc.assign_slug(uid, value)
     except InvalidSlugError:
-        return HTMLResponse("Slug invalido. Use 3-30 caracteres [a-z0-9-]", status_code=400)
+        return _slug_message_response(
+            request,
+            heading="Link inválido",
+            message="Use 3-30 caracteres: letras minúsculas, números e hífen.",
+            status_code=400,
+        )
     except SlugUnavailableError:
-        return HTMLResponse("Slug indisponivel, tente outro.", status_code=409)
+        return _slug_message_response(
+            request,
+            heading="Link indisponível",
+            message="Esse endereço já está em uso. Tente uma variação do seu nome ou marca.",
+            status_code=409,
+        )
     except CardNotFoundError:
         raise HTTPException(404, "Cartao nao encontrado")
     return RedirectResponse(f"/{html.escape(new_slug)}", status_code=303)

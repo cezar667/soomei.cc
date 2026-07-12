@@ -102,7 +102,33 @@ def onboard_pin(request: Request, uid: str, error: str = ""):
 @router.get("/legal/terms", response_class=HTMLResponse)
 def legal_terms(request: Request):
     if not LEGAL_TERMS_PATH or not os.path.exists(LEGAL_TERMS_PATH):
-        return HTMLResponse("<h1>Termos indisponiveis</h1>", status_code=404)
+        html_doc = f"""
+        <!doctype html><html lang='pt-br'><head>
+        <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+        <link rel='stylesheet' href='{html.escape(CSS_HREF)}'><title>Termos indisponíveis</title></head><body>
+        <main class='wrap'>
+          <section class='status-shell'>
+            <div class='status-card carbon'>
+              <div class='status-glow' aria-hidden='true'></div>
+              <div class='status-brand'>
+                <img src='/static/img/soomei-logo.svg' alt='Soomei' class='status-logo'>
+                <span>Soomei</span>
+              </div>
+              <div class='status-body'>
+                <p class='status-kicker'>Documento</p>
+                <h1>Termos indisponíveis</h1>
+                <p class='status-intro'>Não conseguimos carregar os termos agora. Tente novamente em instantes ou volte para continuar sua navegação.</p>
+                <div class='status-actions'>
+                  <a class='btn primary' href='/login'>Ir para login</a>
+                  <a class='btn ghost' href='javascript:history.back()'>Voltar</a>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+        </body></html>
+        """
+        return HTMLResponse(_apply_brand_footer(html_doc), status_code=404)
     with open(LEGAL_TERMS_PATH, "r", encoding="utf-8") as handle:
         safe = html.escape(handle.read()).replace("\n", "<br>")
     templates = _templates(request)

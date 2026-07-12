@@ -1,23 +1,50 @@
 {% extends "base.html" %}
-{% block title %}Escolher slug{% endblock %}
+{% block title %}Escolher link público{% endblock %}
 {% block content %}
-  <section class="card card-public carbon">
-    <h1>Link do seu cartão</h1>
-    <p>Este será o seu endereço público: <code>/slug</code></p>
-    <form method="post" action="/slug/select/{{ uid }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label for="slug">Slug</label>
-      <div class="slug-input-row">
-        <input name="value" id="slug" value="{{ current }}" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" required aria-describedby="slugInfoTip">
-        <button type="button" class="icon-btn icon-sm" id="slugInfoBtn" aria-label="O que e um slug?" title="O que e um slug?">i</button>
-        <div id="slugInfoTip" class="info-tip" role="tooltip" aria-hidden="true">
-          Esse é o “apelido” do seu link.
-          Exemplo: se você colocar studioana, seu cartão será soomei.cc/studioana.
-        </div>
+  <section class="slug-shell">
+    <div class="slug-card carbon">
+      <div class="slug-hero">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="slug-logo">
+        <p class="slug-kicker">Identidade pública</p>
+        <h1>Escolha o link do seu cartão</h1>
+        <p class="slug-intro">Esse será o endereço curto que você vai compartilhar em bio, assinatura, QR Code e NFC.</p>
       </div>
-      <div id="msg" class="hint"></div>
-      <button class="btn">Salvar slug</button>
-    </form>
+
+      <div class="slug-preview" aria-label="Prévia do link público">
+        <span>Seu endereço</span>
+        <strong>soomei.cc/<em id="slugPreview">{{ current or "seu-nome" }}</em></strong>
+      </div>
+
+      <form method="post" action="/slug/select/{{ uid }}" class="slug-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="slug-field">
+          <label for="slug">
+            Slug
+            <span>Obrigatório</span>
+          </label>
+          <div class="slug-input-row">
+            <span class="slug-prefix">soomei.cc/</span>
+            <input name="value" id="slug" value="{{ current }}" data-current="{{ current }}" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" required aria-describedby="slugInfoTip msg" autocapitalize="none" autocorrect="off" inputmode="url">
+            <button type="button" class="slug-info-btn" id="slugInfoBtn" aria-label="O que é um slug?" title="O que é um slug?">?</button>
+            <div id="slugInfoTip" class="info-tip slug-info-tip" role="tooltip" aria-hidden="true">
+              Esse é o “apelido” do seu link. Exemplo: se você colocar <strong>studioana</strong>, seu cartão será <strong>soomei.cc/studioana</strong>.
+            </div>
+          </div>
+          <div id="msg" class="hint slug-msg">Use 3-30 caracteres: letras minúsculas, números e hífen.</div>
+        </div>
+
+        <div class="slug-tips" aria-label="Dicas para escolher um bom link">
+          <div><span>1</span><strong>Curto</strong><small>Mais fácil de lembrar.</small></div>
+          <div><span>2</span><strong>Profissional</strong><small>Use nome ou marca.</small></div>
+          <div><span>3</span><strong>Sem acentos</strong><small>Ex.: cezar-damasceno.</small></div>
+        </div>
+
+        <div class="slug-actions">
+          <a class="btn slug-secondary" href="/{{ back_slug }}">Voltar</a>
+          <button class="btn slug-submit">Salvar link público</button>
+        </div>
+      </form>
+    </div>
   </section>
 {% endblock %}
 
@@ -26,32 +53,49 @@
     (function(){
       const el = document.getElementById('slug');
       const msg = document.getElementById('msg');
+      const preview = document.getElementById('slugPreview');
       if (!el || !msg) return;
+      const currentSlug = (el.dataset.current || '').trim().toLowerCase();
       let t;
+      function updatePreview(v){
+        if (!preview) return;
+        preview.textContent = (v || '').trim().toLowerCase() || 'seu-nome';
+      }
       async function check(v){
         v = (v||'').trim().toLowerCase();
-        if (!v){ msg.textContent=''; el.classList.remove('is-ok','is-bad'); return; }
+        updatePreview(v);
+        if (!v){
+          msg.textContent='Use 3-30 caracteres: letras minúsculas, números e hífen.';
+          el.classList.remove('is-ok','is-bad');
+          return;
+        }
         if (!/^[a-z0-9-]{3,30}$/.test(v)){
-          msg.innerHTML = '<span class="bad">Use 3-30 caracteres minusculos e numeros.</span>';
+          msg.innerHTML = '<span class="bad">Use 3-30 caracteres: letras minúsculas, números e hífen.</span>';
           el.classList.add('is-bad'); el.classList.remove('is-ok');
+          return;
+        }
+        if (currentSlug && v === currentSlug){
+          msg.innerHTML = '<span class="ok">Esse já é o seu link atual.</span>';
+          el.classList.add('is-ok'); el.classList.remove('is-bad');
           return;
         }
         try{
           const r = await fetch('/slug/check?value='+encodeURIComponent(v));
           const j = await r.json();
           if (j && j.available){
-            msg.innerHTML = '<span class="ok">Disponivel</span>';
+            msg.innerHTML = '<span class="ok">Disponível — esse link pode ser seu.</span>';
             el.classList.add('is-ok'); el.classList.remove('is-bad');
           } else {
-            msg.innerHTML = '<span class="bad">Indisponivel</span>';
+            msg.innerHTML = '<span class="bad">Indisponível. Tente uma variação.</span>';
             el.classList.add('is-bad'); el.classList.remove('is-ok');
           }
         } catch(_e){
-          el.classList.remove('is-ok','is-bad'); msg.textContent='';
+          el.classList.remove('is-ok','is-bad'); msg.textContent='Não foi possível verificar agora. Tente novamente.';
         }
       }
       el.addEventListener('input', function(){
         const vv = el.value||''; const ll = vv.toLowerCase(); if (vv!==ll) el.value = ll;
+        updatePreview(el.value);
         clearTimeout(t); t=setTimeout(function(){ check(el.value); }, 220);
       });
       const form = el.closest('form');
@@ -60,7 +104,7 @@
           const ok = el.classList.contains('is-ok');
           if (!ok){
             try{ e.preventDefault(); e.stopPropagation(); }catch(_e){}
-            msg.innerHTML = '<span class="bad tooltip-err">Slug indisponivel, tente outro.</span>';
+            msg.innerHTML = '<span class="bad tooltip-err">Escolha um link disponível antes de salvar.</span>';
             el.classList.add('is-bad'); el.classList.remove('is-ok');
             try{ el.focus(); }catch(_e){}
           }

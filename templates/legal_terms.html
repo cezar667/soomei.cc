@@ -1,10 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Termos de Uso e Privacidade{% endblock %}
 {% block content %}
-  <style>
-    .legal{white-space:pre-wrap;line-height:1.5}
-    .legal h1,.legal h2,.legal h3{margin:10px 0}
-  </style>
-  <div class="legal">{{ safe|safe }}</div>
+  <section class="legal-shell">
+    <article class="legal-card carbon">
+      <div class="legal-hero">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="legal-logo">
+        <p class="legal-kicker">Transparência</p>
+        <h1>Termos de Uso e Privacidade</h1>
+        <p>Leia com atenção as condições de uso, privacidade e tratamento de dados da Soomei.</p>
+      </div>
+      <div class="legal-content">
+        {{ safe|safe }}
+      </div>
+    </article>
+  </section>
 {% endblock %}
-

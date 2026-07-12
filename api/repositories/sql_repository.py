@@ -121,6 +121,17 @@ class SQLRepository:
         with get_session() as session:
             return session.get(User, email)
 
+    def get_user_by_email_ci(self, email: str) -> Optional[User]:
+        email_norm = (email or "").strip().lower()
+        if not email_norm:
+            return None
+        with get_session() as session:
+            stmt = select(User).where(func.lower(User.email) == email_norm).limit(1)
+            return session.execute(stmt).scalar_one_or_none()
+
+    def email_exists(self, email: str) -> bool:
+        return self.get_user_by_email_ci(email) is not None
+
     def list_users(self) -> list[User]:
         with get_session() as session:
             stmt = select(User).order_by(User.created_at.desc(), User.email.asc())

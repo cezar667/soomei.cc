@@ -95,10 +95,16 @@ def _footer_action_markup(*, is_owner: bool, slug: str, csrf_token_html: str = "
             "<form method='post' action='/auth/logout' class='logout-inline' data-skip-global-loading='true'>"
             f"<input type='hidden' name='csrf_token' value='{csrf_token_html}'>"
             f"<input type='hidden' name='next' value='/{slug_safe}'>"
-            "<button type='submit' class='muted link-btn' style='background:none;border:0;padding:0;margin:0;cursor:pointer'>Sair</button>"
+            "<button type='submit' class='footer-auth-btn footer-auth-btn--logout' aria-label='Sair do sistema'>"
+            "<span class='footer-auth-icon' aria-hidden='true'>↪</span><span>Sair</span>"
+            "</button>"
             "</form>"
         )
-    return "<a href='/login' class='muted'>Entrar</a>"
+    return (
+        "<a href='/login' class='footer-auth-btn footer-auth-btn--login' aria-label='Entrar no sistema'>"
+        "<span class='footer-auth-icon' aria-hidden='true'>↗</span><span>Entrar</span>"
+        "</a>"
+    )
 
 
 def _footer_action_context(
@@ -118,6 +124,56 @@ def _footer_action_context(
         csrf_token_html=csrf_token_html,
     )
     return action_html, token_value
+
+
+def _public_message_response(
+    request: Request,
+    *,
+    title: str,
+    kicker: str,
+    heading: str,
+    message: str,
+    href: str,
+    label: str,
+    status_code: int = 200,
+    is_owner: bool = False,
+    slug: str = "",
+) -> HTMLResponse:
+    href_safe = html.escape(href or "/")
+    html_doc = f"""
+    <!doctype html><html lang='pt-br'><head>
+    <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='stylesheet' href='{html.escape(CSS_HREF)}'><title>{html.escape(title)}</title></head><body>
+    <main class='wrap'>
+      <section class='status-shell'>
+        <div class='status-card carbon'>
+          <div class='status-glow' aria-hidden='true'></div>
+          <div class='status-brand'>
+            <img src='/static/img/soomei-logo.svg' alt='Soomei' class='status-logo'>
+            <span>Soomei</span>
+          </div>
+          <div class='status-body'>
+            <p class='status-kicker'>{html.escape(kicker)}</p>
+            <h1>{html.escape(heading)}</h1>
+            <p class='status-intro'>{html.escape(message)}</p>
+            <div class='status-actions'>
+              <a class='btn primary' href='{href_safe}'>{html.escape(label)}</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    </body></html>
+    """
+    footer_action_html, footer_token = _footer_action_context(
+        request,
+        is_owner=is_owner,
+        slug=slug,
+    )
+    response = HTMLResponse(_apply_brand_footer(html_doc, footer_action_html), status_code=status_code)
+    if footer_token:
+        csrf.set_csrf_cookie(response, footer_token)
+    return response
 def visitor_public_card(
     prof: dict,
     slug: str,
@@ -1428,7 +1484,18 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
                     qrcode.make(_build_off(False), image_factory=qsvg.SvgImage).save(buf2)
                     data_url = "data:image/svg+xml;base64," + base64.b64encode(buf2.getvalue()).decode("ascii")
                 except Exception:
-                    return HTMLResponse("<h1>Falha ao gerar QR Offline</h1>", status_code=500)
+                    return _public_message_response(
+                        request,
+                        title="Falha ao gerar QR Offline",
+                        kicker="Modo offline",
+                        heading="Não conseguimos gerar o QR agora",
+                        message="O contato continua preservado. Volte para o cartão e tente novamente em alguns instantes.",
+                        href=entry_path,
+                        label="Voltar ao cartão",
+                        status_code=500,
+                        is_owner=is_owner,
+                        slug=slug,
+                    )
         theme_base = (prof.get("theme_color", "#000000") or "#000000") if prof else "#000000"
         if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
             theme_base = "#000000"
@@ -1439,20 +1506,24 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
         <!doctype html><html lang='pt-br'><head>
         <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
         <link rel='stylesheet' href='{CSS_HREF}'><title>Modo Offline</title></head><body>
-        <main class='wrap'>
-          <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
-            <div class='topbar'>
-              <a class='icon-btn top-left' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
-              <h1 class='page-title'>Modo Offline</h1>
+        <main class='wrap utility-shell'>
+          <section class='utility-card carbon' style='background-color: {html.escape(bg_hex)}'>
+            <a class='utility-back' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
+            <div class='utility-brand'>
+              <img src='/static/img/soomei-logo.svg' alt='Soomei' class='utility-logo'>
+              <span>Soomei</span>
             </div>
-            {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
-            <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
-              <p>Modo Offline permite salvar o seu contato diretamente na agenda do cliente, sem utilizar a internet. Basta acessar o QR Code com a camera do celular:</p>
-              <div style='margin:12px 0'>
-                <img src='{data_url}' alt='QR Offline' style='width:220px;height:220px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:8px'>
-              </div>
-              <p class='muted' style='font-size:11px'>Dica: Tire um print dessa tela e marque-a como favorita em sua galeria de fotos, para facilitar o acesso em caso de falta de internet.</p>
-              <p class='muted' style='font-size:11px'>Atencao: Nao e recomendado imprimir este codigo em placas ou cartao, pois ele nao sera atualizado online. Utilize o codigo QRCode Online para impressao.</p>
+            <p class='utility-kicker'>Contato sem internet</p>
+            <h1>Modo Offline</h1>
+            <p class='utility-intro'>Salve o contato direto na agenda do cliente mesmo quando a internet não colaborar. Basta apontar a câmera para o QR Code.</p>
+            {f"<img class='utility-avatar' src='{photo}' alt='foto'>" if photo else ""}
+            <div class='utility-panel'>
+              <img class='utility-qr' src='{data_url}' alt='QR Offline'>
+              <p class='utility-note'><strong>Dica:</strong> tire um print desta tela e marque como favorita na galeria para acesso rápido.</p>
+              <p class='utility-note'>Não recomendamos imprimir este código: ele não recebe atualizações online. Para materiais impressos, use o QR Code online.</p>
+            </div>
+            <div class='utility-actions'>
+              <a class='btn ghost' href='{entry_href}'>Voltar ao cartão</a>
             </div>
           </section>
         </main>
@@ -1485,19 +1556,24 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
             <!doctype html><html lang='pt-br'><head>
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
             <link rel='stylesheet' href='{CSS_HREF}'><title>Pagamento Pix</title></head><body>
-            <main class='wrap'>
-              <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
-                <div class='topbar'>
-                  <a class='icon-btn top-left' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
-                  <h1 class='page-title'>Pagamento Pix</h1>
+            <main class='wrap utility-shell'>
+              <section class='utility-card carbon' style='background-color: {html.escape(bg_hex)}'>
+                <a class='utility-back' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
+                <div class='utility-brand'>
+                  <img src='/static/img/soomei-logo.svg' alt='Soomei' class='utility-logo'>
+                  <span>Soomei</span>
                 </div>
-                {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
-                <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
-                  <h3 style='margin:0 0 8px'>Digite o valor do seu Pix</h3>
-                  <p class='muted' style='margin:0 0 12px;font-size:12px'>Deixe 0,00 para gerar um QRCode com valor em aberto</p>
-                  <div style='display:flex;gap:8px;justify-content:center'>
-                    <input id='pixAmount' type='tel' inputmode='numeric' pattern='[0-9,]*' placeholder='0,00' autocomplete='off' style='max-width:160px'>
-                    <a id='genPix' class='btn' href='#'>Gerar Pix <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='14' height='14'><path d='M9 18l6-6-6-6' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg></a>
+                <p class='utility-kicker'>Pagamento instantâneo</p>
+                <h1>Gerar Pix</h1>
+                <p class='utility-intro'>Informe o valor para criar um QR Code pronto para pagamento. Se quiser deixar aberto, mantenha 0,00.</p>
+                {f"<img class='utility-avatar' src='{photo}' alt='foto'>" if photo else ""}
+                <div class='utility-panel'>
+                  <h2>Valor do Pix</h2>
+                  <p class='utility-note'>Use vírgula para centavos. Exemplo: 150,00</p>
+                  <div class='utility-amount-row'>
+                    <label class='utility-currency' for='pixAmount'>R$</label>
+                    <input id='pixAmount' class='utility-input' type='tel' inputmode='numeric' pattern='[0-9,]*' placeholder='0,00' autocomplete='off'>
+                    <a id='genPix' class='btn utility-primary' href='#'>Gerar QR <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='14' height='14'><path d='M9 18l6-6-6-6' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg></a>
                   </div>
                 </div>
               </section>
@@ -1567,22 +1643,40 @@ def _serve_slug(slug: str, request: Request, prefetched: tuple[dict, str, dict] 
                     qrcode.make(payload, image_factory=qsvg.SvgImage).save(buf)
                     data_url = "data:image/svg+xml;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
                 except Exception:
-                    return HTMLResponse("<h1>Falha ao gerar QR Pix</h1>", status_code=500)
+                    return _public_message_response(
+                        request,
+                        title="Falha ao gerar QR Pix",
+                        kicker="Pagamento Pix",
+                        heading="Não conseguimos gerar o QR agora",
+                        message="A chave Pix continua salva. Volte para o cartão e tente gerar o código novamente.",
+                        href=entry_path,
+                        label="Voltar ao cartão",
+                        status_code=500,
+                        is_owner=is_owner,
+                        slug=slug,
+                    )
             page = f"""
             <!doctype html><html lang='pt-br'><head>
             <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
             <link rel='stylesheet' href='{CSS_HREF}'><title>QRCode Pix</title></head><body>
-            <main class='wrap'>
-              <section class='card carbon card-center' style='background-color: {html.escape(bg_hex)}'>
-                <div class='topbar'>
-                  <a class='icon-btn top-left' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
-                  <h1 class='page-title'>QRCode Pix</h1>
+            <main class='wrap utility-shell'>
+              <section class='utility-card carbon' style='background-color: {html.escape(bg_hex)}'>
+                <a class='utility-back' href='{entry_href}' aria-label='Voltar' title='Voltar'>&larr;</a>
+                <div class='utility-brand'>
+                  <img src='/static/img/soomei-logo.svg' alt='Soomei' class='utility-logo'>
+                  <span>Soomei</span>
                 </div>
-                {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
-                <div class='card' style='background:transparent;border:1px solid #242427;border-radius:12px;padding:16px;margin-top:10px'>
-                  <img src='{data_url}' alt='QR Pix' style='width:240px;height:240px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:8px'>
-                  <p class='muted' style='font-size:12px;margin-top:10px'>Escaneie o código no app do banco ou copie o código Pix.</p>
-                  <a class='btn full' href='#' id='copyPix'>Copiar código Pix</a>
+                <p class='utility-kicker'>Pix pronto</p>
+                <h1>QRCode Pix</h1>
+                <p class='utility-intro'>Escaneie no app do banco ou copie o código Pix para concluir o pagamento.</p>
+                {f"<img class='utility-avatar' src='{photo}' alt='foto'>" if photo else ""}
+                <div class='utility-panel'>
+                  <img class='utility-qr utility-qr--pix' src='{data_url}' alt='QR Pix'>
+                  <p class='utility-note'>O código foi gerado com segurança a partir da chave Pix cadastrada neste cartão.</p>
+                  <a class='btn utility-primary full' href='#' id='copyPix'>Copiar código Pix</a>
+                </div>
+                <div class='utility-actions'>
+                  <a class='btn ghost' href='{entry_href}'>Voltar ao cartão</a>
                 </div>
               </section>
             </main>
@@ -1710,14 +1804,17 @@ def custom_domain_root(request: Request):
                     return RedirectResponse(f"/onboard/{pending_uid}", status_code=303)
                 if has_blocked:
                     return RedirectResponse("/blocked", status_code=303)
-            return RedirectResponse("/login", status_code=303)
-        return HTMLResponse("Pagina nao encontrada", status_code=404)
+        return RedirectResponse("/login", status_code=303)
     slug = card.get("vanity") or uid
     # O lookup já foi feito; passamos uid/card para evitar nova consulta.
     return _serve_slug(slug, request, ({}, uid, card))
-@router.get("/{slug}", response_class=HTMLResponse)
-def root_slug(slug: str, request: Request):
-    return _serve_slug(slug, request)
+
+
 @router.get("/blocked", response_class=HTMLResponse)
 def blocked(request: Request):
     return _templates(request).TemplateResponse("blocked.html", {"request": request})
+
+
+@router.get("/{slug}", response_class=HTMLResponse)
+def root_slug(slug: str, request: Request):
+    return _serve_slug(slug, request)

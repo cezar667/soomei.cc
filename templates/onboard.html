@@ -1,39 +1,66 @@
 {% extends "base.html" %}
-{% block title %}Ativar cartao{% endblock %}
+{% block title %}Ativar cartão{% endblock %}
 {% block content %}
   <div class="loading-overlay" id="onboardLoading" aria-hidden="true" role="status" aria-live="polite" aria-label="Processando">
     <img src="/static/img/soomei_loading.gif" alt="Processando..." class="loading-spinner">
   </div>
-  <section class="card card-public carbon">
-    <h1>Ativar cartao</h1>
-    <p>UID: <b>{{ uid }}</b></p>
+  <section class="onboard-shell">
+    <div class="onboard-card carbon">
+      <div class="onboard-hero">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="onboard-logo">
+        <p class="onboard-kicker">Ativação segura</p>
+        <h1>Ative seu cartão digital</h1>
+        <p class="onboard-intro">Vamos vincular seu cartão NFC a uma conta Soomei. Leva menos de um minuto e mantém seu cartão protegido.</p>
+        <div class="onboard-uid" aria-label="Identificador do cartão">
+          <span>UID do cartão</span>
+          <strong>{{ uid }}</strong>
+        </div>
+      </div>
+      <ol class="onboard-steps" aria-label="Etapas de ativação">
+        <li><span>1</span><strong>Confirme o cartão</strong><small>Use o PIN recebido.</small></li>
+        <li><span>2</span><strong>Crie sua conta</strong><small>E-mail e senha seguros.</small></li>
+        <li><span>3</span><strong>Personalize</strong><small>Escolha seu link público.</small></li>
+      </ol>
     {% if error and error|trim %}
     <div id="formAlert" class="banner" role="alert" aria-live="polite">{{ error }}</div>
     {% else %}
     <div id="formAlert" class="banner hidden" role="alert" aria-live="polite"></div>
     {% endif %}
-    <form id="onbForm" method="post" action="/auth/register">
+    <form id="onbForm" method="post" action="/auth/register" class="onboard-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="uid" value="{{ uid }}">
-      <label for="emailInput">Email</label>
-      <input id="emailInput" name="email" type="email" required value="{{ email }}" autocapitalize="none" autocomplete="email" autocorrect="off">
-      <div id="emailMsg" class="hint"></div>
-      <label for="pinInput">PIN da carta</label>
-      <input id="pinInput" name="pin" type="password" required inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Somente numeros">
-      <div class="hint">Dica: PIN possui apenas numeros.</div>
-      <label for="passwordInput">Nova senha</label>
-      <input id="passwordInput" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="Minimo de 8 caracteres">
-      <label for="vanityInput">Link do seu cartao (opcional)</label>
-      <input id="vanityInput" name="vanity" class="input-lower" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" value="{{ vanity }}" autocapitalize="none" autocorrect="off" inputmode="url">
-      <div id="slugMsg" class="hint">Use 3-30 caracteres, todos minusculos, sem caracteres especiais</div>
-      <div class="terms-row">
+      <div class="onboard-field">
+        <label for="emailInput">E-mail <span>Obrigatório</span></label>
+        <input id="emailInput" name="email" type="email" required value="{{ email }}" autocapitalize="none" autocomplete="email" autocorrect="off" placeholder="voce@empresa.com">
+        <div id="emailMsg" class="hint">Usaremos este e-mail para confirmar sua conta.</div>
+      </div>
+      <div class="onboard-field">
+        <label for="pinInput">PIN do cartão <span>Obrigatório</span></label>
+        <input id="pinInput" name="pin" type="password" required inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="Somente números">
+        <div class="hint">O PIN está impresso na carta ou etiqueta recebida.</div>
+      </div>
+      <div class="onboard-field">
+        <label for="passwordInput">Nova senha <span>Obrigatório</span></label>
+        <input id="passwordInput" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="Mínimo de 8 caracteres">
+        <div class="hint">Escolha uma senha forte para proteger a edição do cartão.</div>
+      </div>
+      <div class="onboard-field onboard-field--full">
+        <label for="vanityInput">Link do seu cartão <em>Opcional</em></label>
+        <div class="onboard-slug-row">
+          <span>soomei.cc/</span>
+          <input id="vanityInput" name="vanity" class="input-lower" placeholder="seu-nome" pattern="[a-z0-9-]{3,30}" value="{{ vanity }}" autocapitalize="none" autocorrect="off" inputmode="url">
+        </div>
+        <div id="slugMsg" class="hint">Use 3-30 caracteres, todos minúsculos, sem caracteres especiais.</div>
+      </div>
+      <div class="terms-row onboard-terms">
         <label class="terms-label">
           <input class="nice-check" type="checkbox" name="lgpd" required>
           <span class="terms-text">Concordo com os <a href="#" id="openTerms" class="terms-link">Termos e Privacidade</a></span>
         </label>
       </div>
-      <button class="btn onboard-cta" {% if not uid_exists %}disabled{% endif %}>Criar conta</button>
+      <button class="btn onboard-cta" {% if not uid_exists %}disabled{% endif %}>Criar conta e ativar cartão</button>
     </form>
+    </div>
   </section>
   <div id="termsBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal modal--wide">
@@ -121,6 +148,9 @@
         if(!el) return;
         el.innerHTML = ok ? "<span class='ok'>"+text+"</span>" : "<span class='bad'>"+text+"</span>";
       }
+      function emailUnavailableMessage(result){
+        return result && result.reason === 'invalid' ? 'Informe um e-mail válido.' : 'Este e-mail já está cadastrado.';
+      }
       var emailEl = document.getElementById('emailInput');
       var emailMsg = document.getElementById('emailMsg');
       var slugEl = document.getElementById('vanityInput');
@@ -149,15 +179,20 @@
             }
           }
           var vEmail = (emailEl.value||'').trim();
-          if (!vEmail) return;
+          if (!vEmail){ return fail('Informe seu e-mail para continuar.', emailEl); }
+          if (!emailEl.checkValidity()){ return fail('Informe um e-mail válido.', emailEl); }
+          vEmail = vEmail.toLowerCase();
+          emailEl.value = vEmail;
           var pinEl = form.querySelector('input[name="pin"]');
           var pwdEl = form.querySelector('input[name="password"]');
           var lgpdEl = form.querySelector('input[name="lgpd"]');
           var vPin = (pinEl && pinEl.value||'').trim();
           var vPwd = (pwdEl && pwdEl.value||'').trim();
-          if (lgpdEl && !lgpdEl.checked){ return fail('E necessario aceitar os termos para continuar.', lgpdEl); }
-          if (vPwd && vPwd.length < 8){ return fail('Senha muito curta. Use no minimo 8 caracteres.', pwdEl); }
-          if (vPin && /[^0-9]/.test(vPin)){ return fail('PIN deve conter apenas numeros.', pinEl); }
+          if (!vPin){ return fail('Informe o PIN do cartão.', pinEl); }
+          if (/[^0-9]/.test(vPin)){ return fail('PIN deve conter apenas números.', pinEl); }
+          if (!vPwd){ return fail('Crie uma senha para continuar.', pwdEl); }
+          if (vPwd.length < 8){ return fail('Senha muito curta. Use no mínimo 8 caracteres.', pwdEl); }
+          if (lgpdEl && !lgpdEl.checked){ return fail('É necessário aceitar os termos para continuar.', lgpdEl); }
           if (slugEl){ slugEl.value = (slugEl.value||'').toLowerCase(); }
           try{ e.preventDefault(); e.stopImmediatePropagation(); }catch(_e){}
           emailMsg.innerHTML = '';
@@ -168,22 +203,51 @@
             showLoading();
             form.submit();
           }
-          fetch('/auth/check_email?value='+encodeURIComponent(vEmail))
-            .then(function(r){ return r.json(); })
-            .then(function(j){
-              if (j && j.available){ allowSubmit(); }
-              else {
-                setMsg(emailMsg, false, 'E-mail ja cadastrado');
-                if (btn) btn.disabled = false;
-                emailEl.focus();
-              }
-            })
+	          fetch('/auth/check_email?value='+encodeURIComponent(vEmail))
+	            .then(function(r){ return r.json(); })
+	            .then(function(j){
+	              if (j && j.available){ allowSubmit(); }
+	              else {
+	                setMsg(emailMsg, false, emailUnavailableMessage(j));
+	                if (btn) btn.disabled = false;
+	                emailEl.focus();
+	              }
+	            })
             .catch(function(){
               if (btn) btn.disabled = false;
               allowSubmit();
             });
-        }, true);
-      })();
+	        }, true);
+	      })();
+      if (emailEl && emailMsg){
+        var emailTimer;
+        emailEl.addEventListener('input', function(){
+          clearTimeout(emailTimer);
+          var v = (emailEl.value||'').trim().toLowerCase();
+          if (!v){
+            emailMsg.textContent = 'Usaremos este e-mail para confirmar sua conta.';
+            return;
+          }
+          if (!emailEl.checkValidity()){
+            setMsg(emailMsg, false, 'Informe um e-mail válido.');
+            return;
+          }
+          emailTimer = setTimeout(function(){
+            fetch('/auth/check_email?value='+encodeURIComponent(v))
+              .then(function(r){ return r.json(); })
+              .then(function(j){
+                if (j && j.available){
+                  setMsg(emailMsg, true, 'E-mail disponível.');
+                } else {
+                  setMsg(emailMsg, false, emailUnavailableMessage(j));
+                }
+              })
+              .catch(function(){
+                emailMsg.textContent = 'Usaremos este e-mail para confirmar sua conta.';
+              });
+          }, 300);
+        });
+      }
       if (slugEl && slugMsg){
         var t2;
         slugEl.addEventListener('input', function(){

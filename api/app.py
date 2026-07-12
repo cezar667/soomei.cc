@@ -120,8 +120,13 @@ def favicon():
 
 def _brand_footer_inject(html_doc: str) -> str:
     snippet = (
-        "\n    <div class='edit-footer'>\n"
-        "        {footer_action_html}\n"
+        "\n    <div class='edit-footer soomei-footer-mark'>\n"
+        "        <a class='soomei-watermark' href='https://soomei.cc' target='_blank' rel='noopener' aria-label='Soomei'>\n"
+        "          <span class='soomei-watermark__brand'>Soomei</span>\n"
+        "          <span class='soomei-watermark__text'>cartão digital</span>\n"
+        "        </a>\n"
+        "        <span class='soomei-footer-separator' aria-hidden='true'></span>\n"
+        "        <span class='soomei-footer-action'>{footer_action_html}</span>\n"
         "      </div>\n  "
     )
     return html_doc.replace("</main>", snippet + "</main>", 1) if "</main>" in html_doc else (html_doc + snippet)

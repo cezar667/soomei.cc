@@ -1,18 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Confirmar PIN{% endblock %}
 {% block content %}
-  <section class="card card-public carbon card-center">
-    <h1>Confirmar PIN</h1>
-    <p>Informe o PIN da sua carta para continuar a ativacao.</p>
+  <section class="pin-shell">
+    <div class="pin-card carbon">
+      <div class="pin-glow" aria-hidden="true"></div>
+      <div class="pin-brand">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="pin-logo">
+        <span>Soomei</span>
+      </div>
+      <div class='auth-support'>
+        <p class="pin-kicker">Ativação protegida</p>
+      </div>
+      <h1>Confirme o PIN do cartão</h1>
+      <p class="pin-intro">Digite o PIN impresso na carta ou etiqueta para continuar com segurança.</p>
     {% if error %}
       <p class="banner bad">{{ error }}</p>
     {% endif %}
-    <form method="post" action="/onboard/{{ uid }}/pin" class="grid">
+    <form method="post" action="/onboard/{{ uid }}/pin" class="pin-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>PIN</label>
-      <input name="pin" type="password" inputmode="numeric" pattern="[0-9]*" required>
-      <button class="btn">Continuar</button>
+      <div class="pin-field">
+        <label for="pinInput">PIN</label>
+        <input id="pinInput" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" required placeholder="Somente números" autocomplete="one-time-code">
+      </div>
+      <button class="btn pin-submit">Continuar ativação</button>
     </form>
-    <p class="muted stack-top-sm">Nao sabe o PIN? Ele esta impresso na carta/etiqueta do cartao.</p>
+      <p class="pin-note">Não sabe o PIN? Ele está impresso na carta ou etiqueta do cartão.</p>
+    </div>
   </section>
 {% endblock %}
