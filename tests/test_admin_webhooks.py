@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import select
 from starlette.requests import Request
 
 from api.core import config as core_config
@@ -190,3 +191,37 @@ def test_admin_dashboard_renders_operational_charts(admin_webhook_db, monkeypatc
     assert "Assinaturas externas" in body
     assert "Últimas falhas de webhook" in body
     assert "admin-line-chart" in body
+
+
+def test_admin_dev_can_grant_connector_badge(admin_webhook_db, monkeypatch):
+    _allow_admin(monkeypatch)
+    monkeypatch.setattr(admin_app, "_csrf_protect", lambda _request, _token: None)
+    monkeypatch.setattr(admin_app, "settings", type("Settings", (), {"app_env": "dev"})())
+    with get_session() as session:
+        session.add(
+            models.Card(
+                uid="uid-ref-dev",
+                pin="123456",
+                status="active",
+                vanity="ref-dev",
+                owner_email="cliente@example.com",
+            )
+        )
+        session.commit()
+
+    detail = admin_app.card_details("uid-ref-dev", _request("/cards/uid-ref-dev"))
+    assert "Dev: ativar Destaque Soomei" in detail.body.decode("utf-8")
+
+    response = admin_app.dev_grant_connector_badge(
+        "uid-ref-dev",
+        _request("/cards/uid-ref-dev/dev/connector-badge"),
+        days=45,
+        csrf_token="csrf-admin",
+    )
+
+    assert response.status_code == 303
+    with get_session() as session:
+        badge = session.execute(select(models.ProfileBadge).where(models.ProfileBadge.card_uid == "uid-ref-dev")).scalar_one()
+    assert badge.badge_type == "soomei_connector"
+    assert badge.label == "Destaque Soomei"
+    assert badge.source == "admin_dev"

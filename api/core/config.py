@@ -37,6 +37,8 @@ class Settings:
     membership_webhook_max_retries: int
     membership_webhook_worker_batch_size: int
     membership_webhook_worker_interval_seconds: int
+    referral_qualification_days: int
+    referral_qualification_batch_size: int
 
 
 @lru_cache
@@ -76,6 +78,8 @@ def get_settings() -> Settings:
         membership_webhook_max_retries=_int(os.getenv("MEMBERSHIP_WEBHOOK_MAX_RETRIES", "5"), 5),
         membership_webhook_worker_batch_size=_int(os.getenv("MEMBERSHIP_WEBHOOK_WORKER_BATCH_SIZE", "50"), 50),
         membership_webhook_worker_interval_seconds=_int(os.getenv("MEMBERSHIP_WEBHOOK_WORKER_INTERVAL_SECONDS", "5"), 5),
+        referral_qualification_days=max(0, _int(os.getenv("REFERRAL_QUALIFICATION_DAYS", "30"), 30)),
+        referral_qualification_batch_size=max(1, _int(os.getenv("REFERRAL_QUALIFICATION_BATCH_SIZE", "500"), 500)),
     )
 
 

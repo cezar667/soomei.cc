@@ -3,7 +3,7 @@
 import html
 from urllib.parse import quote, quote_plus
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from api.core import csrf
@@ -81,9 +81,28 @@ def _encode(value: str) -> str:
     return quote(value or "", safe="")
 
 
-def _redirect_back(uid: str, email: str, vanity: str, err: str):
-    dest = f"/onboard/{uid}?error={quote_plus(err)}&email={quote_plus(email)}&vanity={quote_plus(vanity)}"
+def _redirect_back(uid: str, email: str, vanity: str, err: str, referral_code: str = ""):
+    dest = (
+        f"/onboard/{uid}?error={quote_plus(err)}&email={quote_plus(email)}"
+        f"&vanity={quote_plus(vanity)}&referral_code={quote_plus(referral_code)}"
+    )
     return RedirectResponse(dest, status_code=303)
+
+
+def _safe_next_path(value: str | None, fallback: str = "/") -> str:
+    raw = (value or "").strip()
+    if not raw.startswith("/") or raw.startswith("//"):
+        return fallback
+    return raw
+
+
+def _activated_url(next_path: str, configure_path: str = "") -> str:
+    safe_next = _safe_next_path(next_path, "/")
+    params = f"next={quote(safe_next, safe='')}"
+    safe_configure = _safe_next_path(configure_path, "")
+    if safe_configure:
+        params += f"&configure={quote(safe_configure, safe='')}"
+    return f"/auth/activated?{params}"
 
 
 def _auth_message_response(
@@ -332,22 +351,43 @@ def register(
     pin: str = Form(...),
     password: str = Form(...),
     vanity: str = Form(""),
+    referral_code: str = Form(""),
     lgpd: str = Form(None),
     csrf_token: str = Form(""),
 ):
     rate_limit_ip(request, "auth:register", limit=3, window_seconds=300)
-    csrf.validate_csrf(request, csrf_token)
     try:
-        result = auth_service.register(uid, email, pin, password, vanity, accepted_terms=bool(lgpd))
+        csrf.validate_csrf(request, csrf_token)
+    except HTTPException:
+        return _redirect_back(
+            uid,
+            email,
+            vanity or "",
+            "Sua sessão mudou ou expirou. Revise os dados e tente ativar novamente.",
+            referral_code or "",
+        )
+    try:
+        result = auth_service.register(
+            uid,
+            email,
+            pin,
+            password,
+            vanity,
+            accepted_terms=bool(lgpd),
+            referral_code=referral_code,
+            ip_address=getattr(request.client, "host", "") if request.client else "",
+            user_agent=request.headers.get("user-agent", ""),
+        )
     except AccountExistsError:
         return _redirect_back(
             uid,
             email,
             vanity or "",
             "Este e-mail ja esta cadastrado. Use outro e-mail ou entre na conta existente.",
+            referral_code or "",
         )
     except RegistrationError as exc:
-        return _redirect_back(uid, email, vanity or "", exc.message)
+        return _redirect_back(uid, email, vanity or "", exc.message, referral_code or "")
     css = _css_href(request)
     dev_hint = ""
     if APP_ENV != "prod":
@@ -360,8 +400,14 @@ def register(
         else "<p class='banner bad'>Não foi possível enviar o e-mail de confirmação automaticamente. Use o link abaixo para confirmar:</p>"
     )
     manual_link = "" if result.email_sent else f"<p><a class='btn' href='{html.escape(result.verify_path)}'>Confirmar e-mail</a></p>"
+    referral_note = (
+        f"<p class='banner ok'>{html.escape(result.referral_message)}</p>"
+        if result.referral_message and result.referral_message.startswith("Código aplicado")
+        else (f"<p class='banner'>{html.escape(result.referral_message)}</p>" if result.referral_message else "")
+    )
     body_html = (
         delivery
+        + referral_note
         + dev_hint
         + manual_link
         + f"<p>Depois de confirmar, você será direcionado ao cartão <code>/{html.escape(result.dest_slug)}</code>.</p>"
@@ -426,11 +472,92 @@ def verify_email(request: Request, token: str):
             status_code=400,
         )
     dest = f"/{result.target_slug}" if result.target_slug else "/"
-    resp = RedirectResponse(dest, status_code=303)
+    configure_dest = f"/edit/{result.target_slug}" if result.target_slug else ""
+    resp = RedirectResponse(_activated_url(dest, configure_dest), status_code=303)
     set_session_cookie(resp, result.session_token)
     csrf_token = csrf.ensure_csrf_token(request)
     csrf.set_csrf_cookie(resp, csrf_token)
     return resp
+
+
+@router.get("/activated", response_class=HTMLResponse)
+def activated(request: Request, next: str = "/", configure: str = ""):
+    next_path = _safe_next_path(next, "/")
+    configure_path = _safe_next_path(configure, "")
+    if not configure_path and next_path.startswith("/") and next_path.count("/") == 1 and len(next_path) > 1:
+        configure_path = f"/edit/{next_path.lstrip('/')}"
+    if not configure_path:
+        configure_path = next_path
+    css = _css_href(request)
+    safe_next = html.escape(next_path)
+    safe_configure = html.escape(configure_path)
+    html_doc = f"""<!doctype html>
+    <html lang='pt-br'>
+    <head>
+      <meta charset='utf-8'>
+      <meta name='viewport' content='width=device-width,initial-scale=1'>
+      <link rel='stylesheet' href='{html.escape(css)}'>
+      <title>Soomei - Cartão ativado</title>
+    </head>
+    <body>
+      <main class='wrap activation-wrap'>
+        <section class='activation-shell carbon'>
+          <div class='activation-glow' aria-hidden='true'></div>
+          <div class='activation-copy'>
+            <p class='section-kicker'>Ativação concluída</p>
+            <h1>Seu cartão Soomei está pronto.</h1>
+            <p>Uma nova forma de se apresentar, conectar oportunidades e transformar contatos em relacionamento.</p>
+          </div>
+          <div class='activation-video-frame'>
+            <video id='activationVideo' class='activation-video' autoplay muted playsinline preload='auto' poster='/static/img/soomei_logo.png'>
+              <source src='/static/intro/intro-soomei-activated.mp4' type='video/mp4'>
+              <source src='/static/intro/intro-soomei-activated.MOV' type='video/quicktime'>
+              Seu navegador não conseguiu reproduzir a animação de ativação.
+            </video>
+          </div>
+          <div class='activation-actions' id='activationActions' aria-live='polite'>
+            <a class='btn primary activation-primary' href='{safe_configure}'>Configurar cartão</a>
+            <a class='btn ghost activation-secondary' href='{safe_next}'>Visualizar cartão</a>
+          </div>
+          <p class='activation-hint' id='activationHint'>Aguarde a animação terminar para continuar.</p>
+        </section>
+        <div class='edit-footer soomei-footer-mark activation-footer'>
+          <a class='soomei-watermark' href='https://soomei.cc' target='_blank' rel='noopener' aria-label='Soomei'>
+            <span class='soomei-watermark__brand'>Soomei</span>
+            <span class='soomei-watermark__text'>cartão digital</span>
+          </a>
+        </div>
+      </main>
+      <script>
+      (function(){{
+        var video = document.getElementById('activationVideo');
+        var actions = document.getElementById('activationActions');
+        var hint = document.getElementById('activationHint');
+        var revealed = false;
+        function reveal(){{
+          if (revealed) return;
+          revealed = true;
+          if (actions) actions.classList.add('is-ready');
+          if (hint) hint.textContent = 'Pronto — escolha o próximo passo.';
+        }}
+        if (!video) {{ reveal(); return; }}
+        video.addEventListener('playing', function(){{
+          if (hint && !revealed) hint.textContent = 'Ativando sua experiência Soomei...';
+        }});
+        video.addEventListener('ended', reveal);
+        video.addEventListener('error', reveal);
+        var playPromise = video.play && video.play();
+        if (playPromise && playPromise.catch) {{
+          playPromise.catch(function(){{ reveal(); }});
+        }}
+        setTimeout(function(){{
+          if (!revealed && video.readyState === 0) reveal();
+        }}, 7000);
+      }})();
+      </script>
+    </body>
+    </html>"""
+    return HTMLResponse(html_doc)
 
 
 @router.get("/pending", response_class=HTMLResponse)

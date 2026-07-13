@@ -52,6 +52,11 @@
         </div>
         <div id="slugMsg" class="hint">Use 3-30 caracteres, todos minúsculos, sem caracteres especiais.</div>
       </div>
+      <div class="onboard-field onboard-field--full">
+        <label for="referralCodeInput">Código de indicação <em>Opcional</em></label>
+        <input id="referralCodeInput" name="referral_code" value="{{ referral_code }}" placeholder="Ex.: CEZAR2026" autocapitalize="characters" autocomplete="off" maxlength="40">
+        <div class="hint">Recebeu um convite? Informe o código para liberar benefícios para você e para quem te indicou.</div>
+      </div>
       <div class="terms-row onboard-terms">
         <label class="terms-label">
           <input class="nice-check" type="checkbox" name="lgpd" required>
@@ -85,6 +90,7 @@
           <li>Informe seu e-mail e PIN da carta.</li>
           <li>Crie uma senha forte (minimo 8 caracteres).</li>
           <li>(Opcional) Escolha um slug personalizado para seu cartao.</li>
+          <li>(Opcional) Informe um codigo de indicacao se recebeu convite.</li>
           <li>Leia e concorde com os Termos e Privacidade.</li>
           <li>Clique em "Criar conta" e confirme seu e-mail.</li>
         </ol>

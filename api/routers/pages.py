@@ -43,7 +43,7 @@ def _apply_brand_footer(content: str) -> str:
 
 
 @router.get("/onboard/{uid}", response_class=HTMLResponse)
-def onboard(request: Request, uid: str, email: str = "", vanity: str = "", error: str = ""):
+def onboard(request: Request, uid: str, email: str = "", vanity: str = "", referral_code: str = "", error: str = ""):
     card_entity = _sql_repo.get_card_by_uid(uid)
     if not card_entity:
         return RedirectResponse("/invalid", status_code=302)
@@ -59,6 +59,7 @@ def onboard(request: Request, uid: str, email: str = "", vanity: str = "", error
         "uid": uid,
         "email": email,
         "vanity": vanity,
+        "referral_code": referral_code,
         "error": error,
         "uid_exists": True,
         "show_welcome": True,

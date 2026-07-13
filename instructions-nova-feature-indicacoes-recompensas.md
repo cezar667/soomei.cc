@@ -21,7 +21,7 @@ Criar um módulo de indicação/recompensa para:
 * permitir que um novo associado informe um código de indicação durante a ativação do cartão;
 * validar o código informado;
 * registrar a relação entre indicador e indicado;
-* premiar indicador e indicado após a ativação bem-sucedida;
+* premiar indicador e indicado após a ativação bem-sucedida, com benefícios diferentes quando aplicável;
 * exibir benefícios ativos no perfil/cartão;
 * acumular dias de selo visual conforme novas indicações forem convertidas;
 * registrar cupons promocionais para campanhas como “Pix da Virada”;
@@ -58,8 +58,8 @@ Recomendação inicial:
 Quando um código é usado com sucesso na ativação de um novo cartão:
 
 * o perfil indicador ganha mais 30 dias de selo visual;
-* o perfil indicado ganha 30 dias de selo visual;
-* se o perfil já possuir selo ativo, os novos dias são acumulados a partir da data de expiração atual;
+* o perfil indicado não ganha selo visual por padrão;
+* se o indicador já possuir selo ativo, os novos dias são acumulados a partir da data de expiração atual;
 * se o selo estiver expirado, os novos dias contam a partir da data atual.
 
 Nome recomendado para o selo:
@@ -94,7 +94,7 @@ Pix da Virada
 Regra inicial sugerida:
 
 * cada indicação convertida gera 1 cupom para o indicador;
-* opcionalmente, gerar 1 cupom também para o indicado como bônus de boas-vindas;
+* gerar 1 cupom também para o indicado como bônus de participação/boas-vindas;
 * cupons ficam vinculados a uma campanha ativa;
 * o admin pode consultar participantes, quantidade de cupons e origem de cada cupom.
 
@@ -154,9 +154,9 @@ Fallback:
 ## 4.4. Resultado da ativação com indicação válida
 
 * Cliente A recebe mais 30 dias de Selo Conector Soomei.
-* Cliente B recebe 30 dias de Selo Conector Soomei.
+* Cliente B não recebe selo visual por padrão.
 * Cliente A recebe cupom da campanha ativa, se houver.
-* Cliente B pode receber cupom de boas-vindas, se a campanha definir.
+* Cliente B recebe cupom de participação/boas-vindas da campanha ativa, se houver.
 * O admin consegue auditar quem indicou quem, quando e quais recompensas foram concedidas.
 
 ---
@@ -698,7 +698,8 @@ O MVP estará pronto quando:
 * a tela de edição mostrar o código e permitir compartilhar;
 * o onboarding aceitar código opcional;
 * código válido gerar uma indicação qualificada;
-* indicador e indicado receberem selo por 30 dias;
+* indicador receber selo por 30 dias;
+* indicado não receber selo visual por padrão;
 * dias de selo forem acumulados corretamente;
 * uma campanha ativa puder gerar cupom;
 * admin puder visualizar indicações e recompensas;
@@ -745,11 +746,10 @@ O MVP estará pronto quando:
 ## 16. Decisões iniciais recomendadas
 
 * Nome do selo: **Selo Conector Soomei**.
-* Benefício inicial: **30 dias de selo para indicador e indicado**.
+* Benefício inicial: **30 dias de selo apenas para o indicador**.
 * Acúmulo: **sim, acumulativo por indicação qualificada**.
-* Cupom Pix da Virada: **1 cupom para o indicador por indicação qualificada**.
+* Cupom Pix da Virada: **1 cupom para o indicador e 1 cupom para o indicado por indicação qualificada**.
 * Campo de indicação: **opcional no onboarding**.
 * Uma indicação por cartão indicado: **sim**.
 * Admin pode revogar benefício: **sim**.
 * Usuário pode editar código no MVP: **não; deixar para admin/futuro**.
-

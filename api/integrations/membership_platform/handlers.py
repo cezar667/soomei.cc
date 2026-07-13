@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from api.db.models import WebhookEvent
+from api.referrals.repository import ReferralRepository
 
 from .enums import CardStatusReason, InternalEventType, SubscriptionStatus, SUPPORTED_EVENT_MAP
 from .exceptions import WebhookPermanentError
@@ -13,6 +14,7 @@ class MembershipEventHandlers:
 
     def __init__(self, repository: MembershipRepository | None = None):
         self.repository = repository or MembershipRepository()
+        self.referral_repository = ReferralRepository()
 
     def handle(self, event: WebhookEvent) -> str:
         internal_event = SUPPORTED_EVENT_MAP.get(event.event_type, InternalEventType.UNSUPPORTED)
@@ -87,7 +89,7 @@ class MembershipEventHandlers:
             return "processed"
 
         if internal_event == InternalEventType.SUBSCRIPTION_OVERDUE:
-            self.repository.update_card_status_for_subscription(
+            card = self.repository.update_card_status_for_subscription(
                 provider=event.provider,
                 external_subscription_id=subscription.external_subscription_id or external_subscription_id or "",
                 external_product_id=subscription.external_product_id or external_product_id,
@@ -95,6 +97,7 @@ class MembershipEventHandlers:
                 reason=CardStatusReason.PAYMENT_OVERDUE,
                 external_event_id=event.external_event_id,
             )
+            self._disqualify_pending_referral(card, reason=CardStatusReason.PAYMENT_OVERDUE.value)
             return "processed"
 
         if internal_event == InternalEventType.SUBSCRIPTION_REACTIVATED:
@@ -110,7 +113,7 @@ class MembershipEventHandlers:
             return "processed"
 
         if internal_event == InternalEventType.SUBSCRIPTION_CANCELLED:
-            self.repository.update_card_status_for_subscription(
+            card = self.repository.update_card_status_for_subscription(
                 provider=event.provider,
                 external_subscription_id=subscription.external_subscription_id or external_subscription_id or "",
                 external_product_id=subscription.external_product_id or external_product_id,
@@ -118,10 +121,11 @@ class MembershipEventHandlers:
                 reason=CardStatusReason.SUBSCRIPTION_CANCELLED,
                 external_event_id=event.external_event_id,
             )
+            self._disqualify_pending_referral(card, reason=CardStatusReason.SUBSCRIPTION_CANCELLED.value)
             return "processed"
 
         if internal_event == InternalEventType.PAYMENT_REFUNDED:
-            self.repository.update_card_status_for_subscription(
+            card = self.repository.update_card_status_for_subscription(
                 provider=event.provider,
                 external_subscription_id=subscription.external_subscription_id or external_subscription_id or "",
                 external_product_id=subscription.external_product_id or external_product_id,
@@ -129,10 +133,11 @@ class MembershipEventHandlers:
                 reason=CardStatusReason.PAYMENT_REFUNDED,
                 external_event_id=event.external_event_id,
             )
+            self._disqualify_pending_referral(card, reason=CardStatusReason.PAYMENT_REFUNDED.value)
             return "processed"
 
         if internal_event == InternalEventType.CHARGEBACK_RECEIVED:
-            self.repository.update_card_status_for_subscription(
+            card = self.repository.update_card_status_for_subscription(
                 provider=event.provider,
                 external_subscription_id=subscription.external_subscription_id or external_subscription_id or "",
                 external_product_id=subscription.external_product_id or external_product_id,
@@ -140,9 +145,18 @@ class MembershipEventHandlers:
                 reason=CardStatusReason.CHARGEBACK_RECEIVED,
                 external_event_id=event.external_event_id,
             )
+            self._disqualify_pending_referral(card, reason=CardStatusReason.CHARGEBACK_RECEIVED.value)
             return "processed"
 
         return "ignored"
+
+    def _disqualify_pending_referral(self, card, *, reason: str) -> None:
+        if not card:
+            return
+        self.referral_repository.disqualify_pending_for_referred_card(
+            referred_card_uid=card.uid,
+            reason=reason,
+        )
 
     @staticmethod
     def _subscription_status_for_event(event_type: InternalEventType) -> SubscriptionStatus:
@@ -157,4 +171,3 @@ class MembershipEventHandlers:
         if event_type == InternalEventType.CHARGEBACK_RECEIVED:
             return SubscriptionStatus.SUSPENDED
         return SubscriptionStatus.PENDING
-

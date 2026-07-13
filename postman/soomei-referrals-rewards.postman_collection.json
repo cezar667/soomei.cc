@@ -1,0 +1,734 @@
+{
+  "info": {
+    "_postman_id": "3d78b3d2-0b91-4c6a-a1f0-soomei-referrals",
+    "name": "Soomei - Indicações e Recompensas",
+    "description": "Collection para simular a ativação de uma indicação: indicador ativa cartão, coleta o código, indicado ativa cartão usando o código, o indicador recebe Destaque Soomei e ambos recebem cupom de participação Pix da Virada. Pré-requisito recomendado: criar dois cartões pendentes com os UIDs/PINs gerados em `00 - Preparar rodada` usando `scripts/add_card.py`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('run_id')) {",
+          "  pm.collectionVariables.set('run_id', Date.now().toString());",
+          "}",
+          "",
+          "const rawTemplate = pm.request.body && pm.request.body.raw ? pm.request.body.raw : '';",
+          "if (rawTemplate) {",
+          "  const rawBody = pm.variables.replaceIn(rawTemplate);",
+          "  const timestamp = Math.floor(Date.now() / 1000).toString();",
+          "  const secret = pm.collectionVariables.get('webhook_secret') || pm.environment.get('webhook_secret') || '';",
+          "  const signature = 'sha256=' + CryptoJS.HmacSHA256(timestamp + '.' + rawBody, secret).toString(CryptoJS.enc.Hex);",
+          "  let eventId = 'evt_unknown';",
+          "  try { eventId = JSON.parse(rawBody).event_id || eventId; } catch (e) {}",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "  pm.request.headers.upsert({ key: 'X-Webhook-Timestamp', value: timestamp });",
+          "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: signature });",
+          "  pm.request.headers.upsert({ key: 'X-Webhook-Event-Id', value: eventId });",
+          "  pm.request.headers.upsert({ key: 'X-Correlation-Id', value: 'postman-referrals-' + pm.collectionVariables.get('run_id') });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "webhook_secret",
+      "value": "segredo-teste-123",
+      "type": "secret"
+    },
+    {
+      "key": "run_id",
+      "value": "001"
+    },
+    {
+      "key": "password",
+      "value": "SenhaPostman123"
+    },
+    {
+      "key": "referrer_uid",
+      "value": "pmrefa001"
+    },
+    {
+      "key": "referred_uid",
+      "value": "pmrefb001"
+    },
+    {
+      "key": "referrer_pin",
+      "value": "111111"
+    },
+    {
+      "key": "referred_pin",
+      "value": "222222"
+    },
+    {
+      "key": "referrer_email",
+      "value": "indicador.001@example.com"
+    },
+    {
+      "key": "referred_email",
+      "value": "indicado.001@example.com"
+    },
+    {
+      "key": "referrer_slug",
+      "value": "indicador-001"
+    },
+    {
+      "key": "referred_slug",
+      "value": "indicado-001"
+    },
+    {
+      "key": "csrf_token",
+      "value": ""
+    },
+    {
+      "key": "referral_code",
+      "value": ""
+    },
+    {
+      "key": "referrer_verify_path",
+      "value": ""
+    },
+    {
+      "key": "referred_verify_path",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Preparar rodada",
+      "item": [
+        {
+          "name": "Gerar dados únicos da rodada",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const runId = Date.now().toString();",
+                  "const suffix = runId.slice(-8);",
+                  "pm.collectionVariables.set('run_id', runId);",
+                  "pm.collectionVariables.set('password', 'SenhaPostman123');",
+                  "pm.collectionVariables.set('referrer_uid', 'pmra' + suffix);",
+                  "pm.collectionVariables.set('referred_uid', 'pmrb' + suffix);",
+                  "pm.collectionVariables.set('referrer_pin', '111111');",
+                  "pm.collectionVariables.set('referred_pin', '222222');",
+                  "pm.collectionVariables.set('referrer_email', 'indicador.' + suffix + '@example.com');",
+                  "pm.collectionVariables.set('referred_email', 'indicado.' + suffix + '@example.com');",
+                  "pm.collectionVariables.set('referrer_slug', 'indicador-' + suffix);",
+                  "pm.collectionVariables.set('referred_slug', 'indicado-' + suffix);",
+                  "pm.collectionVariables.unset('csrf_token');",
+                  "pm.collectionVariables.unset('referral_code');",
+                  "pm.collectionVariables.unset('referrer_verify_path');",
+                  "pm.collectionVariables.unset('referred_verify_path');",
+                  "console.log('Dados gerados para a rodada de indicação:', {",
+                  "  referrer_uid: pm.collectionVariables.get('referrer_uid'),",
+                  "  referrer_pin: pm.collectionVariables.get('referrer_pin'),",
+                  "  referred_uid: pm.collectionVariables.get('referred_uid'),",
+                  "  referred_pin: pm.collectionVariables.get('referred_pin')",
+                  "});",
+                  "console.log('Crie os cartões localmente com:');",
+                  "console.log('py scripts/add_card.py --uid ' + pm.collectionVariables.get('referrer_uid') + ' --pin ' + pm.collectionVariables.get('referrer_pin'));",
+                  "console.log('py scripts/add_card.py --uid ' + pm.collectionVariables.get('referred_uid') + ' --pin ' + pm.collectionVariables.get('referred_pin'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('dados da rodada gerados', function () {",
+                  "  pm.expect(pm.collectionVariables.get('referrer_uid')).to.match(/^pmra/);",
+                  "  pm.expect(pm.collectionVariables.get('referred_uid')).to.match(/^pmrb/);",
+                  "});",
+                  "pm.test('rode os scripts/add_card antes do onboarding', function () {",
+                  "  console.log('Indicador:', pm.collectionVariables.get('referrer_uid'), pm.collectionVariables.get('referrer_pin'));",
+                  "  console.log('Indicado:', pm.collectionVariables.get('referred_uid'), pm.collectionVariables.get('referred_pin'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "login"
+              ]
+            },
+            "description": "Gera UIDs, PINs, e-mails e slugs únicos. Depois rode no terminal, antes do onboarding:\n\n`py scripts/add_card.py --uid {{referrer_uid}} --pin {{referrer_pin}}`\n`py scripts/add_card.py --uid {{referred_uid}} --pin {{referred_pin}}`\n\nSe preferir criar cartões via webhook, use a pasta opcional abaixo e consulte o banco para descobrir UID/PIN gerados."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 - Opcional: criar cartões via webhook",
+      "item": [
+        {
+          "name": "Pagamento aprovado - Indicador A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('webhook aceito', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('evento recebido', function () { pm.expect(json.received).to.eql(true); });",
+                  "console.log('Depois deste webhook, consulte cards.external_subscription_id = subscription_referrer_' + pm.collectionVariables.get('run_id') + ' para obter uid/pin.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_referral_referrer_payment_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T12:00:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_referrer_{{run_id}}\",\n    \"subscription_id\": \"subscription_referrer_{{run_id}}\",\n    \"order_id\": \"order_referrer_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Indicador Postman {{run_id}}\",\n      \"email\": \"{{referrer_email}}\",\n      \"phone\": \"5534999999999\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            },
+            "description": "Opcional. Cria um cartão pendente via webhook, mas o UID/PIN são gerados aleatoriamente. Para automatizar o onboarding pelo Postman, prefira `scripts/add_card.py` com UID/PIN conhecidos."
+          }
+        },
+        {
+          "name": "Pagamento aprovado - Indicado B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('webhook aceito', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('evento recebido', function () { pm.expect(json.received).to.eql(true); });",
+                  "console.log('Depois deste webhook, consulte cards.external_subscription_id = subscription_referred_' + pm.collectionVariables.get('run_id') + ' para obter uid/pin.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt_referral_referred_payment_{{run_id}}\",\n  \"event_type\": \"subscription.payment_approved\",\n  \"created_at\": \"2026-07-12T12:01:00Z\",\n  \"data\": {\n    \"customer_id\": \"customer_referred_{{run_id}}\",\n    \"subscription_id\": \"subscription_referred_{{run_id}}\",\n    \"order_id\": \"order_referred_{{run_id}}\",\n    \"product_id\": \"soomei-card-black\",\n    \"plan_id\": \"plan_monthly\",\n    \"customer\": {\n      \"name\": \"Indicado Postman {{run_id}}\",\n      \"email\": \"{{referred_email}}\",\n      \"phone\": \"5534988888888\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/membership-platform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "membership-platform"
+              ]
+            },
+            "description": "Opcional. Use se quiser validar também o webhook de criação do cartão antes de ativar a indicação."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Ativar indicador A e capturar código",
+      "item": [
+        {
+          "name": "Abrir onboarding do indicador A - captura CSRF",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('onboarding disponível', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "const match = body.match(/name=[\"']csrf_token[\"']\\s+value=[\"']([^\"']+)[\"']/) || body.match(/value=[\"']([^\"']+)[\"']\\s+name=[\"']csrf_token[\"']/);",
+                  "pm.test('csrf encontrado', function () { pm.expect(match, 'csrf_token hidden input').to.not.be.null; });",
+                  "if (match) pm.collectionVariables.set('csrf_token', match[1]);",
+                  "pm.test('UID existe; se falhar, rode scripts/add_card', function () { pm.expect(body).to.include(pm.collectionVariables.get('referrer_uid')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/onboard/{{referrer_uid}}?email={{referrer_email}}&vanity={{referrer_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "onboard",
+                "{{referrer_uid}}"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{referrer_email}}"
+                },
+                {
+                  "key": "vanity",
+                  "value": "{{referrer_slug}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Registrar indicador A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('cadastro renderizou confirmação', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "pm.test('página de confirmação', function () { pm.expect(body).to.include('Confirme seu e-mail'); });",
+                  "const match = body.match(/href=[\"']([^\"']*\\/auth\\/verify\\?token=[^\"']+)[\"']/);",
+                  "pm.test('link de verificação dev encontrado', function () { pm.expect(match, 'href /auth/verify').to.not.be.null; });",
+                  "if (match) {",
+                  "  const base = pm.collectionVariables.get('base_url') || pm.environment.get('base_url') || '';",
+                  "  pm.collectionVariables.set('referrer_verify_path', match[1].replace(base, ''));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "csrf_token",
+                  "value": "{{csrf_token}}"
+                },
+                {
+                  "key": "uid",
+                  "value": "{{referrer_uid}}"
+                },
+                {
+                  "key": "email",
+                  "value": "{{referrer_email}}"
+                },
+                {
+                  "key": "pin",
+                  "value": "{{referrer_pin}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}"
+                },
+                {
+                  "key": "vanity",
+                  "value": "{{referrer_slug}}"
+                },
+                {
+                  "key": "referral_code",
+                  "value": ""
+                },
+                {
+                  "key": "lgpd",
+                  "value": "on"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirmar e-mail do indicador A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('confirmação aceita', function () { pm.expect([200, 303]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{referrer_verify_path}}",
+              "host": [
+                "{{base_url}}{{referrer_verify_path}}"
+              ]
+            },
+            "description": "Postman normalmente segue o redirect e mantém o cookie de sessão."
+          }
+        },
+        {
+          "name": "Abrir edição do indicador A - capturar código de indicação",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('edição aberta', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "const match = body.match(/id=[\"']referralCode[\"'][^>]*>([^<]+)</);",
+                  "pm.test('código de indicação encontrado', function () { pm.expect(match, 'id=referralCode').to.not.be.null; });",
+                  "if (match) pm.collectionVariables.set('referral_code', match[1].trim());",
+                  "console.log('Código de indicação:', pm.collectionVariables.get('referral_code'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/edit/{{referrer_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "edit",
+                "{{referrer_slug}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Ativar indicado B usando o código",
+      "item": [
+        {
+          "name": "Abrir onboarding do indicado B com referral_code - captura CSRF",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('onboarding disponível', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "const match = body.match(/name=[\"']csrf_token[\"']\\s+value=[\"']([^\"']+)[\"']/) || body.match(/value=[\"']([^\"']+)[\"']\\s+name=[\"']csrf_token[\"']/);",
+                  "pm.test('csrf encontrado', function () { pm.expect(match, 'csrf_token hidden input').to.not.be.null; });",
+                  "if (match) pm.collectionVariables.set('csrf_token', match[1]);",
+                  "pm.test('código pré-preenchido', function () { pm.expect(body).to.include(pm.collectionVariables.get('referral_code')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/onboard/{{referred_uid}}?email={{referred_email}}&vanity={{referred_slug}}&referral_code={{referral_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "onboard",
+                "{{referred_uid}}"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{referred_email}}"
+                },
+                {
+                  "key": "vanity",
+                  "value": "{{referred_slug}}"
+                },
+                {
+                  "key": "referral_code",
+                  "value": "{{referral_code}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Registrar indicado B com código de indicação",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('cadastro renderizou confirmação', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "pm.test('indicação aplicada ou mensagem de indicação presente', function () {",
+                  "  pm.expect(body).to.match(/Código aplicado|indicação/i);",
+                  "});",
+                  "const match = body.match(/href=[\"']([^\"']*\\/auth\\/verify\\?token=[^\"']+)[\"']/);",
+                  "pm.test('link de verificação dev encontrado', function () { pm.expect(match, 'href /auth/verify').to.not.be.null; });",
+                  "if (match) {",
+                  "  const base = pm.collectionVariables.get('base_url') || pm.environment.get('base_url') || '';",
+                  "  pm.collectionVariables.set('referred_verify_path', match[1].replace(base, ''));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "csrf_token",
+                  "value": "{{csrf_token}}"
+                },
+                {
+                  "key": "uid",
+                  "value": "{{referred_uid}}"
+                },
+                {
+                  "key": "email",
+                  "value": "{{referred_email}}"
+                },
+                {
+                  "key": "pin",
+                  "value": "{{referred_pin}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}"
+                },
+                {
+                  "key": "vanity",
+                  "value": "{{referred_slug}}"
+                },
+                {
+                  "key": "referral_code",
+                  "value": "{{referral_code}}"
+                },
+                {
+                  "key": "lgpd",
+                  "value": "on"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirmar e-mail do indicado B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('confirmação aceita', function () { pm.expect([200, 303]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}{{referred_verify_path}}",
+              "host": [
+                "{{base_url}}{{referred_verify_path}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Validar recompensa visual",
+      "item": [
+        {
+          "name": "Login do indicador A novamente - obter CSRF",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login abriu', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "const match = body.match(/name=[\"']csrf_token[\"']\\s+value=[\"']([^\"']+)[\"']/) || body.match(/value=[\"']([^\"']+)[\"']\\s+name=[\"']csrf_token[\"']/);",
+                  "pm.test('csrf encontrado', function () { pm.expect(match, 'csrf_token hidden input').to.not.be.null; });",
+                  "if (match) pm.collectionVariables.set('csrf_token', match[1]);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login do indicador A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login aceito', function () { pm.expect([200, 303]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "csrf_token",
+                  "value": "{{csrf_token}}"
+                },
+                {
+                  "key": "email",
+                  "value": "{{referrer_email}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Edição do indicador A mostra benefício acumulado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('edição aberta', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "pm.test('tem seção de indicação', function () { pm.expect(body).to.include('Indique a Soomei'); });",
+                  "pm.test('tem indicação qualificada', function () { pm.expect(body).to.include('Indicações qualificadas'); });",
+                  "pm.test('tem controle de exibição do selo', function () { pm.expect(body).to.include('name=\\'spotlight_badge_show\\''); });",
+                  "pm.test('tem código usado no fluxo', function () { pm.expect(body).to.include(pm.collectionVariables.get('referral_code')); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/edit/{{referrer_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "edit",
+                "{{referrer_slug}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cartão público do indicador A renderiza selo clicável",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('perfil abriu', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.text();",
+                  "pm.test('selo clicável renderizado', function () { pm.expect(body).to.include('soomeiSpotlightBtn'); });",
+                  "pm.test('modal explicativo renderizado', function () { pm.expect(body).to.include('Perfil em Destaque Soomei'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/{{referrer_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "{{referrer_slug}}"
+              ]
+            },
+            "description": "Se o perfil ainda estiver incompleto e a página pública exibir 'cartão em construção', complete nome/cargo/contato na tela de edição para validar visualmente o selo."
+          }
+        }
+      ]
+    }
+  ]
+}

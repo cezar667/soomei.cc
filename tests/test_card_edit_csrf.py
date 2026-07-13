@@ -114,17 +114,55 @@ def test_editor_renders_session_csrf_and_valid_javascript(monkeypatch):
     assert f"action='/edit/cezar?csrf_token={expected}'" in body
     assert "class='edit-form'" in body
     assert "Central do cartão" in body
+    assert "data-edit-jump='perfil'" in body
+    assert "data-edit-jump='visual'" in body
+    assert "data-edit-jump='links'" in body
+    assert "data-edit-jump='integracoes'" in body
+    assert "data-edit-jump='indicacoes'" in body
+    assert "data-edit-jump='portfolio'" in body
+    assert "data-edit-jump='seguranca'" in body
+    assert "data-edit-panel='perfil'" in body
+    assert "function openEditPanel(key, shouldScroll)" in body
+    assert "id='backToEditMenu'" in body
+    assert "function showEditMenu()" in body
+    assert "backToEditMenu.classList.remove('is-hidden')" in body
+    assert "Object.keys(sectionRegistry).forEach" in body
     assert "name='featured_icon'" in body
-    assert "<option value='calendar' selected>Agenda</option>" in body
+    assert "class='link-icon-choice featured-icon-choice'" in body
+    assert "value='calendar' checked" in body
+    assert "Ícone Agenda" in body
     assert "hexToRgba" in body
     assert "id='featuredColorReset' onclick=" in body
     assert "id='togglePassword' aria-expanded='false' onclick=" in body
+    assert "id='spotlightBadgeShow' name='spotlight_badge_show'" in body
+    assert "Exibir selo no cartão" in body
+    assert "id='coverShow' name='cover_show'" in body
+    assert "Exibir capa no cartão" in body
+    assert "Oculte a capa sem apagar a imagem salva." in body
+    assert "Botão adicional 1" in body
+    assert "name='link_visible1'" in body
+    assert "Ícone do botão" in body
+    assert "name='link_icon1'" in body
+    assert "class='link-icon-choice'" in body
+    assert "value='auto' checked" in body
+    assert "value='course'" in body
+    assert "hydrateSwitch(\"input[id='linkVisible\" + linkSwitchIndex + \"']\")" in body
+    assert "id='shareReferralInvite'" in body
+    assert "referral-share-btn__icon" in body
+    assert "Compartilhar convite pelo WhatsApp" in body
+    assert "id='referralShareBackdrop'" in body
+    assert "id='referralSharePhone'" in body
+    assert "sendReferralViaWhatsApp" in body
+    assert "https://wa.me/" in body
     assert "data-switch-label" in body
     assert "l.textContent=this.checked?&#x27;Exibindo&#x27;:&#x27;Oculto&#x27;" in body
     assert "id='addSlug' class='btn ghost'" in body
     assert "href='/slug/select/tksc4o?next=edit'" in body
     assert "window.soomeiOpenSlugModal" in body
     assert "featuredColor.dispatchEvent(new Event('input'" in body
+    assert "function focusInvalidField(field)" in body
+    assert "form.addEventListener('invalid'" in body
+    assert "field.reportValidity" in body
     assert "style.setProperty('background', 'linear-gradient(135deg,#4f8cff,#73d6ff)', 'important')" in body
     assert "Cache-Control" in response.headers
     assert "csrf_token=" in response.headers.get("set-cookie", "")
@@ -314,6 +352,7 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
             new_password="",
             confirm_password="",
             password_mode="0",
+            cover_show="1",
             cover_remove="0",
             portfolio_enabled="",
             portfolio_remove1="0",
@@ -344,6 +383,7 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
         "address": "",
         "google_review_url": "",
         "google_review_show": False,
+        "spotlight_badge_show": False,
         "featured_color": "#FFB473",
         "featured_label": "",
         "featured_url": "",
@@ -355,6 +395,7 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
         "portfolio_images": [],
         "portfolio_enabled": False,
         "cover_url": "/static/uploads/tksc4o_cover.jpg?v=cover",
+        "cover_show": True,
     }
 
 

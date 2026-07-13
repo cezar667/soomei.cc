@@ -36,6 +36,7 @@ from api.services.card_display import (
 from api.services.custom_domain_service import find_card_by_custom_domain
 from api.services.session_service import current_user_email
 from api.repositories.sql_repository import SQLRepository
+from api.referrals.service import ReferralService
 router = APIRouter(prefix="", tags=["cards"])
 CSS_HREF = "/static/card.css"
 BRAND_FOOTER = lambda html_doc: html_doc
@@ -44,7 +45,31 @@ PUBLIC_BASE = ""
 PUBLIC_BASE_HOST = ""
 UPLOADS_DIR = ""
 DEFAULT_LOCAL_ROOTS = {"localhost", "127.0.0.1", "::1"}
+LINK_TYPE_VALUES = {
+    "instagram",
+    "linkedin",
+    "facebook",
+    "youtube",
+    "tiktok",
+    "site",
+    "whatsapp",
+    "email",
+    "calendar",
+    "store",
+    "course",
+    "community",
+    "portfolio",
+    "link",
+}
 _sql_repo = SQLRepository()
+_referral_service = ReferralService()
+
+
+def _normalize_link_type(value: object) -> str:
+    raw = (value or "").strip().lower() if isinstance(value, str) else ""
+    if raw in {"", "auto"}:
+        return ""
+    return raw if raw in LINK_TYPE_VALUES else ""
 def set_css_href(value: str) -> None:
     global CSS_HREF
     CSS_HREF = value or "/static/card.css"
@@ -189,9 +214,11 @@ def visitor_public_card(
     )
     raw_photo = (prof.get("photo_url", "") or "") if prof else ""
     raw_cover = (prof.get("cover_url", "") or "") if prof else ""
+    cover_show = bool(prof.get("cover_show", True)) if prof else True
+    raw_cover_public = raw_cover if cover_show else ""
     photo_src = resolve_photo(raw_photo)
     photo = html.escape(photo_src) if photo_src else ""
-    cover = html.escape(raw_cover) if raw_cover else ""
+    cover = html.escape(raw_cover_public) if raw_cover_public else ""
     wa_raw = (prof.get("whatsapp", "") or "").strip()
     wa_digits = "".join([c for c in wa_raw if c.isdigit()])
     email_pub = (prof.get("email_public", "") or "").strip()
@@ -213,8 +240,39 @@ def visitor_public_card(
             "<span class='view-chip__label'>visualizações</span>"
             "</div>"
         )
+    connector_badge = ""
+    connector_modal = ""
+    card_uid = (card or {}).get("uid") if isinstance(card, dict) else ""
+    spotlight_badge_show = bool(prof.get("spotlight_badge_show", True))
+    if card_uid and spotlight_badge_show:
+        try:
+            active_badge = _referral_service.repository.active_badge(str(card_uid))
+        except Exception:
+            active_badge = None
+        if active_badge:
+            connector_badge = (
+                "<button type='button' class='soomei-spotlight soomei-spotlight--floating' id='soomeiSpotlightBtn' title='Entenda o Destaque Soomei' aria-haspopup='dialog' aria-controls='soomeiSpotlightModal'>"
+                "<span class='soomei-spotlight__mark' aria-hidden='true'><img src='/static/img/logo_single.png' alt=''></span>"
+                "<span class='soomei-spotlight__copy'><span>Destaque</span><small>Soomei</small></span>"
+                "</button>"
+            )
+            connector_modal = (
+                "<div class='soomei-spotlight-modal is-hidden' id='soomeiSpotlightModal' role='dialog' aria-modal='true' aria-labelledby='soomeiSpotlightTitle'>"
+                "<div class='soomei-spotlight-modal__backdrop' data-spotlight-close></div>"
+                "<div class='soomei-spotlight-modal__card' role='document'>"
+                "<button type='button' class='soomei-spotlight-modal__close' data-spotlight-close aria-label='Fechar'>×</button>"
+                "<div class='soomei-spotlight-modal__brand'><img src='/static/img/logo_single.png' alt='' aria-hidden='true'><span>Soomei</span></div>"
+                "<h2 id='soomeiSpotlightTitle'>Perfil em Destaque Soomei</h2>"
+                "<p>Este cartão recebeu uma chancela temporária de visibilidade da Soomei por participação, indicação qualificada ou benefício ativo na rede.</p>"
+                "<p class='soomei-spotlight-modal__note'>Na prática, é um sinal de presença ativa: a pessoa está movimentando conexões, oportunidades e relacionamento dentro do ecossistema Soomei.</p>"
+                "</div>"
+                "</div>"
+            )
     links_list = prof.get("links", []) or []
-    def platform(label: str, href: str) -> str:
+    def platform(label: str, href: str, link_type: str = "") -> str:
+        explicit = _normalize_link_type(link_type)
+        if explicit:
+            return explicit
         s = f"{(label or '').lower()} {(href or '').lower()}"
         if "instagram" in s or s.strip().startswith("@"): return "instagram"
         if "linkedin" in s: return "linkedin"
@@ -232,9 +290,11 @@ def visitor_public_card(
     site_link = None
     other_links = []
     for item in links_list:
+        if item.get("visible") is False:
+            continue
         label = item.get("label", "")
         href = item.get("href", "")
-        plat = platform(label, href)
+        plat = platform(label, href, item.get("type") or item.get("category", ""))
         # Avoid duplicate maps icon: if address in profile, skip map links in grid
         if address_text and href:
             _hl = (href or "").lower()
@@ -508,6 +568,62 @@ def visitor_public_card(
         });
 
       }
+
+      (function(){
+
+        var spotlightBtn = document.getElementById('soomeiSpotlightBtn');
+
+        var spotlightModal = document.getElementById('soomeiSpotlightModal');
+
+        if (!spotlightBtn || !spotlightModal) return;
+
+        var lastFocus = null;
+
+        function openSpotlight(){
+
+          lastFocus = document.activeElement;
+
+          spotlightModal.classList.remove('is-hidden');
+
+          document.body.classList.add('spotlight-modal-open');
+
+          var closeBtn = spotlightModal.querySelector('[data-spotlight-close]');
+
+          if (closeBtn && closeBtn.focus) closeBtn.focus();
+
+        }
+
+        function closeSpotlight(){
+
+          spotlightModal.classList.add('is-hidden');
+
+          document.body.classList.remove('spotlight-modal-open');
+
+          if (lastFocus && lastFocus.focus) lastFocus.focus();
+
+        }
+
+        spotlightBtn.addEventListener('click', function(e){
+
+          e.preventDefault();
+
+          openSpotlight();
+
+        });
+
+        spotlightModal.addEventListener('click', function(e){
+
+          if (e.target && e.target.hasAttribute('data-spotlight-close')) closeSpotlight();
+
+        });
+
+        document.addEventListener('keydown', function(e){
+
+          if (e.key === 'Escape' && !spotlightModal.classList.contains('is-hidden')) closeSpotlight();
+
+        });
+
+      })();
 
       (function(){
 
@@ -1062,8 +1178,8 @@ def visitor_public_card(
         maps_href = ""
     og_title = f"{prof.get('full_name','')} | Soomei Card".strip(" ?") if prof else "Soomei Card"
     og_desc = prof.get("title") if prof and prof.get("title") else "Clique para me chamar no WhatsApp e salvar meu contato."
-    primary_image = raw_photo or raw_cover or DEFAULT_AVATAR
-    secondary_image = raw_cover if (raw_cover and raw_cover != primary_image) else ""
+    primary_image = raw_photo or raw_cover_public or DEFAULT_AVATAR
+    secondary_image = raw_cover_public if (raw_cover_public and raw_cover_public != primary_image) else ""
     og_image_url = html.escape(_absolute_asset_url(primary_image, base=card_base))
     og_image_second = html.escape(_absolute_asset_url(secondary_image, base=card_base)) if secondary_image else ""
     quick_link_icons = {
@@ -1071,6 +1187,16 @@ def visitor_public_card(
         "linkedin": '<path fill="currentColor" d="M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z"/>',
         "instagram": '<rect x="3" y="3" width="18" height="18" rx="5" ry="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor"/>',
         "youtube": '<path fill="currentColor" d="M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z"/>',
+        "tiktok": '<path fill="currentColor" d="M16.7 2c.5 3 2.1 4.8 4.8 5.1v3.5c-1.8.1-3.4-.4-4.8-1.4v6.7c0 3.5-2.3 6.1-5.8 6.1-3.2 0-5.8-2.3-5.8-5.5 0-3.6 3.3-6.3 6.9-5.5v3.7c-1.6-.5-3.1.4-3.1 1.8 0 1.1.9 1.9 2 1.9 1.4 0 2.2-.9 2.2-2.6V2h3.6z"/>',
+        "whatsapp": '<path fill="currentColor" d="M20.5 3.5A11.9 11.9 0 0 0 12 0C5.4 0 0 5.4 0 12c0 2.1.6 4.1 1.6 5.9L0 24l6.2-1.6A12 12 0 0 0 12 23.9c6.6 0 12-5.4 12-12 0-3.2-1.2-6.2-3.5-8.4zM12 21.9c-1.8 0-3.6-.5-5.2-1.4l-.4-.2-3.6.9 1-3.5-.3-.4A9.8 9.8 0 1 1 12 21.9zm5.4-7.4c-.3-.1-1.7-.8-2-.9-.3-.1-.5-.1-.7.2s-.8.9-.9 1.1c-.2.2-.4.2-.7.1-1.9-.9-3.1-1.7-4.2-3.7-.3-.5.3-.5.8-1.6.1-.2.1-.4 0-.6-.1-.1-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.1 4.9 4.3 1.8.8 2.5.9 3.4.8.5-.1 1.7-.7 2-1.4.2-.7.2-1.3.1-1.4-.1-.1-.3-.2-.6-.3z"/>',
+        "site": '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 12h20M12 2c3 3 3 17 0 20M12 2c-3 3-3 17 0 20" fill="none" stroke="currentColor" stroke-width="2"/>',
+        "email": '<path fill="currentColor" d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm8 8 8-5H4l8 5zm0 2L4 10v7h16v-7l-8 5z"/>',
+        "calendar": '<path fill="currentColor" d="M7 2h2v3h6V2h2v3h3a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zM6 12h4v4H6v-4z"/>',
+        "store": '<path fill="currentColor" d="M4 4h16l2 6v2h-2v8H4v-8H2v-2l2-6zm2 8v6h12v-6a4 4 0 0 1-4-1.5A4 4 0 0 1 10 12a4 4 0 0 1-4 0zm-.6-6-1.1 4h15.4l-1.1-4H5.4z"/>',
+        "course": '<path fill="currentColor" d="M12 3 1 8l11 5 9-4.1V16h2V8L12 3zm-6 9v4.2c0 1.7 3.1 3.8 6 3.8s6-2.1 6-3.8V12l-6 2.7L6 12z"/>',
+        "community": '<path fill="currentColor" d="M8 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm8.5 1a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zM8 13c3.3 0 6 1.7 6 3.8V20H2v-3.2C2 14.7 4.7 13 8 13zm8.5.5c2.8 0 5 1.4 5 3.1V20H16v-3.2c0-1.1-.5-2.1-1.4-2.9.6-.2 1.2-.4 1.9-.4z"/>',
+        "portfolio": '<path fill="currentColor" d="M9 4h6l1 2h4a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l1-2zm3 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0-2.2a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6z"/>',
+        "link": '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L11 4.9"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M14 11a5 5 0 0 0-7.1 0l-2.1 2.1a5 5 0 0 0 7.1 7.1L13 19.1"/>',
     }
     quick_link_items = []
     for label, href, plat in other_links[:4]:
@@ -1112,7 +1238,7 @@ def visitor_public_card(
         {owner_gear}
         {cover_block}
         <header class='card-header'>
-          {f"<img class='avatar avatar-small' src='{photo}' alt='foto'>" if photo else ""}
+          {f"<div class='avatar-badge-wrap'><img class='avatar avatar-small' src='{photo}' alt='foto'>{connector_badge}</div>" if photo else connector_badge}
           <h1 class='name'>{html.escape(prof.get('full_name',''))}</h1>
           <p class='title'>{html.escape(prof.get('title',''))}</p>
           {view_chip}
@@ -1270,6 +1396,7 @@ def visitor_public_card(
           )}
         </div>
       </section>
+      {connector_modal}
       {scripts}
       <script>
       (function(){{

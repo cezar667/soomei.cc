@@ -57,6 +57,128 @@ def test_footer_auth_actions_render_discreet_pill_buttons():
     assert "Sair" in logout_html
 
 
+def test_cover_can_be_hidden_without_removing_saved_image(monkeypatch):
+    monkeypatch.setattr(cards, "BRAND_FOOTER", lambda value: value)
+    profile = {
+        "full_name": "Cezar Damasceno",
+        "title": "Diretor | Soomei",
+        "photo_url": "/static/uploads/tksc4o.jpg?v=abc",
+        "cover_url": "/static/uploads/tksc4o_cover.jpg?v=cover",
+        "cover_show": False,
+        "links": [],
+    }
+
+    response = cards.visitor_public_card(
+        profile,
+        "cezar",
+        is_owner=False,
+        view_count=0,
+        card={},
+        request=None,
+    )
+    body = response.body.decode("utf-8")
+
+    assert "card-cover" not in body
+    assert "/static/uploads/tksc4o_cover.jpg?v=cover" not in body
+
+
+def test_additional_links_respect_visibility_and_explicit_type(monkeypatch):
+    monkeypatch.setattr(cards, "BRAND_FOOTER", lambda value: value)
+    profile = {
+        "full_name": "Cezar Damasceno",
+        "title": "Diretor | Soomei",
+        "photo_url": "/static/uploads/tksc4o.jpg?v=abc",
+        "links": [
+            {
+                "label": "Meu curso",
+                "href": "https://soomei.com.br/curso",
+                "type": "course",
+                "visible": True,
+            },
+            {
+                "label": "Link oculto",
+                "href": "https://soomei.com.br/oculto",
+                "type": "site",
+                "visible": False,
+            },
+        ],
+    }
+
+    response = cards.visitor_public_card(
+        profile,
+        "cezar",
+        is_owner=False,
+        view_count=0,
+        card={},
+        request=None,
+    )
+    body = response.body.decode("utf-8")
+
+    assert "brand-course" in body
+    assert "Meu curso" in body
+    assert "Link oculto" not in body
+
+
+def test_active_spotlight_badge_renders_clickable_explanation(monkeypatch):
+    monkeypatch.setattr(cards, "BRAND_FOOTER", lambda value: value)
+    monkeypatch.setattr(
+        cards._referral_service.repository,
+        "active_badge",
+        lambda _uid: SimpleNamespace(label="Destaque Soomei"),
+    )
+    profile = {
+        "full_name": "Cezar Damasceno",
+        "title": "Diretor | Soomei",
+        "photo_url": "/static/uploads/tksc4o.jpg?v=abc",
+        "links": [],
+    }
+
+    response = cards.visitor_public_card(
+        profile,
+        "cezar",
+        is_owner=False,
+        view_count=0,
+        card={"uid": "tksc4o", "vanity": "cezar"},
+        request=None,
+    )
+    body = response.body.decode("utf-8")
+
+    assert "id='soomeiSpotlightBtn'" in body
+    assert "aria-controls='soomeiSpotlightModal'" in body
+    assert "id='soomeiSpotlightModal'" in body
+    assert "Perfil em Destaque Soomei" in body
+    assert "/static/img/logo_single.png" in body
+
+
+def test_active_spotlight_badge_can_be_hidden_by_profile(monkeypatch):
+    monkeypatch.setattr(cards, "BRAND_FOOTER", lambda value: value)
+    monkeypatch.setattr(
+        cards._referral_service.repository,
+        "active_badge",
+        lambda _uid: SimpleNamespace(label="Destaque Soomei"),
+    )
+    profile = {
+        "full_name": "Cezar Damasceno",
+        "title": "Diretor | Soomei",
+        "photo_url": "/static/uploads/tksc4o.jpg?v=abc",
+        "spotlight_badge_show": False,
+        "links": [],
+    }
+
+    response = cards.visitor_public_card(
+        profile,
+        "cezar",
+        is_owner=False,
+        view_count=0,
+        card={"uid": "tksc4o", "vanity": "cezar"},
+        request=None,
+    )
+    body = response.body.decode("utf-8")
+
+    assert "id='soomeiSpotlightBtn'" not in body
+    assert "id='soomeiSpotlightModal'" not in body
+
+
 def test_root_without_slug_redirects_to_login(monkeypatch):
     request = SimpleNamespace(headers={"host": "localhost:8000"}, cookies={})
 

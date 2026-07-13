@@ -14,6 +14,7 @@ from api.core.mailer import send_email
 from api.core.security import hash_password, verify_password
 from api.core.utils import absolute_url
 from api.domain.slugs import is_valid_slug
+from api.referrals.service import ReferralService
 from api.repositories.sql_repository import SQLRepository
 from api.services.session_service import delete_session, issue_session
 
@@ -48,6 +49,7 @@ class RegisterResult:
     verify_url: str
     dest_slug: str
     email_sent: bool
+    referral_message: str = ""
 
 
 @dataclass
@@ -79,6 +81,7 @@ class AuthService:
     def __post_init__(self):
         self.settings = get_settings()
         self.repository = SQLRepository()
+        self.referral_service = ReferralService()
 
     # -------------------------------------- helpers --------------------------------------
     def _now(self) -> int:
@@ -211,7 +214,18 @@ class AuthService:
         """
 
     # -------------------------------------- registro --------------------------------------
-    def register(self, uid: str, email: str, pin: str, password: str, vanity: str = "", accepted_terms: bool = False) -> RegisterResult:
+    def register(
+        self,
+        uid: str,
+        email: str,
+        pin: str,
+        password: str,
+        vanity: str = "",
+        accepted_terms: bool = False,
+        referral_code: str = "",
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> RegisterResult:
         if not accepted_terms:
             raise RegistrationError("E necessario aceitar os termos")
         raw_email = (email or "").strip().lower()
@@ -249,6 +263,20 @@ class AuthService:
             raw_email,
             {"full_name": "", "title": "", "links": [], "whatsapp": "", "pix_key": "", "email_public": "", "site_url": "", "photo_url": "", "cover_url": ""},
         )
+        referral_message = ""
+        try:
+            self.referral_service.ensure_code_for_card(card_uid=uid, owner_email=raw_email, preferred=vanity_value or raw_email)
+            if (referral_code or "").strip():
+                applied = self.referral_service.apply_onboarding_code(
+                    code=referral_code,
+                    referred_card_uid=uid,
+                    referred_email=raw_email,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+                referral_message = applied.message
+        except Exception:
+            referral_message = "Não foi possível validar a indicação agora. A ativação do cartão foi preservada."
         token, _ = self._ensure_verify_token(raw_email, force_new=True)
         verify_path = f"/auth/verify?token={token}"
         verify_url = absolute_url(verify_path)
@@ -259,7 +287,15 @@ class AuthService:
             self._verify_email_html(verify_url, "Use o botão abaixo para confirmar seu e-mail e ativar o seu cartão digital:"),
             f"Olá! Confirme seu e-mail acessando: {verify_url}",
         )
-        return RegisterResult(uid=uid, email=raw_email, verify_path=verify_path, verify_url=verify_url, dest_slug=dest_slug, email_sent=email_sent)
+        return RegisterResult(
+            uid=uid,
+            email=raw_email,
+            verify_path=verify_path,
+            verify_url=verify_url,
+            dest_slug=dest_slug,
+            email_sent=email_sent,
+            referral_message=referral_message,
+        )
 
     # -------------------------------------- login --------------------------------------
     def login(self, uid_hint: str, email: str, password: str) -> LoginSuccess | LoginVerificationRequired:

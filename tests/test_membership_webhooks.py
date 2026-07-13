@@ -16,6 +16,7 @@ from api.integrations.membership_platform import router as membership_router
 from api.integrations.membership_platform.enums import CardStatusReason, WebhookEventStatus
 from api.integrations.membership_platform.exceptions import WebhookAuthenticationError
 from api.integrations.membership_platform.signature import build_test_signature, validate_webhook_signature
+from api.referrals.enums import ReferralStatus
 
 
 @pytest.fixture()
@@ -329,12 +330,37 @@ def test_themembers_access_removed_blocks_existing_card(db_env, monkeypatch):
     get_settings.cache_clear()
 
     assert _post_themembers_event(_themembers_payload("wh_access_granted", "access.granted"))["received"] is True
+    with get_session() as session:
+        referred_card = session.execute(select(models.Card)).scalar_one()
+        session.add(models.User(email="indicador@example.com", password_hash="hash"))
+        session.add(models.Card(uid="uid-indicador", pin="123456", status="active", owner_email="indicador@example.com"))
+        session.add(
+            models.Referral(
+                id="referral-webhook-disqualify",
+                referral_code_id=None,
+                code_used="INDICADOR",
+                referrer_card_uid="uid-indicador",
+                referrer_email="indicador@example.com",
+                referred_card_uid=referred_card.uid,
+                referred_email=referred_card.owner_email,
+                status=ReferralStatus.PENDING_VALIDATION.value,
+                qualify_after=datetime.now(timezone.utc),
+                source="onboarding",
+            )
+        )
+        session.commit()
+
     assert _post_themembers_event(_themembers_payload("wh_access_removed", "access.removed"))["received"] is True
 
     with get_session() as session:
-        card = session.execute(select(models.Card)).scalar_one()
+        card = session.execute(
+            select(models.Card).where(models.Card.external_subscription_id == "order_themembers_123")
+        ).scalar_one()
+        referral = session.execute(select(models.Referral)).scalar_one()
         assert card.status == "blocked"
         assert card.status_reason == CardStatusReason.SUBSCRIPTION_CANCELLED.value
+        assert referral.status == ReferralStatus.DISQUALIFIED.value
+        assert referral.rejection_reason == CardStatusReason.SUBSCRIPTION_CANCELLED.value
 
 
 def test_themembers_invalid_payload_token_is_rejected(db_env, monkeypatch):

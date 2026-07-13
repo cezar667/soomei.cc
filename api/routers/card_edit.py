@@ -10,6 +10,7 @@ import json
 import os
 import re
 import urllib.parse as urlparse
+from datetime import timezone
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -21,6 +22,7 @@ from api.services.card_service import find_card_by_slug
 from api.services.card_display import (
     FEATURED_ICON_OPTIONS,
     FEATURED_DEFAULT_COLOR,
+    featured_icon_svg,
     normalize_external_url,
     normalize_featured_icon,
     profile_complete,
@@ -36,6 +38,8 @@ from api.services.domain_service import (
 )
 from api.services.session_service import current_user_email
 from api.repositories.sql_repository import SQLRepository
+from api.referrals.schemas import ReferralSummary
+from api.referrals.service import ReferralService
 
 router = APIRouter(prefix="/edit", tags=["edit"])
 
@@ -52,11 +56,71 @@ MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 JPEG_MAGIC = b"\xFF\xD8\xFF"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/pjpeg"}
+LINK_ICON_OPTIONS = [
+    ("auto", "Automático", '<path fill="currentColor" d="M12 2l1.7 5.1L19 9l-5.3 1.9L12 16l-1.7-5.1L5 9l5.3-1.9L12 2zm6 12 .9 2.7 2.8 1-2.8 1-.9 2.7-.9-2.7-2.8-1 2.8-1 .9-2.7zM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14z"/>'),
+    ("instagram", "Instagram", '<rect x="3" y="3" width="18" height="18" rx="5" ry="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor"/>'),
+    ("linkedin", "LinkedIn", '<path fill="currentColor" d="M4.98 3.5A2.5 2.5 0 1 1 0 3.5a2.5 2.5 0 0 1 4.98 0zM0 8h5v16H0V8zm7 0h4.8v2.2h.1c.7-1.3 2.5-2.7 5.1-2.7 5.4 0 6.4 3.6 6.4 8.3V24h-5v-8c0-1.9 0-4.4-2.7-4.4-2.7 0-3.1 2.1-3.1 4.3V24H7V8z"/>'),
+    ("facebook", "Facebook", '<path fill="currentColor" d="M22 12A10 10 0 1 0 10.5 21.9v-6.9H7.9v-3h2.6V9.2c0-2.6 1.6-4 3.9-4 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 3h-2.4v6.9A10 10 0 0 0 22 12z"/>'),
+    ("youtube", "YouTube", '<path fill="currentColor" d="M23.5 6.2c-.2-1.1-1.1-2-2.2-2.3C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.4C1.6 4.2.7 5.1.5 6.2.1 8.4 0 10.2 0 12s.1 3.6.5 5.8c.2 1.1 1.1 2 2.2 2.3 2 .4 9.3.4 9.3.4s7.3 0 9.3-.4c1.1-.3 2-1.2 2.2-2.3.4-2.2.5-4 .5-5.8s-.1-3.6-.5-5.8zM9.8 15.5v-7l6 3.5-6 3.5z"/>'),
+    ("tiktok", "TikTok", '<path fill="currentColor" d="M16.7 2c.5 3 2.1 4.8 4.8 5.1v3.5c-1.8.1-3.4-.4-4.8-1.4v6.7c0 3.5-2.3 6.1-5.8 6.1-3.2 0-5.8-2.3-5.8-5.5 0-3.6 3.3-6.3 6.9-5.5v3.7c-1.6-.5-3.1.4-3.1 1.8 0 1.1.9 1.9 2 1.9 1.4 0 2.2-.9 2.2-2.6V2h3.6z"/>'),
+    ("whatsapp", "WhatsApp", '<path fill="currentColor" d="M20.5 3.5A11.9 11.9 0 0 0 12 0C5.4 0 0 5.4 0 12c0 2.1.6 4.1 1.6 5.9L0 24l6.2-1.6A12 12 0 0 0 12 23.9c6.6 0 12-5.4 12-12 0-3.2-1.2-6.2-3.5-8.4zM12 21.9c-1.8 0-3.6-.5-5.2-1.4l-.4-.2-3.6.9 1-3.5-.3-.4A9.8 9.8 0 1 1 12 21.9zm5.4-7.4c-.3-.1-1.7-.8-2-.9-.3-.1-.5-.1-.7.2s-.8.9-.9 1.1c-.2.2-.4.2-.7.1-1.9-.9-3.1-1.7-4.2-3.7-.3-.5.3-.5.8-1.6.1-.2.1-.4 0-.6-.1-.1-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.1 4.9 4.3 1.8.8 2.5.9 3.4.8.5-.1 1.7-.7 2-1.4.2-.7.2-1.3.1-1.4-.1-.1-.3-.2-.6-.3z"/>'),
+    ("site", "Site", '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 12h20M12 2c3 3 3 17 0 20M12 2c-3 3-3 17 0 20" fill="none" stroke="currentColor" stroke-width="2"/>'),
+    ("calendar", "Agenda", '<path fill="currentColor" d="M7 2h2v3h6V2h2v3h3a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zM6 12h4v4H6v-4z"/>'),
+    ("store", "Loja", '<path fill="currentColor" d="M4 4h16l2 6v2h-2v8H4v-8H2v-2l2-6zm2 8v6h12v-6a4 4 0 0 1-4-1.5A4 4 0 0 1 10 12a4 4 0 0 1-4 0zm-.6-6-1.1 4h15.4l-1.1-4H5.4z"/>'),
+    ("course", "Curso", '<path fill="currentColor" d="M12 3 1 8l11 5 9-4.1V16h2V8L12 3zm-6 9v4.2c0 1.7 3.1 3.8 6 3.8s6-2.1 6-3.8V12l-6 2.7L6 12z"/>'),
+    ("portfolio", "Portfólio", '<path fill="currentColor" d="M9 4h6l1 2h4a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l1-2zm3 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0-2.2a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6z"/>'),
+    ("link", "Link", '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L11 4.9"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M14 11a5 5 0 0 0-7.1 0l-2.1 2.1a5 5 0 0 0 7.1 7.1L13 19.1"/>'),
+]
+LINK_TYPE_VALUES = {value for value, _label, _svg in LINK_ICON_OPTIONS}
 
 _FOOTER_SLOT = "<span id='footerActionSlot' class='footer-auth-slot'></span>"
 _FOOTER_PLACEHOLDER = "{footer_action_html}"
 
 _sql_repo = SQLRepository()
+_referral_service = ReferralService()
+
+
+def _normalize_link_type(value: object) -> str:
+    raw = (value or "").strip().lower() if isinstance(value, str) else ""
+    if raw in {"", "auto"}:
+        return ""
+    return raw if raw in LINK_TYPE_VALUES else ""
+
+
+def _link_icon_picker_options(selected: object, slot: int) -> str:
+    normalized = _normalize_link_type(selected) or "auto"
+    return "\n".join(
+        (
+            f"<label class='link-icon-choice' title='{html.escape(label)}'>"
+            f"<input type='radio' name='link_icon{slot}' value='{html.escape(value)}' {'checked' if value == normalized else ''} aria-label='Ícone {html.escape(label)}'>"
+            "<span class='link-icon-choice__mark' aria-hidden='true'>"
+            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>{svg}</svg>"
+            "</span>"
+            f"<span>{html.escape(label)}</span>"
+            "</label>"
+        )
+        for value, label, svg in LINK_ICON_OPTIONS
+    )
+
+
+def _checked_form_value(value: object) -> bool:
+    return isinstance(value, str) and value.strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _featured_icon_picker_options(selected: str) -> str:
+    normalized = normalize_featured_icon(selected)
+    return "\n".join(
+        (
+            f"<label class='link-icon-choice featured-icon-choice' title='{html.escape(label)}'>"
+            f"<input type='radio' name='featured_icon' value='{html.escape(key)}' {'checked' if key == normalized else ''} aria-label='Ícone {html.escape(label)}'>"
+            "<span class='link-icon-choice__mark' aria-hidden='true'>"
+            f"{featured_icon_svg(key)}"
+            "</span>"
+            f"<span>{html.escape(label)}</span>"
+            "</label>"
+        )
+        for key, label in FEATURED_ICON_OPTIONS.items()
+    )
 
 
 def set_css_href(value: str) -> None:
@@ -193,11 +257,9 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     pwd_flag = bool(pwd_cookie or str(pwd) == "1")
     show_grev = bool(prof.get("google_review_show", True))
     featured_enabled = bool(prof.get("featured_enabled", True))
+    spotlight_badge_show = bool(prof.get("spotlight_badge_show", True))
     featured_icon = normalize_featured_icon(prof.get("featured_icon"))
-    featured_icon_options = "\n".join(
-        f"<option value='{html.escape(key)}' {'selected' if key == featured_icon else ''}>{html.escape(label)}</option>"
-        for key, label in FEATURED_ICON_OPTIONS.items()
-    )
+    featured_icon_picker_html = _featured_icon_picker_options(featured_icon)
     # Cor do tema do cartão (hex #RRGGBB)
     theme_base = prof.get("theme_color", "#000000") or "#000000"
     if not re.fullmatch(r"#([0-9a-fA-F]{6})", theme_base or ""):
@@ -206,6 +268,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     links = prof.get("links", [])
     photo_url = resolve_photo(prof.get("photo_url"))
     cover_url = (prof.get("cover_url") or "").strip()
+    cover_show = bool(prof.get("cover_show", True))
     portfolio_enabled = bool(prof.get("portfolio_enabled", False))
     portfolio_images = prof.get("portfolio_images") or []
     if not isinstance(portfolio_images, list):
@@ -282,6 +345,35 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     csrf_token_js = json.dumps(csrf_token_value)
     csrf_token_query = urlparse.quote(csrf_token_value, safe="")
     footer_action_html = _owner_logout_form(slug, csrf_token_value)
+    try:
+        referral_summary = _referral_service.referral_summary(
+            card_uid=uid,
+            owner_email=owner,
+            preferred=(prof.get("full_name") or owner or uid),
+        )
+    except Exception:
+        referral_summary = ReferralSummary(
+            code="SOOMEI",
+            badge_expires_at=None,
+            badge_days_remaining=0,
+            qualified_referrals=0,
+            pending_referrals=0,
+            next_qualification_at=None,
+            raffle_coupons=0,
+            share_message="Conheça a Soomei e ative seu cartão digital.",
+        )
+    referral_code = html.escape(referral_summary.code)
+    referral_share_message = json.dumps(referral_summary.share_message, ensure_ascii=False)
+    referral_badge_text = (
+        f"{referral_summary.badge_days_remaining} dia(s) restantes"
+        if referral_summary.badge_days_remaining > 0
+        else "Ainda sem selo ativo"
+    )
+    referral_next_text = "Sem validações pendentes"
+    if referral_summary.next_qualification_at:
+        next_at = referral_summary.next_qualification_at
+        next_at = next_at if next_at.tzinfo else next_at.replace(tzinfo=timezone.utc)
+        referral_next_text = f"Próxima em {next_at.astimezone(timezone.utc).strftime('%d/%m/%Y')}"
     portfolio_slots = []
     for idx, src in enumerate(portfolio_images, start=1):
         safe_src = html.escape(src)
@@ -433,6 +525,45 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             "if(l){l.textContent=this.checked?'Exibindo':'Oculto';}"
         ),
         quote=True,
+    )
+    link_slots_html = "\n".join(
+        f"""
+              <div class='link-slot-card'>
+                <div class='link-slot-head'>
+                  <div>
+                    <strong>Botão adicional {idx}</strong>
+                    <span>Organize como esse link aparece no cartão.</span>
+                  </div>
+                  <label class='switch' for='linkVisible{idx}' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+                    <input type='checkbox' id='linkVisible{idx}' data-link-visible='1' name='link_visible{idx}' value='1' {'checked' if bool((item or {}).get('visible', True)) else ''} onchange="{switch_label_onchange}" style='display:none'>
+                    <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
+                      <span class='knob' style='position:absolute;top:3px;left:{'22px' if bool((item or {}).get('visible', True)) else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
+                    </span>
+                    <span class='muted' data-switch-label style='font-size:12px'>{'Exibindo' if bool((item or {}).get('visible', True)) else 'Oculto'}</span>
+                  </label>
+                </div>
+                <div class='link-icon-picker'>
+                  <div class='link-icon-picker__head'>
+                    <strong>Ícone do botão</strong>
+                    <span>Escolha um ícone ou deixe no automático para detectar pelo título/URL.</span>
+                  </div>
+                  <div class='link-icon-options' role='radiogroup' aria-label='Ícone do botão adicional {idx}'>
+                    {_link_icon_picker_options((item or {}).get('type') or (item or {}).get('category'), idx)}
+                  </div>
+                </div>
+                <div class='link-slot-fields'>
+                  <div class='form-control'>
+                    <label for='label{idx}'>Título</label>
+                    <input id='label{idx}' name='label{idx}' value='{html.escape((item or {}).get('label',''))}' placeholder='Instagram, LinkedIn, Curso...' aria-label='Titulo do botao {idx}'>
+                  </div>
+                  <div class='form-control full'>
+                    <label for='href{idx}'>Link (URL)</label>
+                    <input id='href{idx}' name='href{idx}' value='{html.escape((item or {}).get('href',''))}' placeholder='https://...' aria-label='Link do botao {idx}'>
+                  </div>
+                </div>
+              </div>
+        """
+        for idx, item in enumerate(links[:4], start=1)
     )
     html_form = f"""
     <!doctype html><html lang='pt-br'><head>
@@ -600,12 +731,109 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           <div>
             <p class='section-kicker'>Central do cartão</p>
             <h1 class='page-title'>Editar Perfil</h1>
-            <p class='edit-hero-desc'>Organize a primeira impressão do seu cartão: foto, contato, links, pagamentos e segurança em um só lugar.</p>
+            <p class='edit-hero-desc'>Escolha o que deseja configurar agora. A tela abre só a área escolhida para você editar sem se perder.</p>
+            <div class='edit-guide' aria-label='Menu de configuração do cartão'>
+              <button type='button' class='edit-guide-card is-active' data-edit-jump='perfil'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>👤</span>
+                <span><strong>Perfil</strong><small>Nome, cargo e contato</small></span>
+              </button>
+              <button type='button' class='edit-guide-card' data-edit-jump='visual'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>🎨</span>
+                <span><strong>Visual</strong><small>Foto, capa e cores</small></span>
+              </button>
+              <button type='button' class='edit-guide-card' data-edit-jump='links'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>🔗</span>
+                <span><strong>Links</strong><small>Destaque e botões</small></span>
+              </button>
+              <button type='button' class='edit-guide-card' data-edit-jump='integracoes'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>⚙️</span>
+                <span><strong>Integrações</strong><small>Pix, slug e avaliações</small></span>
+              </button>
+              <button type='button' class='edit-guide-card' data-edit-jump='indicacoes'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>🎁</span>
+                <span><strong>Indicações</strong><small>Código e selo Soomei</small></span>
+              </button>
+              <button type='button' class='edit-guide-card' data-edit-jump='portfolio'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>🖼️</span>
+                <span><strong>Portfólio</strong><small>Galeria e carrossel</small></span>
+              </button>
+              <button type='button' class='edit-guide-card' data-edit-jump='seguranca'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>🔒</span>
+                <span><strong>Segurança</strong><small>Senha e acesso</small></span>
+              </button>
+              <a class='edit-guide-card edit-guide-card--view' href='/{html.escape(slug)}'>
+                <span class='edit-guide-card__icon' aria-hidden='true'>↗</span>
+                <span><strong>Ver cartão</strong><small>Prévia pública</small></span>
+              </a>
+            </div>
           </div>
-          <a class='edit-preview-chip' href='/{html.escape(slug)}'>Ver cartão</a>
         </div>
+        <button type='button' class='edit-floating-menu is-hidden' id='backToEditMenu' aria-label='Voltar ao menu de configuração' title='Voltar ao menu'>
+          <span aria-hidden='true'>☰</span>
+        </button>
         <div class='edit-sections'>
-          <section class='edit-section'>
+          <section class='edit-section referral-panel' data-edit-panel='indicacoes' data-collapsible="1" data-collapsed="1">
+            <p class='section-kicker'>Conecte e ganhe</p>
+            <div class='section-head'>
+              <h2 class='section-title'>Indique a Soomei</h2>
+              <p class='section-desc'>Compartilhe seu código. Quando alguém ativar o cartão usando sua indicação, vocês liberam benefícios.</p>
+            </div>
+            <div class='referral-grid'>
+              <div class='referral-code-card'>
+                <span>Seu código</span>
+                <strong id='referralCode'>{referral_code}</strong>
+                <div class='referral-actions'>
+                  <button type='button' class='btn ghost' id='copyReferralCode'>Copiar código</button>
+                  <button type='button' class='btn referral-share-btn' id='shareReferralInvite' aria-label='Compartilhar convite pelo WhatsApp'>
+                    <svg class='referral-share-btn__icon' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' aria-hidden='true' width='18' height='18'>
+                      <path fill='currentColor' d='M20.52 3.48A11.86 11.86 0 0 0 12.02 0C5.39 0 .04 5.35.04 11.98c0 2.11.56 4.16 1.62 5.98L0 24l6.2-1.62a11.96 11.96 0 0 0 5.82 1.49h0c6.63 0 12.02-5.35 12.02-11.98 0-3.21-1.25-6.23-3.52-8.41ZM12.02 22.1h0c-1.9 0-3.76-.5-5.39-1.44l-.39-.23-3.68.96.98-3.59-.25-.37A9.77 9.77 0 0 1 2 11.98C2 6.48 6.52 2 12.02 2c2.62 0 5.08 1.02 6.93 2.86A9.71 9.71 0 0 1 22.06 12c0 5.5-4.52 10.1-10.04 10.1Zm5.53-7.49c-.3-.15-1.78-.88-2.05-.98-.27-.1-.47-.15-.68.15-.2.3-.78.98-.96 1.18-.18.2-.36.22-.66.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.13-.13.3-.34.45-.51.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.08-.15-.68-1.63-.93-2.23-.25-.6-.5-.52-.68-.53l-.58-.01c-.2 0-.52.08-.8.37-.27.3-1.05 1.03-1.05 2.5s1.07 2.9 1.23 3.1c.15.2 2.1 3.2 5.07 4.48.71.31 1.27.5 1.7.64.72.23 1.37.2 1.88.12.57-.08 1.78-.73 2.03-1.44.25-.7.25-1.3.18-1.43-.07-.13-.27-.2-.57-.35Z'/>
+                    </svg>
+                    <span>Compartilhar convite</span>
+                  </button>
+                </div>
+              </div>
+              <div class='referral-benefits'>
+                <div><span>Destaque Soomei</span><strong>{html.escape(referral_badge_text)}</strong></div>
+                <div><span>Em validação</span><strong>{int(referral_summary.pending_referrals)}</strong><small>{html.escape(referral_next_text)}</small></div>
+                <div><span>Indicações qualificadas</span><strong>{int(referral_summary.qualified_referrals)}</strong></div>
+                <div><span>Cupons Pix da Virada</span><strong>{int(referral_summary.raffle_coupons)}</strong></div>
+              </div>
+            </div>
+            <div class='referral-visibility'>
+              <div>
+                <strong>Exibir selo no cartão</strong>
+                <span>Controle se o visitante verá a chancela Destaque Soomei sobre a sua foto.</span>
+              </div>
+              <label class='switch' for='spotlightBadgeShow' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+                <input type='checkbox' id='spotlightBadgeShow' name='spotlight_badge_show' value='1' {'checked' if spotlight_badge_show else ''} onchange="{switch_label_onchange}" style='display:none'>
+                <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
+                  <span class='knob' style='position:absolute;top:3px;left:{'22px' if spotlight_badge_show else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
+                </span>
+                <span class='muted' data-switch-label style='font-size:12px'>{'Exibindo' if spotlight_badge_show else 'Oculto'}</span>
+              </label>
+            </div>
+            <p class='field-hint'>Cada indicação entra em validação por 30 dias. Se a assinatura do indicado permanecer ativa, você recebe +30 dias de Destaque Soomei. Os cupons Pix da Virada são liberados para os dois perfis quando a indicação qualificar.</p>
+            <div class='modal-backdrop referral-share-backdrop' id='referralShareBackdrop' role='dialog' aria-modal='true' aria-hidden='true' style='display:none'>
+              <div class='modal referral-share-modal'>
+                <header>
+                  <h2>Enviar convite</h2>
+                  <button class='close' type='button' id='referralShareClose' aria-label='Fechar' title='Fechar'>&#10005;</button>
+                </header>
+                <div>
+                  <p class='muted' style='font-size:13px;margin:0 0 12px'>Informe o WhatsApp da pessoa que você quer convidar. Vamos abrir a conversa com a mensagem pronta.</p>
+                  <label for='referralSharePhone'>Telefone com DDD</label>
+                  <input id='referralSharePhone' type='tel' inputmode='tel' placeholder='11999990000' style='width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #2a2a2a;background:#0b0b0c;color:#eaeaea'>
+                  <p class='muted' style='font-size:12px;margin:4px 0 12px'>Digite apenas números (DDD + telefone).</p>
+                  <div style='display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap'>
+                    <button type='button' class='btn ghost' id='referralShareCancel'>Cancelar</button>
+                    <button type='button' class='btn' id='referralShareSend'>Enviar convite</button>
+                  </div>
+                  <div id='referralShareError' class='banner bad' style='display:none;margin-top:10px'></div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class='edit-section' data-edit-panel='visual' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Identidade</p>
             <div class='section-head'>
               <h2 class='section-title'>Foto e cores</h2>
@@ -629,6 +857,19 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <input type='file' id='coverInput' accept='image/jpeg,image/png' style='display:none'>
                 <input type='hidden' id='coverRemoveFlag' name='cover_remove' value='0'>
                 <input type='hidden' id='coverDataUrl' name='cover_data_url' value=''>
+                <div class='visibility-toggle-card cover-visibility'>
+                  <div>
+                    <strong>Exibir capa no cartão</strong>
+                    <span>Oculte a capa sem apagar a imagem salva.</span>
+                  </div>
+                  <label class='switch' for='coverShow' style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>
+                    <input type='checkbox' id='coverShow' name='cover_show' value='1' {'checked' if cover_show else ''} onchange="{switch_label_onchange}" style='display:none'>
+                    <span class='switch-ui' aria-hidden='true' style='width:42px;height:24px;border-radius:999px;background:#2a2a2a;position:relative;display:inline-block;transition:.2s'>
+                      <span class='knob' style='position:absolute;top:3px;left:{'22px' if cover_show else '3px'};width:18px;height:18px;border-radius:50%;background:#eaeaea;transition:left .2s'></span>
+                    </span>
+                    <span class='muted' data-switch-label style='font-size:12px'>{'Exibindo' if cover_show else 'Oculto'}</span>
+                  </label>
+                </div>
               </div>
               <div>
                 <div class='avatar-preview-wrap'>
@@ -655,7 +896,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               </div>
             </div>
           </section>
-          <section class='edit-section'>
+          <section class='edit-section' data-edit-panel='perfil' data-collapsible="1" data-collapsed="0">
             <p class='section-kicker'>Informações principais</p>
             <div class='section-head'>
               <h2 class='section-title'>Contato e apresentação</h2>
@@ -697,7 +938,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               Para salvar, informe nome, cargo e pelo menos um contato (WhatsApp ou email).
             </div>
           </section>
-          <section class='edit-section' data-collapsible="1" data-collapsed="1">
+          <section class='edit-section' data-edit-panel='integracoes' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Integrações</p>
             <div class='section-head'>
               <h2 class='section-title'>Pix, slug e avaliações</h2>
@@ -758,7 +999,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               </div>
             </div>
           </section>
-          <section class='edit-section' data-collapsible="1" data-collapsed="1">
+          <section class='edit-section' data-edit-panel='links' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Presença digital</p>
             <div class='section-head'>
               <h2 class='section-title'>Links em destaque</h2>
@@ -785,12 +1026,14 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                   <input id='featuredLabel' name='featured_label' maxlength='48' value='{html.escape(prof.get('featured_label',''))}' placeholder='Agendar experiência' aria-label='Titulo do botao destaque'>
                   <span class='field-hint'>Texto grande do botão especial exibido antes dos links extras.</span>
                 </div>
-                <div class='form-control'>
-                  <label for='featuredIcon'>Ícone do botão</label>
-                  <select id='featuredIcon' name='featured_icon' aria-label='Icone do botao destaque'>
-                    {featured_icon_options}
-                  </select>
-                  <span class='field-hint'>Escolha o símbolo que melhor representa a ação principal.</span>
+                <div class='link-icon-picker featured-icon-picker'>
+                  <div class='link-icon-picker__head'>
+                    <strong>Ícone do botão</strong>
+                    <span>Escolha o símbolo que melhor representa a ação principal.</span>
+                  </div>
+                  <div class='link-icon-options featured-icon-options' role='radiogroup' aria-label='Ícone do botão destaque'>
+                    {featured_icon_picker_html}
+                  </div>
                 </div>
                 <div class='form-control'>
                   <label for='featuredUrl'>Link (URL)</label>
@@ -807,41 +1050,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 </div>
                 <p class='muted hint'>Deixe em branco para ocultar o botão destaque.</p>
               </div>
-              <div class='form-control'>
-                <label for='label1'>Título do botão 1</label>
-                <input id='label1' name='label1' value='{html.escape(links[0].get('label',''))}' placeholder='Instagram, LinkedIn, Curso...' aria-label='Titulo do botao 1'>
-              </div>
-              <div class='form-control'>
-                <label for='href1'>Link (URL)</label>
-                <input id='href1' name='href1' value='{html.escape(links[0].get('href',''))}' placeholder='https://...' aria-label='Link do botao 1'>
-              </div>
-              <div class='form-control'>
-                <label for='label2'>Título do botão 2</label>
-                <input id='label2' name='label2' value='{html.escape(links[1].get('label',''))}' placeholder='WhatsApp Business, Portfólio...' aria-label='Titulo do botao 2'>
-              </div>
-              <div class='form-control'>
-                <label for='href2'>Link (URL)</label>
-                <input id='href2' name='href2' value='{html.escape(links[1].get('href',''))}' placeholder='https://...' aria-label='Link do botao 2'>
-              </div>
-              <div class='form-control'>
-                <label for='label3'>Título do botão 3</label>
-                <input id='label3' name='label3' value='{html.escape(links[2].get('label',''))}' placeholder='Agendamento, Loja, Comunidade...' aria-label='Titulo do botao 3'>
-              </div>
-              <div class='form-control'>
-                <label for='href3'>Link (URL)</label>
-                <input id='href3' name='href3' value='{html.escape(links[2].get('href',''))}' placeholder='https://...' aria-label='Link do botao 3'>
-              </div>
-              <div class='form-control'>
-                <label for='label4'>Título do botão 4</label>
-                <input id='label4' name='label4' value='{html.escape(links[3].get('label',''))}' placeholder='Mentoria, Ebook, Evento...' aria-label='Titulo do botao 4'>
-              </div>
-              <div class='form-control'>
-                <label for='href4'>Link (URL)</label>
-                <input id='href4' name='href4' value='{html.escape(links[3].get('href',''))}' placeholder='https://...' aria-label='Link do botao 4'>
-              </div>
+              {link_slots_html}
             </div>
           </section>
-          <section class='edit-section' data-collapsible="1" data-collapsed="1">
+          <section class='edit-section' data-edit-panel='portfolio' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Portfólio</p>
             <div class='section-head'>
               <h2 class='section-title'>Fotos para o carrossel 3D</h2>
@@ -862,7 +1074,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <p class='portfolio-hint'>Limitamos a 5 fotos (2MB) e salvamos os arquivos em uma pasta interna do seu usuário.</p>
           </section>
-          <section class='edit-section' data-collapsible="1" data-collapsed="1">
+          <section class='edit-section' data-edit-panel='seguranca' data-collapsible="1" data-collapsed="1">
             <p class='section-kicker'>Segurança</p>
             <div class='section-head'>
               <h2 class='section-title'>Senha e acesso</h2>
@@ -904,6 +1116,103 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           }}
           var collapseIndex = 0;
           var collapseSections = document.querySelectorAll(".edit-section[data-collapsible='1']");
+          var editHero = document.querySelector('.edit-hero');
+          var backToEditMenu = document.getElementById('backToEditMenu');
+          var referralMessage = {referral_share_message};
+          var referralCodeEl = document.getElementById('referralCode');
+          var copyReferralCode = document.getElementById('copyReferralCode');
+          var shareReferralInvite = document.getElementById('shareReferralInvite');
+          var referralShareBackdrop = document.getElementById('referralShareBackdrop');
+          var referralSharePhone = document.getElementById('referralSharePhone');
+          var referralShareSend = document.getElementById('referralShareSend');
+          var referralShareCancel = document.getElementById('referralShareCancel');
+          var referralShareClose = document.getElementById('referralShareClose');
+          var referralShareError = document.getElementById('referralShareError');
+          function copyText(text, btn, label){{
+            function done(){{ if(btn){{ var old=btn.textContent; btn.textContent=label||'Copiado'; setTimeout(function(){{btn.textContent=old;}},1500); }} }}
+            if(navigator.clipboard && window.isSecureContext){{
+              navigator.clipboard.writeText(text).then(done).catch(function(){{}});
+            }} else {{
+              var ta=document.createElement('textarea'); ta.value=text; ta.style.position='absolute'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select();
+              try{{ document.execCommand('copy'); done(); }}catch(_e){{}}
+              document.body.removeChild(ta);
+            }}
+          }}
+          if(copyReferralCode && referralCodeEl){{
+            copyReferralCode.addEventListener('click', function(){{ copyText(referralCodeEl.textContent || '', copyReferralCode, 'Código copiado'); }});
+          }}
+          function isMobile(){{
+            return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+          }}
+          function setReferralShareError(msg){{
+            if(!referralShareError) return;
+            if(msg){{
+              referralShareError.textContent = msg;
+              referralShareError.style.display = 'block';
+            }} else {{
+              referralShareError.textContent = '';
+              referralShareError.style.display = 'none';
+            }}
+          }}
+          function openReferralShareModal(){{
+            if(!referralShareBackdrop) return;
+            setReferralShareError('');
+            referralShareBackdrop.style.display = 'flex';
+            referralShareBackdrop.classList.add('show');
+            referralShareBackdrop.setAttribute('aria-hidden','false');
+            if(referralSharePhone){{
+              referralSharePhone.focus();
+              referralSharePhone.select();
+            }}
+          }}
+          function closeReferralShareModal(){{
+            if(!referralShareBackdrop) return;
+            referralShareBackdrop.classList.remove('show');
+            referralShareBackdrop.style.display = 'none';
+            referralShareBackdrop.setAttribute('aria-hidden','true');
+            if(referralSharePhone) referralSharePhone.value = '';
+            setReferralShareError('');
+          }}
+          function sendReferralViaWhatsApp(){{
+            if(!referralSharePhone) return;
+            var digits = (referralSharePhone.value || '').replace(/\D/g,'');
+            if(digits.length < 10){{
+              setReferralShareError('Informe DDD + telefone com pelo menos 10 dígitos.');
+              return;
+            }}
+            window.open('https://wa.me/' + digits + '?text=' + encodeURIComponent(referralMessage), '_blank');
+            closeReferralShareModal();
+          }}
+          if(shareReferralInvite){{
+            shareReferralInvite.addEventListener('click', function(ev){{
+              ev.preventDefault();
+              if(navigator.share && isMobile()){{
+                navigator.share({{title:'Convite Soomei', text:referralMessage}}).catch(function(err){{
+                  if(err && err.name === 'AbortError') return;
+                  window.location.href = 'https://wa.me/?text=' + encodeURIComponent(referralMessage);
+                }});
+                return;
+              }}
+              if(isMobile()){{
+                window.location.href = 'https://wa.me/?text=' + encodeURIComponent(referralMessage);
+                return;
+              }}
+              openReferralShareModal();
+            }});
+          }}
+          if(referralShareSend) referralShareSend.addEventListener('click', function(ev){{ ev.preventDefault(); sendReferralViaWhatsApp(); }});
+          if(referralShareCancel) referralShareCancel.addEventListener('click', function(ev){{ ev.preventDefault(); closeReferralShareModal(); }});
+          if(referralShareClose) referralShareClose.addEventListener('click', function(ev){{ ev.preventDefault(); closeReferralShareModal(); }});
+          if(referralShareBackdrop){{
+            referralShareBackdrop.addEventListener('click', function(ev){{
+              if(ev.target === referralShareBackdrop) closeReferralShareModal();
+            }});
+          }}
+          document.addEventListener('keydown', function(ev){{
+            if(ev.key === 'Escape') closeReferralShareModal();
+          }});
+          var sectionRegistry = {{}};
+          var guideButtons = Array.prototype.slice.call(document.querySelectorAll('[data-edit-jump]'));
           collapseSections.forEach(function(section){{
             var head = section.querySelector('.section-head');
             if (!head) return;
@@ -949,9 +1258,51 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               var open = btn.getAttribute('aria-expanded') !== 'true';
               setState(open);
             }});
+            var panelKey = section.getAttribute('data-edit-panel') || '';
+            if (panelKey){{
+              sectionRegistry[panelKey] = {{ section: section, open: setState }};
+            }}
             var startCollapsed = section.getAttribute('data-collapsed') === '1';
             setState(!startCollapsed);
           }});
+          function setGuideActive(key){{
+            guideButtons.forEach(function(btn){{
+              btn.classList.toggle('is-active', btn.getAttribute('data-edit-jump') === key);
+            }});
+          }}
+          function openEditPanel(key, shouldScroll){{
+            var entry = sectionRegistry[key];
+            if (!entry) return;
+            Object.keys(sectionRegistry).forEach(function(name){{
+              sectionRegistry[name].open(name === key);
+            }});
+            setGuideActive(key);
+            if (backToEditMenu) backToEditMenu.classList.remove('is-hidden');
+            if (shouldScroll){{
+              window.setTimeout(function(){{
+                try{{ entry.section.scrollIntoView({{behavior:'smooth', block:'start', inline:'nearest'}}); }}catch(_e){{}}
+              }}, 90);
+            }}
+          }}
+          function showEditMenu(){{
+            if (backToEditMenu) backToEditMenu.classList.add('is-hidden');
+            if (editHero){{
+              try{{ editHero.scrollIntoView({{behavior:'smooth', block:'start', inline:'nearest'}}); }}catch(_e){{}}
+            }}
+          }}
+          guideButtons.forEach(function(btn){{
+            btn.addEventListener('click', function(ev){{
+              ev.preventDefault();
+              openEditPanel(btn.getAttribute('data-edit-jump'), true);
+            }});
+          }});
+          if (backToEditMenu){{
+            backToEditMenu.addEventListener('click', function(ev){{
+              ev.preventDefault();
+              showEditMenu();
+            }});
+          }}
+          setGuideActive('perfil');
           var form = document.getElementById('editForm');
           var saveBtn = document.getElementById('saveBtn');
           var primaryHint = document.getElementById('primaryInfoHint');
@@ -969,6 +1320,20 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           function hasEmail(){{
             if (!emailInput) return false;
             return !!(emailInput.value || '').trim();
+          }}
+          function focusInvalidField(field){{
+            if (!field) return;
+            var section = field.closest && field.closest(".edit-section[data-edit-panel]");
+            if (section){{
+              var key = section.getAttribute('data-edit-panel');
+              if (key) openEditPanel(key, false);
+            }}
+            var target = field.closest('.form-control') || field;
+            try{{ target.scrollIntoView({{behavior:'smooth', block:'center', inline:'nearest'}}); }}catch(_e){{}}
+            window.setTimeout(function(){{
+              try{{ field.focus({{preventScroll:true}}); }}catch(_e){{ try{{ field.focus(); }}catch(_e2){{}} }}
+              try{{ if (field.reportValidity) field.reportValidity(); }}catch(_e3){{}}
+            }}, 260);
           }}
           function updatePrimaryState(){{
             var ok = hasValue(requiredName) && hasValue(requiredTitle) && (hasWhatsapp() || hasEmail());
@@ -1029,6 +1394,9 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             return photoResponse.json();
           }};
           if (form){{
+            form.addEventListener('invalid', function(e){{
+              focusInvalidField(e.target);
+            }}, true);
             form.addEventListener('submit', function(e){{
               var csrfInput = form.querySelector("input[name='csrf_token']");
               if (csrfInput && csrfInput.value){{
@@ -1040,9 +1408,13 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               if (!updatePrimaryState()){{
                 e.preventDefault();
                 e.stopPropagation();
-                if (primaryHint){{
-                  try{{ primaryHint.focus(); }}catch(_e){{}}
+                if (!hasValue(requiredName)) focusInvalidField(requiredName);
+                else if (!hasValue(requiredTitle)) focusInvalidField(requiredTitle);
+                else if (whatsappInput) focusInvalidField(whatsappInput);
+                else if (emailInput) focusInvalidField(emailInput);
+                else if (primaryHint){{
                   try{{ primaryHint.scrollIntoView({{behavior:'smooth', block:'center'}}); }}catch(_e){{}}
+                  try{{ primaryHint.focus({{preventScroll:true}}); }}catch(_e){{}}
                 }}
                 return;
               }}
@@ -1195,6 +1567,11 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           }}
           hydrateSwitch("input[id='googleReviewShow' name='google_review_show']");
           hydrateSwitch("input[id='featuredEnabled' name='featured_enabled']");
+          hydrateSwitch("input[id='spotlightBadgeShow' name='spotlight_badge_show']");
+          hydrateSwitch("input[id='coverShow' name='cover_show']");
+          for (var linkSwitchIndex = 1; linkSwitchIndex <= 4; linkSwitchIndex++) {{
+            hydrateSwitch("input[id='linkVisible" + linkSwitchIndex + "']");
+          }}
           var featuredColor = document.getElementById('featuredColor');
           var featuredReset = document.getElementById('featuredColorReset');
           if (featuredColor && featuredReset){{
@@ -1474,6 +1851,7 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               var coverPlaceholder = document.getElementById('coverPlaceholder');
               var coverRemoveFlag = document.getElementById('coverRemoveFlag');
               var coverDataInput = document.getElementById('coverDataUrl');
+              var coverShow = document.getElementById('coverShow');
           coverInput.addEventListener('change', function(){{
             var f = coverInput.files && coverInput.files[0];
             if (!f) return;
@@ -1492,6 +1870,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               if (coverDataInput) coverDataInput.value = coverImg ? coverImg.src : '';
               window.soomeiImagePayloads.cover = coverImg ? coverImg.src : '';
               if (coverRemoveFlag) coverRemoveFlag.value = '0';
+              if (coverShow) {{
+                coverShow.checked = true;
+                coverShow.dispatchEvent(new Event('change', {{ bubbles: true }}));
+              }}
             }};
             reader.readAsDataURL(f);
           }});
@@ -1505,6 +1887,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
               if (coverDataInput) {{ coverDataInput.value = ''; }}
               window.soomeiImagePayloads.cover = '';
               if (coverInput) coverInput.value = '';
+              if (coverShow) {{
+                coverShow.checked = false;
+                coverShow.dispatchEvent(new Event('change', {{ bubbles: true }}));
+              }}
             }});
           }}
         }}
@@ -1808,6 +2194,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 whatsapp: str = Form(""), email_public: str = Form(""), site_url: str = Form(""), address: str = Form(""),
                 google_review_url: str = Form(""),
                 google_review_show: str = Form(""),
+                spotlight_badge_show: str = Form(""),
                 featured_label: str = Form(""),
                 featured_url: str = Form(""),
                featured_icon: str = Form("calendar"),
@@ -1817,12 +2204,17 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                label2: str = Form(""), href2: str = Form(""),
                label3: str = Form(""), href3: str = Form(""),
                label4: str = Form(""), href4: str = Form(""),
+               link_icon1: str = Form("auto"), link_visible1: str = Form(""),
+               link_icon2: str = Form("auto"), link_visible2: str = Form(""),
+               link_icon3: str = Form("auto"), link_visible3: str = Form(""),
+               link_icon4: str = Form("auto"), link_visible4: str = Form(""),
                theme_color: str = Form(""),
                pix_key: str = Form(""),
                current_password: str = Form(""),
                new_password: str = Form(""),
                confirm_password: str = Form(""),
                password_mode: str = Form("0"),
+                cover_show: str = Form(""),
                 cover_remove: str = Form("0"),
                 portfolio_enabled: str = Form(""),
                 portfolio_remove1: str = Form("0"),
@@ -1934,6 +2326,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
             "Envio incompleto: informe nome, cargo e pelo menos um contato. "
             "O perfil anterior foi preservado."
         )
+    cover_show_flag = str(cover_show or "").lower() in {"1", "true", "on", "yes"}
     prof.update({
         "full_name": required_name,
         "title": required_title,
@@ -1943,6 +2336,8 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         "address": (address or "").strip(),
         "google_review_url": (google_review_url or "").strip(),
         "google_review_show": bool(google_review_show),
+        "spotlight_badge_show": str(spotlight_badge_show or "").lower() in {"1", "true", "on", "yes"},
+        "cover_show": cover_show_flag,
         "featured_color": _normalize_hex_color(featured_color, "#FFB473"),
     })
     feat_label_value = (featured_label or "").strip()
@@ -1965,9 +2360,22 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         tc = "#000000"
     prof["theme_color"] = tc
     links = []
-    for (lbl, href) in [(label1, href1), (label2, href2), (label3, href3), (label4, href4)]:
+    for (lbl, href, link_icon, link_visible) in [
+        (label1, href1, link_icon1, link_visible1),
+        (label2, href2, link_icon2, link_visible2),
+        (label3, href3, link_icon3, link_visible3),
+        (label4, href4, link_icon4, link_visible4),
+    ]:
         if lbl.strip() and href.strip():
-            links.append({"label": lbl.strip(), "href": href.strip()})
+            item = {
+                "label": lbl.strip(),
+                "href": href.strip(),
+                "visible": _checked_form_value(link_visible),
+            }
+            normalized_type = _normalize_link_type(link_icon)
+            if normalized_type:
+                item["type"] = normalized_type
+            links.append(item)
     prof["links"] = links
     portfolio_enabled_flag = bool(portfolio_enabled)
     existing_portfolio = prof.get("portfolio_images") or []
@@ -2059,12 +2467,14 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         prof["photo_url"] = await asyncio.to_thread(_save_resized_image, data, f"{uid}.jpg", (800, 800))
     if (cover_remove or "").strip() == "1":
         prof["cover_url"] = ""
+        prof["cover_show"] = False
     elif cover_data_url_value:
         try:
             data, _content_type = _decode_image_data_url(cover_data_url_value)
         except HTTPException as exc:
             return redirect_error(str(exc.detail))
         prof["cover_url"] = await asyncio.to_thread(_save_resized_image, data, f"{uid}_cover.jpg", (1600, 900))
+        prof["cover_show"] = True
     elif cover and cover.filename:
         ct = (cover.content_type or "").lower()
         if ct not in ALLOWED_IMAGE_TYPES:
@@ -2077,6 +2487,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         if not _has_valid_signature(data, ct):
             return redirect_error("Arquivo de imagem invalido.")
         prof["cover_url"] = await asyncio.to_thread(_save_resized_image, data, f"{uid}_cover.jpg", (1600, 900))
+        prof["cover_show"] = True
     _sql_repo.upsert_profile(owner, prof)
     # Redireciona sempre para a página pública após salvar
     return RedirectResponse(f"/{slug}", status_code=303)

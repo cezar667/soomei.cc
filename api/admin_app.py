@@ -173,6 +173,9 @@ def _status_badge(value: str) -> str:
         "blocked": "Bloqueado",
         "rejected": "Reprovado",
         "disabled": "Desativado",
+        "pending_validation": "Em validação",
+        "qualified": "Qualificada",
+        "disqualified": "Desqualificada",
     }
     label = labels.get(status, status or "—")
     klass = status if status in labels else "neutral"
@@ -268,6 +271,7 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
         f"{_nav_link('/', 'Dashboard', current_path)}"
         f"{_nav_link('/cards', 'Cartões', current_path)}"
         f"{_nav_link('/webhooks', 'Webhooks', current_path)}"
+        f"{_nav_link('/referrals', 'Indicações', current_path)}"
         f"{_nav_link('/domains', 'Domínios', current_path)}"
         f"{_nav_link('/users', 'Usuários', current_path)}"
         f"{logout_html}"
@@ -529,7 +533,8 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
           }}
           .admin-badge--active {{border-color:rgba(84,224,173,.22);background:rgba(84,224,173,.1);color:#96f3c9}}
           .admin-badge--pending {{border-color:rgba(255,191,122,.24);background:rgba(255,191,122,.1);color:#ffd2a3}}
-          .admin-badge--blocked,.admin-badge--rejected {{border-color:rgba(255,141,141,.24);background:rgba(255,141,141,.1);color:#ffb7b7}}
+          .admin-badge--pending_validation {{border-color:rgba(128,203,255,.24);background:rgba(128,203,255,.1);color:#b8ddff}}
+          .admin-badge--blocked,.admin-badge--rejected,.admin-badge--disqualified {{border-color:rgba(255,141,141,.24);background:rgba(255,141,141,.1);color:#ffb7b7}}
           .admin-badge--disabled,.admin-badge--neutral {{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.055);color:#aeb7c4}}
           .admin-pager {{
             display:flex;
@@ -1226,6 +1231,39 @@ def card_details(uid: str, request: Request):
     owner = card.owner_email or ""
     profile = repo.get_profile(owner) or {}
     meta = card.custom_domain_meta or {}
+    dev_badge_tools = ""
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        active_badge = session.execute(
+            select(models.ProfileBadge)
+            .where(
+                models.ProfileBadge.card_uid == uid,
+                models.ProfileBadge.badge_type == "soomei_connector",
+                models.ProfileBadge.expires_at > now,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+    badge_status = (
+        f"Ativo até {_dt(active_badge.expires_at)}"
+        if active_badge
+        else "Sem selo ativo"
+    )
+    if settings.app_env != "prod":
+        csrf_token = _csrf_value(request)
+        dev_badge_tools = f"""
+      <article>
+        <h4>Dev: ativar Destaque Soomei</h4>
+        <p class='admin-compact'>Ferramenta apenas de desenvolvimento para visualizar o benefício Destaque Soomei no perfil público, como se a própria Soomei tivesse ativado esse plus de visibilidade.</p>
+        <p><strong>Status atual:</strong> {html.escape(badge_status)}</p>
+        <form method='post' action='/cards/{html.escape(uid)}/dev/connector-badge' class='grid'>
+          <input type='hidden' name='csrf_token' value='{html.escape(csrf_token)}'>
+          <label>Validade em dias
+            <input name='days' type='number' min='1' max='365' value='30'>
+          </label>
+          <button type='submit'>Ativar selo de teste</button>
+        </form>
+      </article>
+        """
     body = f"""
       <article>
         <h3>Detalhes do cartão</h3>
@@ -1242,9 +1280,57 @@ def card_details(uid: str, request: Request):
         <h4>Perfil</h4>
         <pre style="white-space:pre-wrap">{html.escape(json.dumps(profile, ensure_ascii=False, indent=2))}</pre>
       </article>
+      {dev_badge_tools}
       <p><a class='secondary' href='/cards'>Voltar</a> <a class='secondary' target='_blank' href='/{html.escape(card.vanity or card.uid)}'>Ver público</a></p>
     """
     return _layout(request, f"Admin | Cartão {html.escape(uid)}", body, csrf_token=_csrf_value(request))
+
+
+@app.post("/cards/{uid}/dev/connector-badge")
+def dev_grant_connector_badge(uid: str, request: Request, days: int = Form(30), csrf_token: str = Form("")):
+    if settings.app_env == "prod":
+        raise HTTPException(404, "recurso indisponivel")
+    _csrf_protect(request, csrf_token)
+    admin_email = require_admin(request)
+    card = repo.get_card_by_uid(uid)
+    if not card:
+        return RedirectResponse("/cards?error=nao_encontrado", status_code=303)
+    safe_days = max(1, min(int(days or 30), 365))
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        badge = session.execute(
+            select(models.ProfileBadge)
+            .where(
+                models.ProfileBadge.card_uid == uid,
+                models.ProfileBadge.badge_type == "soomei_connector",
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        expires_at = now + timedelta(days=safe_days)
+        if badge:
+            badge.label = "Destaque Soomei"
+            badge.starts_at = now
+            badge.expires_at = expires_at
+            badge.source = "admin_dev"
+            badge.source_id = admin_email
+            badge.updated_at = now
+        else:
+            session.add(
+                models.ProfileBadge(
+                    id=secrets.token_hex(16),
+                    card_uid=uid,
+                    badge_type="soomei_connector",
+                    label="Destaque Soomei",
+                    starts_at=now,
+                    expires_at=expires_at,
+                    source="admin_dev",
+                    source_id=admin_email,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        session.commit()
+    return RedirectResponse(f"/cards/{html.escape(uid)}?ok=connector_badge", status_code=303)
 
 
 @app.post("/cards/create")
@@ -1901,6 +1987,111 @@ def retry_webhook_event_page(event_id: str, request: Request, csrf_token: str = 
         f"/webhooks/events/{html.escape(event_id)}?ok=retry&status={html.escape(event.status or '')}",
         status_code=303,
     )
+
+
+def _referrals_filters(*, status: str = "", q: str = "") -> list:
+    filters: list = []
+    if status:
+        filters.append(func.lower(models.Referral.status) == status.strip().lower())
+    qnorm = (q or "").strip().lower()
+    if qnorm:
+        pattern = f"%{qnorm}%"
+        filters.append(
+            or_(
+                func.lower(models.Referral.code_used).like(pattern),
+                func.lower(func.coalesce(models.Referral.referrer_email, "")).like(pattern),
+                func.lower(func.coalesce(models.Referral.referred_email, "")).like(pattern),
+                func.lower(func.coalesce(models.Referral.referrer_card_uid, "")).like(pattern),
+                func.lower(models.Referral.referred_card_uid).like(pattern),
+            )
+        )
+    return filters
+
+
+def _referrals_page(*, status: str = "", q: str = "", page: int = 1) -> PageResult:
+    stmt = select(models.Referral).where(*_referrals_filters(status=status, q=q))
+    return repo._page_from_statement(
+        stmt,
+        page=page,
+        page_size=PAGE_SIZE,
+        order_by=[models.Referral.created_at.desc()],
+    )
+
+
+def _referral_counts() -> dict[str, int]:
+    with get_session() as session:
+        total = int(session.execute(select(func.count(models.Referral.id))).scalar() or 0)
+        pending = int(
+            session.execute(
+                select(func.count(models.Referral.id)).where(models.Referral.status == "pending_validation")
+            ).scalar()
+            or 0
+        )
+        qualified = int(session.execute(select(func.count(models.Referral.id)).where(models.Referral.status == "qualified")).scalar() or 0)
+        coupons = int(session.execute(select(func.count(models.RaffleEntry.id)).where(models.RaffleEntry.status == "active")).scalar() or 0)
+        active_badges = int(
+            session.execute(
+                select(func.count(models.ProfileBadge.id)).where(models.ProfileBadge.expires_at > datetime.now(timezone.utc))
+            ).scalar()
+            or 0
+        )
+    return {"total": total, "pending": pending, "qualified": qualified, "coupons": coupons, "active_badges": active_badges}
+
+
+@app.get("/referrals", response_class=HTMLResponse)
+def list_referrals(request: Request, status: str = "", q: str = "", page: int = 1):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return _redirect_login("/referrals")
+    counts = _referral_counts()
+    page_result = _referrals_page(status=status, q=q, page=page)
+    rows = []
+    for ref in page_result.items:
+        rows.append(
+            "<tr>"
+            f"<td><code>{html.escape(ref.code_used or '')}</code></td>"
+            f"<td>{html.escape(ref.referrer_email or '—')}<br><small><code>{html.escape(ref.referrer_card_uid or '')}</code></small></td>"
+            f"<td>{html.escape(ref.referred_email or '—')}<br><small><code>{html.escape(ref.referred_card_uid or '')}</code></small></td>"
+            f"<td>{_status_badge(ref.status or '')}</td>"
+            f"<td>{_dt(ref.qualified_at or ref.qualify_after or ref.created_at)}</td>"
+            f"<td>{html.escape(ref.rejection_reason or '—')}</td>"
+            "</tr>"
+        )
+    status_select = "".join(
+        f"<option value='{html.escape(value)}' {'selected' if status.lower() == value else ''}>{html.escape(label)}</option>"
+        for value, label in [
+            ("", "Todos"),
+            ("pending_validation", "Em validação"),
+            ("qualified", "Qualificadas"),
+            ("disqualified", "Desqualificadas"),
+            ("rejected", "Rejeitadas"),
+        ]
+    )
+    body = f"""
+      <section class='admin-summary'>
+        <article><header>Total indicações</header><strong>{counts['total']}</strong></article>
+        <article><header>Em validação</header><strong>{counts['pending']}</strong></article>
+        <article><header>Qualificadas</header><strong>{counts['qualified']}</strong></article>
+        <article><header>Selos ativos</header><strong>{counts['active_badges']}</strong></article>
+        <article><header>Cupons ativos</header><strong>{counts['coupons']}</strong></article>
+      </section>
+      <article>
+        <h3>Indicações e recompensas</h3>
+        <p class='admin-compact'>Acompanhe códigos usados na ativação, benefícios concedidos e cupons da campanha Pix da Virada.</p>
+        <form class='admin-filter-grid' method='get' action='/referrals'>
+          <label>Busca <input name='q' placeholder='código, e-mail ou cartão' value='{html.escape(q)}'></label>
+          <label>Status <select name='status'>{status_select}</select></label>
+          <button type='submit'>Filtrar</button>
+        </form>
+        <table role='grid'>
+          <thead><tr><th>Código</th><th>Indicador</th><th>Indicado</th><th>Status</th><th>Validação/Data</th><th>Obs.</th></tr></thead>
+          <tbody>{''.join(rows) or '<tr><td colspan="6">Nenhuma indicação encontrada.</td></tr>'}</tbody>
+        </table>
+        {_pager_html('/referrals', page_result, q=q, status=status)}
+      </article>
+    """
+    return _layout(request, "Admin | Indicações", body, csrf_token=_csrf_value(request))
 
 
 @app.get("/api/v1/admin/webhook-events")
