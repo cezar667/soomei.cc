@@ -1236,7 +1236,7 @@ def card_details(uid: str, request: Request):
     owner = card.owner_email or ""
     profile = repo.get_profile(owner) or {}
     meta = card.custom_domain_meta or {}
-    dev_badge_tools = ""
+    badge_tools = ""
     now = datetime.now(timezone.utc)
     with get_session() as session:
         active_badge = session.execute(
@@ -1253,22 +1253,21 @@ def card_details(uid: str, request: Request):
         if active_badge
         else "Sem selo ativo"
     )
-    if settings.app_env != "prod":
-        csrf_token = _csrf_value(request)
-        dev_badge_tools = f"""
+    csrf_token = _csrf_value(request)
+    badge_tools = f"""
       <article>
-        <h4>Dev: ativar Destaque Soomei</h4>
-        <p class='admin-compact'>Ferramenta apenas de desenvolvimento para visualizar o benefício Destaque Soomei no perfil público, como se a própria Soomei tivesse ativado esse plus de visibilidade.</p>
+        <h4>Ativar Destaque Soomei</h4>
+        <p class='admin-compact'>Ferramenta administrativa para conceder ou renovar manualmente o selo Destaque Soomei no perfil público deste cartão.</p>
         <p><strong>Status atual:</strong> {html.escape(badge_status)}</p>
-        <form method='post' action='/cards/{html.escape(uid)}/dev/connector-badge' class='grid'>
+        <form method='post' action='/cards/{html.escape(uid)}/connector-badge' class='grid'>
           <input type='hidden' name='csrf_token' value='{html.escape(csrf_token)}'>
           <label>Validade em dias
             <input name='days' type='number' min='1' max='365' value='30'>
           </label>
-          <button type='submit'>Ativar selo de teste</button>
+          <button type='submit'>Ativar selo</button>
         </form>
       </article>
-        """
+    """
     body = f"""
       <article>
         <h3>Detalhes do cartão</h3>
@@ -1285,16 +1284,14 @@ def card_details(uid: str, request: Request):
         <h4>Perfil</h4>
         <pre style="white-space:pre-wrap">{html.escape(json.dumps(profile, ensure_ascii=False, indent=2))}</pre>
       </article>
-      {dev_badge_tools}
+      {badge_tools}
       <p><a class='secondary' href='/cards'>Voltar</a> <a class='secondary' target='_blank' href='/{html.escape(card.vanity or card.uid)}'>Ver público</a></p>
     """
     return _layout(request, f"Admin | Cartão {html.escape(uid)}", body, csrf_token=_csrf_value(request))
 
 
-@app.post("/cards/{uid}/dev/connector-badge")
-def dev_grant_connector_badge(uid: str, request: Request, days: int = Form(30), csrf_token: str = Form("")):
-    if settings.app_env == "prod":
-        raise HTTPException(404, "recurso indisponivel")
+@app.post("/cards/{uid}/connector-badge")
+def grant_connector_badge(uid: str, request: Request, days: int = Form(30), csrf_token: str = Form("")):
     _csrf_protect(request, csrf_token)
     admin_email = require_admin(request)
     card = repo.get_card_by_uid(uid)
@@ -1316,7 +1313,7 @@ def dev_grant_connector_badge(uid: str, request: Request, days: int = Form(30), 
             badge.label = "Destaque Soomei"
             badge.starts_at = now
             badge.expires_at = expires_at
-            badge.source = "admin_dev"
+            badge.source = "admin_manual"
             badge.source_id = admin_email
             badge.updated_at = now
         else:
@@ -1328,7 +1325,7 @@ def dev_grant_connector_badge(uid: str, request: Request, days: int = Form(30), 
                     label="Destaque Soomei",
                     starts_at=now,
                     expires_at=expires_at,
-                    source="admin_dev",
+                    source="admin_manual",
                     source_id=admin_email,
                     created_at=now,
                     updated_at=now,
@@ -1336,6 +1333,11 @@ def dev_grant_connector_badge(uid: str, request: Request, days: int = Form(30), 
             )
         session.commit()
     return RedirectResponse(f"/cards/{html.escape(uid)}?ok=connector_badge", status_code=303)
+
+
+@app.post("/cards/{uid}/dev/connector-badge")
+def dev_grant_connector_badge(uid: str, request: Request, days: int = Form(30), csrf_token: str = Form("")):
+    return grant_connector_badge(uid, request, days=days, csrf_token=csrf_token)
 
 
 @app.post("/cards/create")

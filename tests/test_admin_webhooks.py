@@ -193,10 +193,10 @@ def test_admin_dashboard_renders_operational_charts(admin_webhook_db, monkeypatc
     assert "admin-line-chart" in body
 
 
-def test_admin_dev_can_grant_connector_badge(admin_webhook_db, monkeypatch):
+def test_admin_can_grant_connector_badge_in_prod(admin_webhook_db, monkeypatch):
     _allow_admin(monkeypatch)
     monkeypatch.setattr(admin_app, "_csrf_protect", lambda _request, _token: None)
-    monkeypatch.setattr(admin_app, "settings", type("Settings", (), {"app_env": "dev"})())
+    monkeypatch.setattr(admin_app, "settings", type("Settings", (), {"app_env": "prod"})())
     with get_session() as session:
         session.add(
             models.Card(
@@ -210,11 +210,13 @@ def test_admin_dev_can_grant_connector_badge(admin_webhook_db, monkeypatch):
         session.commit()
 
     detail = admin_app.card_details("uid-ref-dev", _request("/cards/uid-ref-dev"))
-    assert "Dev: ativar Destaque Soomei" in detail.body.decode("utf-8")
+    body = detail.body.decode("utf-8")
+    assert "Ativar Destaque Soomei" in body
+    assert "/cards/uid-ref-dev/connector-badge" in body
 
-    response = admin_app.dev_grant_connector_badge(
+    response = admin_app.grant_connector_badge(
         "uid-ref-dev",
-        _request("/cards/uid-ref-dev/dev/connector-badge"),
+        _request("/cards/uid-ref-dev/connector-badge"),
         days=45,
         csrf_token="csrf-admin",
     )
@@ -224,4 +226,4 @@ def test_admin_dev_can_grant_connector_badge(admin_webhook_db, monkeypatch):
         badge = session.execute(select(models.ProfileBadge).where(models.ProfileBadge.card_uid == "uid-ref-dev")).scalar_one()
     assert badge.badge_type == "soomei_connector"
     assert badge.label == "Destaque Soomei"
-    assert badge.source == "admin_dev"
+    assert badge.source == "admin_manual"
