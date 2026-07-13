@@ -181,3 +181,23 @@ def test_pending_referral_can_be_disqualified_by_access_loss_event(referral_db):
         assert referral.rejection_reason == "SUBSCRIPTION_CANCELLED"
         assert session.execute(select(models.ProfileBadge)).scalar_one_or_none() is None
         assert session.execute(select(models.RaffleEntry)).scalar_one_or_none() is None
+
+
+def test_referral_job_run_audit_records_success_and_failure(referral_db):
+    service = ReferralService()
+
+    success_run = service.repository.start_job_run(trigger="manual")
+    service.repository.finish_job_run(
+        success_run.id,
+        result={"processed": 3, "qualified": 2, "disqualified": 1},
+    )
+    failed_run = service.repository.start_job_run(trigger="systemd")
+    service.repository.fail_job_run(failed_run.id, error_message="database unavailable")
+
+    runs = service.repository.recent_job_runs(limit=2)
+
+    assert [run.status for run in runs] == ["failed", "success"]
+    assert runs[0].error_message == "database unavailable"
+    assert runs[1].processed_count == 3
+    assert runs[1].qualified_count == 2
+    assert runs[1].disqualified_count == 1

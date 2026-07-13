@@ -68,20 +68,24 @@ Ela mostra:
 - selos ativos;
 - cupons ativos;
 - listagem com indicador, indicado, código e status.
+- última execução da rotina diária;
+- histórico recente da rotina com status, início, fim, processadas, qualificadas, desqualificadas e erro.
 
 ## Rotina diária de qualificação
 
 O script abaixo processa apenas indicações vencidas que ainda estão em `pending_validation`. Ele não consulta a TheMembers; os cancelamentos e perdas de acesso são refletidos pelos webhooks. Uma indicação já qualificada/desqualificada não é processada de novo.
 
 ```bash
-python scripts/process_referral_qualifications.py --limit 500
+PYTHONPATH=/opt/soomei/app python -m scripts.process_referral_qualifications --limit 500 --trigger manual
 ```
 
 Saída esperada:
 
 ```text
-referral_qualifications processed=3 qualified=2 disqualified=1
+referral_qualifications run_id=... processed=3 qualified=2 disqualified=1
 ```
+
+Cada execução é gravada em `referral_job_runs`, permitindo validação pelo painel admin em `/referrals`.
 
 ## Configuração em produção
 
@@ -123,10 +127,11 @@ Description=Soomei referral qualification job
 Type=oneshot
 WorkingDirectory=/opt/soomei/app
 Environment=APP_ENV=prod
+Environment=PYTHONPATH=/opt/soomei/app
 Environment=DATABASE_URL=postgresql+psycopg://USUARIO:SENHA@localhost:5432/soomei
 Environment=REFERRAL_QUALIFICATION_DAYS=30
 Environment=REFERRAL_QUALIFICATION_BATCH_SIZE=500
-ExecStart=/opt/soomei/app/.venv/bin/python scripts/process_referral_qualifications.py --limit 500
+ExecStart=/opt/soomei/app/.venv/bin/python -m scripts.process_referral_qualifications --limit 500 --trigger systemd
 ```
 
 Crie `/etc/systemd/system/soomei-referrals.timer`:
@@ -158,6 +163,8 @@ Executar manualmente quando precisar:
 sudo systemctl start soomei-referrals.service
 sudo journalctl -u soomei-referrals.service -n 50 --no-pager
 ```
+
+Depois, acesse o admin em `/referrals` e confira o bloco **Histórico da rotina diária**.
 
 ## Testes
 

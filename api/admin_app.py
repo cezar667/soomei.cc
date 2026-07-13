@@ -176,6 +176,9 @@ def _status_badge(value: str) -> str:
         "pending_validation": "Em validação",
         "qualified": "Qualificada",
         "disqualified": "Desqualificada",
+        "running": "Rodando",
+        "success": "Sucesso",
+        "failed": "Falhou",
     }
     label = labels.get(status, status or "—")
     klass = status if status in labels else "neutral"
@@ -534,7 +537,9 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
           .admin-badge--active {{border-color:rgba(84,224,173,.22);background:rgba(84,224,173,.1);color:#96f3c9}}
           .admin-badge--pending {{border-color:rgba(255,191,122,.24);background:rgba(255,191,122,.1);color:#ffd2a3}}
           .admin-badge--pending_validation {{border-color:rgba(128,203,255,.24);background:rgba(128,203,255,.1);color:#b8ddff}}
-          .admin-badge--blocked,.admin-badge--rejected,.admin-badge--disqualified {{border-color:rgba(255,141,141,.24);background:rgba(255,141,141,.1);color:#ffb7b7}}
+          .admin-badge--success {{border-color:rgba(84,224,173,.22);background:rgba(84,224,173,.1);color:#96f3c9}}
+          .admin-badge--running {{border-color:rgba(128,203,255,.24);background:rgba(128,203,255,.1);color:#b8ddff}}
+          .admin-badge--blocked,.admin-badge--rejected,.admin-badge--disqualified,.admin-badge--failed {{border-color:rgba(255,141,141,.24);background:rgba(255,141,141,.1);color:#ffb7b7}}
           .admin-badge--disabled,.admin-badge--neutral {{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.055);color:#aeb7c4}}
           .admin-pager {{
             display:flex;
@@ -2038,6 +2043,63 @@ def _referral_counts() -> dict[str, int]:
     return {"total": total, "pending": pending, "qualified": qualified, "coupons": coupons, "active_badges": active_badges}
 
 
+def _referral_job_runs(limit: int = 5) -> list[models.ReferralJobRun]:
+    with get_session() as session:
+        return (
+            session.execute(
+                select(models.ReferralJobRun)
+                .where(models.ReferralJobRun.job_name == "referral_qualification")
+                .order_by(models.ReferralJobRun.started_at.desc())
+                .limit(max(1, min(limit, 20)))
+            )
+            .scalars()
+            .all()
+        )
+
+
+def _referral_job_runs_html(runs: list[models.ReferralJobRun]) -> str:
+    if not runs:
+        return """
+          <article>
+            <h4>Rotina diária</h4>
+            <p class='admin-compact'>Nenhuma execução registrada ainda. Após o timer rodar, o histórico aparecerá aqui.</p>
+          </article>
+        """
+    latest = runs[0]
+    latest_finished = _dt(latest.finished_at) if latest.finished_at else "Em andamento"
+    rows = []
+    for run in runs:
+        rows.append(
+            "<tr>"
+            f"<td>{_status_badge(run.status or '')}</td>"
+            f"<td>{html.escape(run.trigger or '—')}</td>"
+            f"<td>{_dt(run.started_at)}</td>"
+            f"<td>{_dt(run.finished_at) if run.finished_at else '—'}</td>"
+            f"<td>{int(run.processed_count or 0)}</td>"
+            f"<td>{int(run.qualified_count or 0)}</td>"
+            f"<td>{int(run.disqualified_count or 0)}</td>"
+            f"<td>{html.escape(run.error_message or '—')}</td>"
+            "</tr>"
+        )
+    return f"""
+      <section class='admin-summary'>
+        <article><header>Última rotina</header><strong>{_status_badge(latest.status or '')}</strong></article>
+        <article><header>Finalizada em</header><strong>{html.escape(latest_finished)}</strong></article>
+        <article><header>Processadas</header><strong>{int(latest.processed_count or 0)}</strong></article>
+        <article><header>Qualificadas</header><strong>{int(latest.qualified_count or 0)}</strong></article>
+        <article><header>Desqualificadas</header><strong>{int(latest.disqualified_count or 0)}</strong></article>
+      </section>
+      <article>
+        <h4>Histórico da rotina diária</h4>
+        <p class='admin-compact'>Últimas execuções do processamento de indicações pendentes. Se aparecer falha aqui, confira o erro e o journal do serviço.</p>
+        <table role='grid'>
+          <thead><tr><th>Status</th><th>Origem</th><th>Início</th><th>Fim</th><th>Proc.</th><th>Qual.</th><th>Desq.</th><th>Erro</th></tr></thead>
+          <tbody>{''.join(rows)}</tbody>
+        </table>
+      </article>
+    """
+
+
 @app.get("/referrals", response_class=HTMLResponse)
 def list_referrals(request: Request, status: str = "", q: str = "", page: int = 1):
     try:
@@ -2045,6 +2107,7 @@ def list_referrals(request: Request, status: str = "", q: str = "", page: int = 
     except HTTPException:
         return _redirect_login("/referrals")
     counts = _referral_counts()
+    job_runs = _referral_job_runs()
     page_result = _referrals_page(status=status, q=q, page=page)
     rows = []
     for ref in page_result.items:
@@ -2076,6 +2139,7 @@ def list_referrals(request: Request, status: str = "", q: str = "", page: int = 
         <article><header>Selos ativos</header><strong>{counts['active_badges']}</strong></article>
         <article><header>Cupons ativos</header><strong>{counts['coupons']}</strong></article>
       </section>
+      {_referral_job_runs_html(job_runs)}
       <article>
         <h3>Indicações e recompensas</h3>
         <p class='admin-compact'>Acompanhe códigos usados na ativação, benefícios concedidos e cupons da campanha Pix da Virada.</p>

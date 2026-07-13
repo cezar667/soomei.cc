@@ -323,3 +323,22 @@ class RaffleEntry(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
     cancelled_reason = Column(Text, nullable=True)
+
+
+class ReferralJobRun(Base):
+    __tablename__ = "referral_job_runs"
+    __table_args__ = (
+        Index("idx_referral_job_runs_job_started", "job_name", "started_at"),
+        Index("idx_referral_job_runs_status_started", "status", "started_at"),
+    )
+
+    id = Column(String(36), primary_key=True)
+    job_name = Column(String(80), nullable=False)
+    trigger = Column(String(40), nullable=False, default="systemd")
+    status = Column(String(30), nullable=False)
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    processed_count = Column(Integer, nullable=False, default=0)
+    qualified_count = Column(Integer, nullable=False, default=0)
+    disqualified_count = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)

@@ -11,6 +11,64 @@ from api.referrals.enums import BadgeType, CampaignStatus, ReferralCodeStatus, R
 
 
 class ReferralRepository:
+    def start_job_run(self, *, job_name: str = "referral_qualification", trigger: str = "systemd") -> models.ReferralJobRun:
+        now = datetime.now(timezone.utc)
+        job_run = models.ReferralJobRun(
+            id=_new_id(),
+            job_name=job_name,
+            trigger=trigger,
+            status="running",
+            started_at=now,
+        )
+        with get_session() as session:
+            session.add(job_run)
+            session.commit()
+            session.refresh(job_run)
+            return job_run
+
+    def finish_job_run(self, job_run_id: str, *, result: dict[str, int]) -> models.ReferralJobRun | None:
+        now = datetime.now(timezone.utc)
+        with get_session() as session:
+            job_run = session.get(models.ReferralJobRun, job_run_id)
+            if not job_run:
+                return None
+            job_run.status = "success"
+            job_run.finished_at = now
+            job_run.processed_count = int(result.get("processed", 0) or 0)
+            job_run.qualified_count = int(result.get("qualified", 0) or 0)
+            job_run.disqualified_count = int(result.get("disqualified", 0) or 0)
+            job_run.error_message = None
+            session.commit()
+            session.refresh(job_run)
+            return job_run
+
+    def fail_job_run(self, job_run_id: str, *, error_message: str) -> models.ReferralJobRun | None:
+        now = datetime.now(timezone.utc)
+        with get_session() as session:
+            job_run = session.get(models.ReferralJobRun, job_run_id)
+            if not job_run:
+                return None
+            job_run.status = "failed"
+            job_run.finished_at = now
+            job_run.error_message = (error_message or "Erro desconhecido")[:2000]
+            session.commit()
+            session.refresh(job_run)
+            return job_run
+
+    def recent_job_runs(self, *, job_name: str = "referral_qualification", limit: int = 5) -> list[models.ReferralJobRun]:
+        safe_limit = max(1, min(int(limit or 5), 20))
+        with get_session() as session:
+            return (
+                session.execute(
+                    select(models.ReferralJobRun)
+                    .where(models.ReferralJobRun.job_name == job_name)
+                    .order_by(models.ReferralJobRun.started_at.desc())
+                    .limit(safe_limit)
+                )
+                .scalars()
+                .all()
+            )
+
     def get_code(self, code: str) -> models.ReferralCode | None:
         with get_session() as session:
             stmt = select(models.ReferralCode).where(func.upper(models.ReferralCode.code) == code.upper()).limit(1)
