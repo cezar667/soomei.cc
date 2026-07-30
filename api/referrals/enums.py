@@ -17,6 +17,10 @@ class ReferralStatus(StrEnum):
 
 class BadgeType(StrEnum):
     SOOMEI_CONNECTOR = "soomei_connector"
+    FOUNDING_MEMBER = "founding_member"
+    COMMUNITY_AMBASSADOR = "community_ambassador"
+    COMMUNITY_MENTOR = "community_mentor"
+    VERIFIED_PARTNER = "verified_partner"
 
 
 class RewardType(StrEnum):

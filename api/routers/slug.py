@@ -20,6 +20,12 @@ from api.repositories.sql_repository import SQLRepository
 
 router = APIRouter(prefix="/slug", tags=["slug"])
 _sql_repo = SQLRepository()
+BRAND_FOOTER = lambda html_doc: html_doc
+
+
+def set_brand_footer(func) -> None:
+    global BRAND_FOOTER
+    BRAND_FOOTER = func or (lambda html_doc: html_doc)
 
 
 def _get_slug_service(request: Request) -> SlugService:
@@ -64,7 +70,7 @@ def _slug_message_response(request: Request, *, heading: str, message: str, stat
       </main>
     </body></html>
     """
-    return HTMLResponse(html_doc, status_code=status_code)
+    return HTMLResponse(BRAND_FOOTER(html_doc), status_code=status_code)
 
 
 def _redirect_to_card(card: dict, uid: str) -> RedirectResponse:

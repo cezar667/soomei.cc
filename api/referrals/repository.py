@@ -149,6 +149,23 @@ class ReferralRepository:
         except SQLAlchemyError:
             return None
 
+    def active_badges(self, card_uid: str, *, now: datetime | None = None) -> list[models.ProfileBadge]:
+        current = now or datetime.now(timezone.utc)
+        try:
+            with get_session() as session:
+                stmt = (
+                    select(models.ProfileBadge)
+                    .where(
+                        models.ProfileBadge.card_uid == card_uid,
+                        models.ProfileBadge.starts_at <= current,
+                        models.ProfileBadge.expires_at > current,
+                    )
+                    .order_by(models.ProfileBadge.created_at.asc(), models.ProfileBadge.badge_type.asc())
+                )
+                return list(session.execute(stmt).scalars().all())
+        except SQLAlchemyError:
+            return []
+
     def ensure_default_campaign(self) -> models.ReferralCampaign:
         now = datetime.now(timezone.utc)
         with get_session() as session:

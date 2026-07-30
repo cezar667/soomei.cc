@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Página não encontrada | Soomei{% endblock %}
+{% block content %}
+  <section class="status-shell not-found-shell">
+    <div class="status-card carbon">
+      <div class="status-glow" aria-hidden="true"></div>
+      <div class="status-brand">
+        <img src="/static/img/soomei_logo.png" alt="Soomei" class="status-logo">
+        <span>Soomei</span>
+      </div>
+      <div class="status-body">
+        <p class="status-kicker">Erro 404</p>
+        <h1>Essa página não existe</h1>
+        <p class="status-intro">Talvez o endereço tenha sido digitado incorretamente ou a página tenha mudado de lugar.</p>
+        <div class="status-actions">
+          <a class="btn primary" href="/">Ir para o início</a>
+          <a class="btn ghost" href="/login">Entrar</a>
+        </div>
+        <p class="status-note">Confira o endereço e tente novamente.</p>
+      </div>
+    </div>
+  </section>
+{% endblock %}

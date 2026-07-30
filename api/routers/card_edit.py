@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from api.core import csrf
 from api.core.config import get_settings
 from api.core.security import hash_password, verify_password
+from api.domain.badges import choose_badge_type, get_badge_definition
 from api.services.card_service import find_card_by_slug
 from api.services.card_display import (
     FEATURED_ICON_OPTIONS,
@@ -258,6 +259,43 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
     show_grev = bool(prof.get("google_review_show", True))
     featured_enabled = bool(prof.get("featured_enabled", True))
     spotlight_badge_show = bool(prof.get("spotlight_badge_show", True))
+    try:
+        active_profile_badges = _referral_service.repository.active_badges(uid)
+    except Exception:
+        active_profile_badges = []
+    active_badge_types = [
+        badge.badge_type
+        for badge in active_profile_badges
+        if get_badge_definition(badge.badge_type)
+    ]
+    selected_badge_type = choose_badge_type(
+        active_badge_types,
+        prof.get("selected_badge_type"),
+    )
+    badge_selector_html = ""
+    if len(active_badge_types) > 1:
+        badge_options: list[str] = []
+        for badge_type in active_badge_types:
+            definition = get_badge_definition(badge_type)
+            if not definition:
+                continue
+            checked = " checked" if badge_type == selected_badge_type else ""
+            badge_options.append(
+                "<label class='badge-choice'>"
+                f"<input type='radio' name='selected_badge_type' value='{html.escape(badge_type)}'{checked}>"
+                f"<span class='badge-choice__preview badge-choice__preview--{html.escape(definition.css_modifier)}' aria-hidden='true'>★</span>"
+                "<span class='badge-choice__copy'>"
+                f"<strong>{html.escape(definition.label)}</strong>"
+                f"<small>{html.escape(definition.title)}</small>"
+                "</span></label>"
+            )
+        badge_selector_html = (
+            "<div class='badge-selector'>"
+            "<div class='badge-selector__head'><strong>Selo apresentado no cartão</strong>"
+            "<span>Escolha uma das distinções disponíveis no seu perfil.</span></div>"
+            f"<div class='badge-choice-grid'>{''.join(badge_options)}</div>"
+            "</div>"
+        )
     featured_icon = normalize_featured_icon(prof.get("featured_icon"))
     featured_icon_picker_html = _featured_icon_picker_options(featured_icon)
     # Cor do tema do cartão (hex #RRGGBB)
@@ -780,7 +818,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             </div>
             <div class='referral-grid'>
               <div class='referral-code-card'>
-                <span>Seu código</span>
+                <div class='referral-code-label'>
+                  <span>Seu código</span>
+                  <button type='button' class='referral-info-btn' id='referralRulesOpen' aria-label='Ver regras de indicação' aria-haspopup='dialog' aria-controls='referralRulesBackdrop'>i</button>
+                </div>
                 <strong id='referralCode'>{referral_code}</strong>
                 <div class='referral-actions'>
                   <button type='button' class='btn ghost' id='copyReferralCode'>Copiar código</button>
@@ -812,7 +853,29 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
                 <span class='muted' data-switch-label style='font-size:12px'>{'Exibindo' if spotlight_badge_show else 'Oculto'}</span>
               </label>
             </div>
+            {badge_selector_html}
             <p class='field-hint'>Cada indicação entra em validação por 30 dias. Se a assinatura do indicado permanecer ativa, você recebe +30 dias de Destaque Soomei. Os cupons Pix da Virada são liberados para os dois perfis quando a indicação qualificar.</p>
+            <div class='modal-backdrop referral-rules-backdrop' id='referralRulesBackdrop' role='dialog' aria-modal='true' aria-labelledby='referralRulesTitle' aria-hidden='true' style='display:none'>
+              <div class='modal referral-rules-modal' role='document'>
+                <header>
+                  <div>
+                    <p class='section-kicker'>Programa de indicações</p>
+                    <h2 id='referralRulesTitle'>Como sua indicação funciona</h2>
+                  </div>
+                  <button class='close' type='button' id='referralRulesClose' aria-label='Fechar regras de indicação' title='Fechar'>&#10005;</button>
+                </header>
+                <ol class='referral-rules-list'>
+                  <li><span>1</span><div><strong>Compartilhe seu código</strong><p>O novo associado deve informá-lo durante a ativação do próprio cartão.</p></div></li>
+                  <li><span>2</span><div><strong>A indicação entra em validação</strong><p>A assinatura do indicado precisa permanecer ativa durante 30 dias.</p></div></li>
+                  <li><span>3</span><div><strong>Receba os benefícios</strong><p>Após a qualificação, você recebe +30 dias de Destaque Soomei e 1 cupom da campanha Pix da Virada. O indicado também recebe 1 cupom.</p></div></li>
+                </ol>
+                <div class='referral-rules-notes'>
+                  <p><strong>Importante:</strong> cancelamento, reembolso, inadimplência, chargeback ou perda de acesso durante a validação desqualificam a indicação.</p>
+                  <p>Não é permitido usar o próprio código. Cada cartão pode registrar apenas uma indicação, e um código inválido não impede a ativação.</p>
+                </div>
+                <button type='button' class='btn primary referral-rules-understood' id='referralRulesUnderstood'>Entendi</button>
+              </div>
+            </div>
             <div class='modal-backdrop referral-share-backdrop' id='referralShareBackdrop' role='dialog' aria-modal='true' aria-hidden='true' style='display:none'>
               <div class='modal referral-share-modal'>
                 <header>
@@ -1122,6 +1185,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           var referralCodeEl = document.getElementById('referralCode');
           var copyReferralCode = document.getElementById('copyReferralCode');
           var shareReferralInvite = document.getElementById('shareReferralInvite');
+          var referralRulesOpen = document.getElementById('referralRulesOpen');
+          var referralRulesBackdrop = document.getElementById('referralRulesBackdrop');
+          var referralRulesClose = document.getElementById('referralRulesClose');
+          var referralRulesUnderstood = document.getElementById('referralRulesUnderstood');
           var referralShareBackdrop = document.getElementById('referralShareBackdrop');
           var referralSharePhone = document.getElementById('referralSharePhone');
           var referralShareSend = document.getElementById('referralShareSend');
@@ -1140,6 +1207,31 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
           }}
           if(copyReferralCode && referralCodeEl){{
             copyReferralCode.addEventListener('click', function(){{ copyText(referralCodeEl.textContent || '', copyReferralCode, 'Código copiado'); }});
+          }}
+          function openReferralRulesModal(){{
+            if(!referralRulesBackdrop) return;
+            referralRulesBackdrop.style.display = 'flex';
+            referralRulesBackdrop.classList.add('show');
+            referralRulesBackdrop.setAttribute('aria-hidden','false');
+            document.body.classList.add('spotlight-modal-open');
+            if(referralRulesClose) referralRulesClose.focus();
+          }}
+          function closeReferralRulesModal(){{
+            if(!referralRulesBackdrop) return;
+            if(referralRulesBackdrop.getAttribute('aria-hidden') === 'true') return;
+            referralRulesBackdrop.classList.remove('show');
+            referralRulesBackdrop.style.display = 'none';
+            referralRulesBackdrop.setAttribute('aria-hidden','true');
+            document.body.classList.remove('spotlight-modal-open');
+            if(referralRulesOpen) referralRulesOpen.focus();
+          }}
+          if(referralRulesOpen) referralRulesOpen.addEventListener('click', function(ev){{ ev.preventDefault(); openReferralRulesModal(); }});
+          if(referralRulesClose) referralRulesClose.addEventListener('click', function(ev){{ ev.preventDefault(); closeReferralRulesModal(); }});
+          if(referralRulesUnderstood) referralRulesUnderstood.addEventListener('click', function(ev){{ ev.preventDefault(); closeReferralRulesModal(); }});
+          if(referralRulesBackdrop){{
+            referralRulesBackdrop.addEventListener('click', function(ev){{
+              if(ev.target === referralRulesBackdrop) closeReferralRulesModal();
+            }});
           }}
           function isMobile(){{
             return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
@@ -1209,7 +1301,10 @@ def edit_card(slug: str, request: Request, saved: str = "", error: str = "", pwd
             }});
           }}
           document.addEventListener('keydown', function(ev){{
-            if(ev.key === 'Escape') closeReferralShareModal();
+            if(ev.key === 'Escape'){{
+              closeReferralShareModal();
+              closeReferralRulesModal();
+            }}
           }});
           var sectionRegistry = {{}};
           var guideButtons = Array.prototype.slice.call(document.querySelectorAll('[data-edit-jump]'));
@@ -2195,6 +2290,7 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
                 google_review_url: str = Form(""),
                 google_review_show: str = Form(""),
                 spotlight_badge_show: str = Form(""),
+                selected_badge_type: str = Form(""),
                 featured_label: str = Form(""),
                 featured_url: str = Form(""),
                featured_icon: str = Form("calendar"),
@@ -2340,6 +2436,18 @@ async def save_edit(slug: str, request: Request, full_name: str = Form(""), titl
         "cover_show": cover_show_flag,
         "featured_color": _normalize_hex_color(featured_color, "#FFB473"),
     })
+    requested_badge_type = selected_badge_type.strip() if isinstance(selected_badge_type, str) else ""
+    if requested_badge_type:
+        try:
+            allowed_badge_types = {
+                badge.badge_type
+                for badge in _referral_service.repository.active_badges(uid)
+                if get_badge_definition(badge.badge_type)
+            }
+        except Exception:
+            allowed_badge_types = set()
+        if requested_badge_type in allowed_badge_types:
+            prof["selected_badge_type"] = requested_badge_type
     feat_label_value = (featured_label or "").strip()
     feat_url_value = (featured_url or "").strip()
     feat_enabled_flag = bool(featured_enabled)

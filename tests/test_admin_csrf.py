@@ -42,6 +42,8 @@ def test_admin_login_page_uses_premium_layout():
     assert "Soomei Admin" in body
     assert "Entrar no painel" in body
     assert "admin-brand__mark" in body
+    assert 'href="https://soomei.com.br"' in body
+    assert "/static/brand/soomei-logo-horizontal-white.svg" in body
 
 
 def test_admin_layout_renders_navigation_and_active_link():
@@ -56,4 +58,7 @@ def test_admin_layout_renders_navigation_and_active_link():
     assert "admin-brand" in body
     assert "admin-nav-link is-active" in body
     assert "Cartões" in body
+    assert "Selos" in body
+    assert "href='/badges'" in body
     assert "admin-logout-btn" in body
+    assert 'href="https://soomei.com.br"' in body

@@ -10,6 +10,7 @@ import qrcode
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from api.core import csrf
+from api.domain.badges import choose_badge_type, get_badge_definition
 from api.services.card_service import find_card_by_slug
 from api.services.card_display import (
     DEFAULT_AVATAR,
@@ -63,6 +64,46 @@ LINK_TYPE_VALUES = {
 }
 _sql_repo = SQLRepository()
 _referral_service = ReferralService()
+
+
+def _render_profile_badge(badge_type: str) -> tuple[str, str]:
+    definition = get_badge_definition(badge_type)
+    if not definition:
+        return "", ""
+    modifier = html.escape(definition.css_modifier)
+    star = (
+        "<span class='soomei-spotlight__star' aria-hidden='true'>★</span>"
+        if badge_type == "founding_member"
+        else ""
+    )
+    badge_html = (
+        f"<button type='button' class='soomei-spotlight soomei-spotlight--{modifier} "
+        "soomei-spotlight--floating' id='soomeiSpotlightBtn' "
+        f"title='{html.escape(definition.label)}' aria-haspopup='dialog' "
+        "aria-controls='soomeiSpotlightModal'>"
+        "<span class='soomei-spotlight__mark' aria-hidden='true'>"
+        f"{star}<img src='/static/img/logo_single.png' alt=''></span>"
+        "<span class='soomei-spotlight__copy'>"
+        f"<span>{html.escape(definition.eyebrow)}</span>"
+        f"<small>{html.escape(definition.brand)}</small></span>"
+        "</button>"
+    )
+    modal_html = (
+        "<div class='soomei-spotlight-modal is-hidden' id='soomeiSpotlightModal' "
+        "role='dialog' aria-modal='true' aria-labelledby='soomeiSpotlightTitle'>"
+        "<div class='soomei-spotlight-modal__backdrop' data-spotlight-close></div>"
+        f"<div class='soomei-spotlight-modal__card soomei-spotlight-modal__card--{modifier}' role='document'>"
+        "<button type='button' class='soomei-spotlight-modal__close' data-spotlight-close "
+        "aria-label='Fechar'>×</button>"
+        "<div class='soomei-spotlight-modal__brand'>"
+        f"<img src='/static/img/logo_single.png' alt='' aria-hidden='true'><span>{html.escape(definition.label)}</span>"
+        "</div>"
+        f"<h2 id='soomeiSpotlightTitle'>{html.escape(definition.title)}</h2>"
+        f"<p>{html.escape(definition.description)}</p>"
+        f"<p class='soomei-spotlight-modal__note'>{html.escape(definition.note)}</p>"
+        "</div></div>"
+    )
+    return badge_html, modal_html
 
 
 def _normalize_link_type(value: object) -> str:
@@ -246,28 +287,15 @@ def visitor_public_card(
     spotlight_badge_show = bool(prof.get("spotlight_badge_show", True))
     if card_uid and spotlight_badge_show:
         try:
-            active_badge = _referral_service.repository.active_badge(str(card_uid))
+            active_badges = _referral_service.repository.active_badges(str(card_uid))
         except Exception:
-            active_badge = None
-        if active_badge:
-            connector_badge = (
-                "<button type='button' class='soomei-spotlight soomei-spotlight--floating' id='soomeiSpotlightBtn' title='Entenda o Destaque Soomei' aria-haspopup='dialog' aria-controls='soomeiSpotlightModal'>"
-                "<span class='soomei-spotlight__mark' aria-hidden='true'><img src='/static/img/logo_single.png' alt=''></span>"
-                "<span class='soomei-spotlight__copy'><span>Destaque</span><small>Soomei</small></span>"
-                "</button>"
-            )
-            connector_modal = (
-                "<div class='soomei-spotlight-modal is-hidden' id='soomeiSpotlightModal' role='dialog' aria-modal='true' aria-labelledby='soomeiSpotlightTitle'>"
-                "<div class='soomei-spotlight-modal__backdrop' data-spotlight-close></div>"
-                "<div class='soomei-spotlight-modal__card' role='document'>"
-                "<button type='button' class='soomei-spotlight-modal__close' data-spotlight-close aria-label='Fechar'>×</button>"
-                "<div class='soomei-spotlight-modal__brand'><img src='/static/img/logo_single.png' alt='' aria-hidden='true'><span>Soomei</span></div>"
-                "<h2 id='soomeiSpotlightTitle'>Perfil em Destaque Soomei</h2>"
-                "<p>Este cartão recebeu uma chancela temporária de visibilidade da Soomei por participação, indicação qualificada ou benefício ativo na rede.</p>"
-                "<p class='soomei-spotlight-modal__note'>Na prática, é um sinal de presença ativa: a pessoa está movimentando conexões, oportunidades e relacionamento dentro do ecossistema Soomei.</p>"
-                "</div>"
-                "</div>"
-            )
+            active_badges = []
+        selected_type = choose_badge_type(
+            [badge.badge_type for badge in active_badges],
+            prof.get("selected_badge_type"),
+        )
+        if selected_type:
+            connector_badge, connector_modal = _render_profile_badge(selected_type)
     links_list = prof.get("links", []) or []
     def platform(label: str, href: str, link_type: str = "") -> str:
         explicit = _normalize_link_type(link_type)

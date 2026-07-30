@@ -11,12 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
+    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
     Response,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from api.core.config import get_settings, validate_membership_webhook_settings
 from api.core.http_security import SecurityHeadersMiddleware
 from api.routers import auth as auth_router
@@ -110,6 +112,24 @@ slug_service = SlugService()
 app.state.slug_service = slug_service
 
 
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    accept = (request.headers.get("accept") or "").lower()
+    if exc.status_code == 404 and "text/html" in accept:
+        response = templates.TemplateResponse(
+            request,
+            "not_found.html",
+            status_code=404,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    return JSONResponse(
+        {"detail": exc.detail},
+        status_code=exc.status_code,
+        headers=exc.headers,
+    )
+
+
 @app.get("/favicon.ico")
 def favicon():
     ico_path = os.path.join(WEB, "favicon.ico")
@@ -123,8 +143,8 @@ def favicon():
 def _brand_footer_inject(html_doc: str) -> str:
     snippet = (
         "\n    <div class='edit-footer soomei-footer-mark'>\n"
-        "        <a class='soomei-watermark' href='https://soomei.cc' target='_blank' rel='noopener' aria-label='Soomei'>\n"
-        "          <span class='soomei-watermark__brand'>Soomei</span>\n"
+        "        <a class='soomei-watermark' href='https://soomei.com.br' target='_blank' rel='noopener' aria-label='Soomei'>\n"
+        "          <img class='soomei-watermark__logo' src='/static/brand/soomei-logo-horizontal-white.svg' alt='Soomei'>\n"
         "          <span class='soomei-watermark__text'>cartão digital</span>\n"
         "        </a>\n"
         "        <span class='soomei-footer-separator' aria-hidden='true'></span>\n"
@@ -149,6 +169,7 @@ app.include_router(cards_router.router)
 
 cards_router.set_brand_footer(_brand_footer_inject)
 card_edit_router.set_brand_footer(_brand_footer_inject)
+slug_router.set_brand_footer(_brand_footer_inject)
 cards_router.configure_environment(
     settings=settings,
     public_base=PUBLIC_BASE,
