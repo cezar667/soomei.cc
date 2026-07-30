@@ -212,7 +212,7 @@ def test_admin_can_grant_connector_badge_in_prod(admin_webhook_db, monkeypatch):
     detail = admin_app.card_details("uid-ref-dev", _request("/cards/uid-ref-dev"))
     body = detail.body.decode("utf-8")
     assert "Ativar Destaque Soomei" in body
-    assert "/cards/uid-ref-dev/connector-badge" in body
+    assert "/cards/uid-ref-dev/badges" in body
 
     response = admin_app.grant_connector_badge(
         "uid-ref-dev",
@@ -227,3 +227,73 @@ def test_admin_can_grant_connector_badge_in_prod(admin_webhook_db, monkeypatch):
     assert badge.badge_type == "soomei_connector"
     assert badge.label == "Destaque Soomei"
     assert badge.source == "admin_manual"
+
+    founder_response = admin_app.grant_profile_badge(
+        "uid-ref-dev",
+        _request("/cards/uid-ref-dev/badges"),
+        badge_type="founding_member",
+        days=36500,
+        csrf_token="csrf-admin",
+    )
+    assert founder_response.status_code == 303
+    with get_session() as session:
+        badges = session.execute(
+            select(models.ProfileBadge).where(models.ProfileBadge.card_uid == "uid-ref-dev")
+        ).scalars().all()
+    assert {badge.badge_type for badge in badges} == {"soomei_connector", "founding_member"}
+    assert any(badge.label == "Associado Fundador" for badge in badges)
+
+    catalog = admin_app.badges_catalog(_request("/badges"))
+    catalog_body = catalog.body.decode("utf-8")
+    assert "Selos de perfil" in catalog_body
+    assert "Associado Fundador" in catalog_body
+    assert "Destaque Soomei" in catalog_body
+    assert "uid-ref-dev" in catalog_body
+
+
+def test_admin_can_enable_and_display_badge_from_user_profile(admin_webhook_db, monkeypatch):
+    _allow_admin(monkeypatch)
+    monkeypatch.setattr(admin_app, "_csrf_protect", lambda _request, _token: None)
+    with get_session() as session:
+        session.add(models.User(email="fundador@example.com", password_hash="hash"))
+        session.add(
+            models.Card(
+                uid="uid-founder",
+                pin="123456",
+                status="active",
+                vanity="fundador",
+                owner_email="fundador@example.com",
+            )
+        )
+        session.commit()
+
+    detail = admin_app.user_details("fundador@example.com", _request("/users/fundador@example.com"))
+    body = detail.body.decode("utf-8")
+    assert "Habilitar selo no perfil" in body
+    assert "Associado Fundador" in body
+    assert "uid-founder" in body
+    assert "Exibir este selo no perfil público" in body
+
+    response = admin_app.grant_user_profile_badge(
+        "fundador@example.com",
+        _request("/users/fundador@example.com/badges"),
+        card_uid="uid-founder",
+        badge_type="founding_member",
+        days=36500,
+        display_on_profile="1",
+        csrf_token="csrf-admin",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/users/fundador%40example.com?ok=badge"
+    with get_session() as session:
+        badge = session.execute(
+            select(models.ProfileBadge).where(
+                models.ProfileBadge.card_uid == "uid-founder",
+                models.ProfileBadge.badge_type == "founding_member",
+            )
+        ).scalar_one()
+    assert badge.label == "Associado Fundador"
+    profile = admin_app.repo.get_profile("fundador@example.com")
+    assert profile["selected_badge_type"] == "founding_member"
+    assert profile["spotlight_badge_show"] is True

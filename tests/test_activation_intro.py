@@ -17,15 +17,18 @@ def test_activated_page_renders_intro_video_and_delayed_actions():
     assert "/static/intro/intro-soomei-activated.MOV" in body
     assert "poster='/static/img/soomei_logo.png'" in body
     assert "id='activationVideo'" in body
+    assert "id='activationLoader'" in body
+    assert "/static/img/soomei_loading.gif" in body
     assert "id='activationActions'" in body
     assert "Configurar cartão" in body
     assert "href='/edit/cezar'" in body
     assert "Visualizar cartão" in body
     assert "href='/cezar'" in body
     assert "video.addEventListener('ended', reveal)" in body
+    assert "loader.classList.add('is-hidden')" in body
     assert "}, 7000);" in body
     assert "activation-footer" in body
-    assert "soomei-watermark__brand" in body
+    assert "soomei-watermark__logo" in body
     assert "cartão digital" in body
 
 

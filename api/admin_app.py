@@ -6,10 +6,11 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, or_, select
 
 from api.core import csrf
@@ -20,11 +21,14 @@ from api.core.security import hash_password, verify_password
 from api.db import models
 from api.db.session import get_session
 from api.domain.slugs import is_valid_slug
+from api.domain.badges import BADGE_CATALOG, get_badge_definition
 from api.integrations.membership_platform.service import MembershipWebhookService
 from api.repositories.sql_repository import PageResult, SQLRepository
 
 
 app = FastAPI(title="Soomei Admin API")
+WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
+app.mount("/static", StaticFiles(directory=WEB), name="static")
 settings = get_settings()
 repo = SQLRepository()
 app.add_middleware(SecurityHeadersMiddleware, enforce_hsts=settings.app_env == "prod")
@@ -273,6 +277,7 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
         "<div class='admin-nav__links'>"
         f"{_nav_link('/', 'Dashboard', current_path)}"
         f"{_nav_link('/cards', 'Cartões', current_path)}"
+        f"{_nav_link('/badges', 'Selos', current_path)}"
         f"{_nav_link('/webhooks', 'Webhooks', current_path)}"
         f"{_nav_link('/referrals', 'Indicações', current_path)}"
         f"{_nav_link('/domains', 'Domínios', current_path)}"
@@ -726,6 +731,11 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
             font-size:12px;
             text-align:center;
           }}
+          .admin-soomei-footer {{display:flex;justify-content:center;margin:28px auto 0}}
+          .admin-soomei-footer .soomei-watermark {{display:inline-flex;align-items:center;gap:10px;color:#b9ad98;text-decoration:none;opacity:.82;transition:opacity .18s ease,color .18s ease,transform .18s ease}}
+          .admin-soomei-footer .soomei-watermark:hover {{opacity:1;color:#f4efe6;transform:translateY(-1px)}}
+          .admin-soomei-footer .soomei-watermark__logo {{display:block;width:88px;height:auto}}
+          .admin-soomei-footer .soomei-watermark__text {{padding-left:10px;border-left:1px solid rgba(216,189,143,.32);font-size:11px;color:#b9ad98;letter-spacing:.08em;text-transform:uppercase}}
           @media (max-width:760px) {{
             .admin-shell {{padding:14px 12px 38px}}
             .admin-nav {{position:relative;top:auto;align-items:flex-start;border-radius:22px}}
@@ -744,6 +754,12 @@ def _layout(request: Request | None, title: str, body: str, *, csrf_token: str =
         <main class="container admin-shell">
           {nav_html}
           {body}
+          <footer class="admin-soomei-footer">
+            <a class="soomei-watermark" href="https://soomei.com.br" target="_blank" rel="noopener" aria-label="Soomei">
+              <img class="soomei-watermark__logo" src="/static/brand/soomei-logo-horizontal-white.svg" alt="Soomei">
+              <span class="soomei-watermark__text">cartão digital</span>
+            </a>
+          </footer>
         </main>
         </body></html>
         """
@@ -1239,33 +1255,58 @@ def card_details(uid: str, request: Request):
     badge_tools = ""
     now = datetime.now(timezone.utc)
     with get_session() as session:
-        active_badge = session.execute(
+        active_badges = list(
+            session.execute(
             select(models.ProfileBadge)
             .where(
                 models.ProfileBadge.card_uid == uid,
-                models.ProfileBadge.badge_type == "soomei_connector",
                 models.ProfileBadge.expires_at > now,
             )
-            .limit(1)
-        ).scalar_one_or_none()
+            .order_by(models.ProfileBadge.expires_at.desc())
+            ).scalars().all()
+        )
+    active_badge_rows = "".join(
+        f"<li><strong>{html.escape(badge.label)}</strong> "
+        f"<small>({html.escape(badge.badge_type)}) · até {_dt(badge.expires_at)}</small></li>"
+        for badge in active_badges
+    )
     badge_status = (
-        f"Ativo até {_dt(active_badge.expires_at)}"
-        if active_badge
-        else "Sem selo ativo"
+        f"<ul>{active_badge_rows}</ul>"
+        if active_badge_rows
+        else "<p>Sem selos ativos.</p>"
+    )
+    badge_type_options = "".join(
+        f"<option value='{html.escape(definition.type)}' "
+        f"data-default-days='{definition.default_days}'>{html.escape(definition.label)}</option>"
+        for definition in BADGE_CATALOG.values()
     )
     csrf_token = _csrf_value(request)
     badge_tools = f"""
       <article>
-        <h4>Ativar Destaque Soomei</h4>
-        <p class='admin-compact'>Ferramenta administrativa para conceder ou renovar manualmente o selo Destaque Soomei no perfil público deste cartão.</p>
-        <p><strong>Status atual:</strong> {html.escape(badge_status)}</p>
-        <form method='post' action='/cards/{html.escape(uid)}/connector-badge' class='grid'>
+        <h4>Gerenciar selos</h4>
+        <p class='admin-compact'>Conceda ou renove distinções do perfil, incluindo Ativar Destaque Soomei e Associado Fundador.</p>
+        <div><strong>Selos ativos:</strong> {badge_status}</div>
+        <form method='post' action='/cards/{html.escape(uid)}/badges' class='grid'>
           <input type='hidden' name='csrf_token' value='{html.escape(csrf_token)}'>
-          <label>Validade em dias
-            <input name='days' type='number' min='1' max='365' value='30'>
+          <label>Tipo de selo
+            <select name='badge_type' id='adminBadgeType'>{badge_type_options}</select>
           </label>
-          <button type='submit'>Ativar selo</button>
+          <label>Validade em dias
+            <input name='days' id='adminBadgeDays' type='number' min='1' max='36500' value='30'>
+          </label>
+          <button type='submit'>Conceder ou renovar</button>
         </form>
+        <script>
+        (function(){{
+          var type = document.getElementById('adminBadgeType');
+          var days = document.getElementById('adminBadgeDays');
+          if (!type || !days) return;
+          type.addEventListener('change', function(){{
+            var option = type.options[type.selectedIndex];
+            days.value = option.getAttribute('data-default-days') || '30';
+          }});
+        }})();
+        </script>
       </article>
     """
     body = f"""
@@ -1290,27 +1331,121 @@ def card_details(uid: str, request: Request):
     return _layout(request, f"Admin | Cartão {html.escape(uid)}", body, csrf_token=_csrf_value(request))
 
 
+@app.get("/badges", response_class=HTMLResponse)
+def badges_catalog(request: Request):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return _redirect_login("/badges")
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        counts = dict(
+            session.execute(
+                select(models.ProfileBadge.badge_type, func.count(models.ProfileBadge.id))
+                .where(models.ProfileBadge.expires_at > now)
+                .group_by(models.ProfileBadge.badge_type)
+            ).all()
+        )
+        recent = list(
+            session.execute(
+                select(models.ProfileBadge)
+                .where(models.ProfileBadge.expires_at > now)
+                .order_by(models.ProfileBadge.updated_at.desc())
+                .limit(25)
+            ).scalars().all()
+        )
+    catalog_cards = "".join(
+        f"""
+        <article>
+          <small>{html.escape(definition.type)}</small>
+          <h4>{html.escape(definition.label)}</h4>
+          <p class='admin-compact'>{html.escape(definition.description)}</p>
+          <strong>{int(counts.get(definition.type, 0))} ativo(s)</strong>
+        </article>
+        """
+        for definition in BADGE_CATALOG.values()
+    )
+    recent_rows = "".join(
+        f"<tr><td><a href='/cards/{html.escape(badge.card_uid)}'>{html.escape(badge.card_uid)}</a></td>"
+        f"<td>{html.escape(badge.label)}</td><td>{html.escape(badge.source or '—')}</td>"
+        f"<td>{_dt(badge.expires_at)}</td></tr>"
+        for badge in recent
+    )
+    body = f"""
+      <section class='admin-page-head'>
+        <div><small>IDENTIDADE E RECONHECIMENTO</small><h2>Selos de perfil</h2>
+        <p>Catálogo oficial e concessões ativas. Para conceder um selo, abra o cartão do associado.</p></div>
+      </section>
+      <div class='admin-grid admin-grid-2'>{catalog_cards}</div>
+      <article>
+        <h4>Concessões ativas recentes</h4>
+        <table role='grid'>
+          <thead><tr><th>Cartão</th><th>Selo</th><th>Origem</th><th>Validade</th></tr></thead>
+          <tbody>{recent_rows or '<tr><td colspan="4">Nenhum selo ativo.</td></tr>'}</tbody>
+        </table>
+      </article>
+    """
+    return _layout(request, "Admin | Selos", body, csrf_token=_csrf_value(request))
+
+
 @app.post("/cards/{uid}/connector-badge")
 def grant_connector_badge(uid: str, request: Request, days: int = Form(30), csrf_token: str = Form("")):
+    return _grant_profile_badge(
+        uid,
+        request,
+        badge_type="soomei_connector",
+        days=days,
+        csrf_token=csrf_token,
+    )
+
+
+@app.post("/cards/{uid}/badges")
+def grant_profile_badge(
+    uid: str,
+    request: Request,
+    badge_type: str = Form(...),
+    days: int = Form(30),
+    csrf_token: str = Form(""),
+):
+    return _grant_profile_badge(
+        uid,
+        request,
+        badge_type=badge_type,
+        days=days,
+        csrf_token=csrf_token,
+    )
+
+
+def _grant_profile_badge(
+    uid: str,
+    request: Request,
+    *,
+    badge_type: str,
+    days: int,
+    csrf_token: str,
+):
     _csrf_protect(request, csrf_token)
     admin_email = require_admin(request)
     card = repo.get_card_by_uid(uid)
     if not card:
         return RedirectResponse("/cards?error=nao_encontrado", status_code=303)
-    safe_days = max(1, min(int(days or 30), 365))
+    definition = get_badge_definition(badge_type)
+    if not definition:
+        raise HTTPException(400, "Tipo de selo inválido.")
+    safe_days = max(1, min(int(days or definition.default_days), 36500))
     now = datetime.now(timezone.utc)
     with get_session() as session:
         badge = session.execute(
             select(models.ProfileBadge)
             .where(
                 models.ProfileBadge.card_uid == uid,
-                models.ProfileBadge.badge_type == "soomei_connector",
+                models.ProfileBadge.badge_type == definition.type,
             )
             .limit(1)
         ).scalar_one_or_none()
         expires_at = now + timedelta(days=safe_days)
         if badge:
-            badge.label = "Destaque Soomei"
+            badge.label = definition.label
             badge.starts_at = now
             badge.expires_at = expires_at
             badge.source = "admin_manual"
@@ -1321,8 +1456,8 @@ def grant_connector_badge(uid: str, request: Request, days: int = Form(30), csrf
                 models.ProfileBadge(
                     id=secrets.token_hex(16),
                     card_uid=uid,
-                    badge_type="soomei_connector",
-                    label="Destaque Soomei",
+                    badge_type=definition.type,
+                    label=definition.label,
                     starts_at=now,
                     expires_at=expires_at,
                     source="admin_manual",
@@ -1332,7 +1467,7 @@ def grant_connector_badge(uid: str, request: Request, days: int = Form(30), csrf
                 )
             )
         session.commit()
-    return RedirectResponse(f"/cards/{html.escape(uid)}?ok=connector_badge", status_code=303)
+    return RedirectResponse(f"/cards/{html.escape(uid)}?ok=badge", status_code=303)
 
 
 @app.post("/cards/{uid}/dev/connector-badge")
@@ -1425,9 +1560,10 @@ def list_users(request: Request, q: str = "", page: int = 1):
     page_result = repo.search_users(q=q, page=page, page_size=PAGE_SIZE)
     rows = "".join(
         "<tr>"
-        f"<td>{html.escape(user.email)}</td>"
+        f"<td><a href='/users/{quote(user.email, safe='')}'>{html.escape(user.email)}</a></td>"
         f"<td>{_boolean_badge(bool(user.email_verified_at))}</td>"
         f"<td>{_boolean_badge(_admin_allowed(user.email))}</td>"
+        f"<td><a class='secondary' role='button' href='/users/{quote(user.email, safe='')}'>Perfil e selos</a></td>"
         "</tr>"
         for user in page_result.items
     )
@@ -1440,13 +1576,145 @@ def list_users(request: Request, q: str = "", page: int = 1):
           <button type='submit'>Filtrar</button>
         </form>
         <table role='grid'>
-          <thead><tr><th>E-mail</th><th>Verificado</th><th>Admin</th></tr></thead>
-          <tbody>{rows or '<tr><td colspan="3">Nenhum usuário.</td></tr>'}</tbody>
+          <thead><tr><th>E-mail</th><th>Verificado</th><th>Admin</th><th>Ações</th></tr></thead>
+          <tbody>{rows or '<tr><td colspan="4">Nenhum usuário.</td></tr>'}</tbody>
         </table>
         {_pager_html('/users', page_result, q=q)}
       </article>
     """
     return _layout(request, "Admin | Usuários", body, csrf_token=_csrf_value(request))
+
+
+@app.get("/users/{email}", response_class=HTMLResponse)
+def user_details(email: str, request: Request):
+    try:
+        require_admin(request)
+    except HTTPException:
+        return _redirect_login(f"/users/{quote(email, safe='')}")
+    user = repo.get_user(email)
+    if not user:
+        return RedirectResponse("/users?error=user_nao_encontrado", status_code=303)
+    cards = repo.get_cards_by_owner(user.email)
+    card_uids = [card.uid for card in cards]
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        active_badges = (
+            list(
+                session.execute(
+                    select(models.ProfileBadge)
+                    .where(
+                        models.ProfileBadge.card_uid.in_(card_uids),
+                        models.ProfileBadge.expires_at > now,
+                    )
+                    .order_by(models.ProfileBadge.card_uid.asc(), models.ProfileBadge.expires_at.desc())
+                ).scalars().all()
+            )
+            if card_uids
+            else []
+        )
+    cards_options = "".join(
+        f"<option value='{html.escape(card.uid)}'>{html.escape(card.vanity or card.uid)} · {html.escape(card.uid)}</option>"
+        for card in cards
+    )
+    badge_options = "".join(
+        f"<option value='{html.escape(definition.type)}' data-default-days='{definition.default_days}'>"
+        f"{html.escape(definition.label)}</option>"
+        for definition in BADGE_CATALOG.values()
+    )
+    badge_rows = "".join(
+        f"<tr><td><a href='/cards/{html.escape(badge.card_uid)}'>{html.escape(badge.card_uid)}</a></td>"
+        f"<td>{html.escape(badge.label)}</td><td>{_dt(badge.expires_at)}</td></tr>"
+        for badge in active_badges
+    )
+    csrf_token = _csrf_value(request)
+    form_html = (
+        f"""
+        <form method='post' action='/users/{quote(user.email, safe='')}/badges'>
+          <input type='hidden' name='csrf_token' value='{html.escape(csrf_token)}'>
+          <div class='grid'>
+            <label>Cartão do usuário
+              <select name='card_uid' required>{cards_options}</select>
+            </label>
+            <label>Tipo de selo
+              <select name='badge_type' id='userBadgeType'>{badge_options}</select>
+            </label>
+            <label>Validade em dias
+              <input name='days' id='userBadgeDays' type='number' min='1' max='36500' value='30'>
+            </label>
+          </div>
+          <label>
+            <input type='checkbox' name='display_on_profile' value='1' checked>
+            Exibir este selo no perfil público
+          </label>
+          <button type='submit'>Habilitar selo</button>
+        </form>
+        <script>
+        (function(){{
+          var type = document.getElementById('userBadgeType');
+          var days = document.getElementById('userBadgeDays');
+          if (!type || !days) return;
+          type.addEventListener('change', function(){{
+            var option = type.options[type.selectedIndex];
+            days.value = option.getAttribute('data-default-days') || '30';
+          }});
+        }})();
+        </script>
+        """
+        if cards
+        else "<p>Este usuário ainda não possui cartão. Vincule um cartão antes de conceder selos.</p>"
+    )
+    body = f"""
+      <section class='admin-page-head'>
+        <div><small>PERFIL DO USUÁRIO</small><h2>{html.escape(user.email)}</h2>
+        <p>Gerencie os reconhecimentos exibidos nos cartões deste associado.</p></div>
+      </section>
+      <article>
+        <h4>Habilitar selo no perfil</h4>
+        {form_html}
+      </article>
+      <article>
+        <h4>Selos ativos</h4>
+        <table role='grid'>
+          <thead><tr><th>Cartão</th><th>Selo</th><th>Validade</th></tr></thead>
+          <tbody>{badge_rows or '<tr><td colspan="3">Nenhum selo ativo.</td></tr>'}</tbody>
+        </table>
+      </article>
+      <p><a class='secondary' href='/users'>Voltar para usuários</a></p>
+    """
+    return _layout(request, f"Admin | {html.escape(user.email)}", body, csrf_token=csrf_token)
+
+
+@app.post("/users/{email}/badges")
+def grant_user_profile_badge(
+    email: str,
+    request: Request,
+    card_uid: str = Form(...),
+    badge_type: str = Form(...),
+    days: int = Form(30),
+    display_on_profile: str = Form(""),
+    csrf_token: str = Form(""),
+):
+    _csrf_protect(request, csrf_token)
+    require_admin(request)
+    user = repo.get_user(email)
+    card = repo.get_card_by_uid(card_uid)
+    if not user or not card or (card.owner_email or "").lower() != user.email.lower():
+        raise HTTPException(400, "Cartão não pertence ao usuário informado.")
+    result = _grant_profile_badge(
+        card_uid,
+        request,
+        badge_type=badge_type,
+        days=days,
+        csrf_token=csrf_token,
+    )
+    if result.status_code == 303 and str(display_on_profile or "").lower() in {"1", "true", "on", "yes"}:
+        definition = get_badge_definition(badge_type)
+        if definition:
+            profile = repo.get_profile(user.email) or {}
+            profile["selected_badge_type"] = definition.type
+            profile["spotlight_badge_show"] = True
+            repo.upsert_profile(user.email, profile)
+    return RedirectResponse(f"/users/{quote(user.email, safe='')}?ok=badge", status_code=303)
 
 
 @app.post("/users/{email}/reset_password")

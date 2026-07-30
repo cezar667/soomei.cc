@@ -123,8 +123,8 @@ def test_active_spotlight_badge_renders_clickable_explanation(monkeypatch):
     monkeypatch.setattr(cards, "BRAND_FOOTER", lambda value: value)
     monkeypatch.setattr(
         cards._referral_service.repository,
-        "active_badge",
-        lambda _uid: SimpleNamespace(label="Destaque Soomei"),
+        "active_badges",
+        lambda _uid: [SimpleNamespace(badge_type="soomei_connector", label="Destaque Soomei")],
     )
     profile = {
         "full_name": "Cezar Damasceno",
@@ -154,8 +154,8 @@ def test_active_spotlight_badge_can_be_hidden_by_profile(monkeypatch):
     monkeypatch.setattr(cards, "BRAND_FOOTER", lambda value: value)
     monkeypatch.setattr(
         cards._referral_service.repository,
-        "active_badge",
-        lambda _uid: SimpleNamespace(label="Destaque Soomei"),
+        "active_badges",
+        lambda _uid: [SimpleNamespace(badge_type="soomei_connector", label="Destaque Soomei")],
     )
     profile = {
         "full_name": "Cezar Damasceno",
@@ -177,6 +177,40 @@ def test_active_spotlight_badge_can_be_hidden_by_profile(monkeypatch):
 
     assert "id='soomeiSpotlightBtn'" not in body
     assert "id='soomeiSpotlightModal'" not in body
+
+
+def test_selected_founder_badge_uses_premium_wine_design(monkeypatch):
+    monkeypatch.setattr(cards, "BRAND_FOOTER", lambda value: value)
+    monkeypatch.setattr(
+        cards._referral_service.repository,
+        "active_badges",
+        lambda _uid: [
+            SimpleNamespace(badge_type="soomei_connector", label="Destaque Soomei"),
+            SimpleNamespace(badge_type="founding_member", label="Associado Fundador"),
+        ],
+    )
+    profile = {
+        "full_name": "Cezar Damasceno",
+        "title": "Diretor | Soomei",
+        "photo_url": "/static/uploads/tksc4o.jpg?v=abc",
+        "selected_badge_type": "founding_member",
+        "links": [],
+    }
+
+    response = cards.visitor_public_card(
+        profile,
+        "cezar",
+        is_owner=False,
+        view_count=0,
+        card={"uid": "tksc4o", "vanity": "cezar"},
+        request=None,
+    )
+    body = response.body.decode("utf-8")
+
+    assert "soomei-spotlight--founder" in body
+    assert "soomei-spotlight__star" in body
+    assert "Associado Fundador Soomei" in body
+    assert "grupo pioneiro" in body
 
 
 def test_root_without_slug_redirects_to_login(monkeypatch):

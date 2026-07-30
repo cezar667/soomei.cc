@@ -105,7 +105,6 @@ def test_editor_renders_session_csrf_and_valid_javascript(monkeypatch):
     monkeypatch.setattr(card_edit, "_sql_repo", _Repo())
     monkeypatch.setattr(card_edit, "SETTINGS", SimpleNamespace(custom_domains_enabled=False))
     monkeypatch.setattr(card_edit, "BRAND_FOOTER", lambda value: value)
-
     response = card_edit.edit_card("cezar", request)
     body = response.body.decode("utf-8")
     expected = csrf.ensure_csrf_token(request)
@@ -136,6 +135,7 @@ def test_editor_renders_session_csrf_and_valid_javascript(monkeypatch):
     assert "id='togglePassword' aria-expanded='false' onclick=" in body
     assert "id='spotlightBadgeShow' name='spotlight_badge_show'" in body
     assert "Exibir selo no cartão" in body
+    assert "badge-selector" not in body
     assert "id='coverShow' name='cover_show'" in body
     assert "Exibir capa no cartão" in body
     assert "Oculte a capa sem apagar a imagem salva." in body
@@ -148,6 +148,13 @@ def test_editor_renders_session_csrf_and_valid_javascript(monkeypatch):
     assert "value='course'" in body
     assert "hydrateSwitch(\"input[id='linkVisible\" + linkSwitchIndex + \"']\")" in body
     assert "id='shareReferralInvite'" in body
+    assert "id='referralRulesOpen'" in body
+    assert "id='referralRulesBackdrop'" in body
+    assert "Como sua indicação funciona" in body
+    assert "A assinatura do indicado precisa permanecer ativa durante 30 dias." in body
+    assert "Não é permitido usar o próprio código." in body
+    assert "openReferralRulesModal" in body
+    assert "closeReferralRulesModal" in body
     assert "referral-share-btn__icon" in body
     assert "Compartilhar convite pelo WhatsApp" in body
     assert "id='referralShareBackdrop'" in body
@@ -177,6 +184,37 @@ def test_editor_renders_session_csrf_and_valid_javascript(monkeypatch):
         assert result.returncode == 0, result.stderr
 
 
+def test_editor_lists_badge_selector_only_with_multiple_active_badges(monkeypatch):
+    request = _request()
+    monkeypatch.setattr(
+        card_edit,
+        "find_card_by_slug",
+        lambda _slug: ({}, "tksc4o", {"user": "owner@example.com"}),
+    )
+    monkeypatch.setattr(card_edit, "current_user_email", lambda _request: "owner@example.com")
+    monkeypatch.setattr(card_edit, "_sql_repo", _Repo())
+    monkeypatch.setattr(card_edit, "SETTINGS", SimpleNamespace(custom_domains_enabled=False))
+    monkeypatch.setattr(card_edit, "BRAND_FOOTER", lambda value: value)
+    monkeypatch.setattr(
+        card_edit._referral_service.repository,
+        "active_badges",
+        lambda _uid: [
+            SimpleNamespace(badge_type="soomei_connector"),
+            SimpleNamespace(badge_type="founding_member"),
+        ],
+    )
+
+    response = card_edit.edit_card("cezar", request)
+    body = response.body.decode("utf-8")
+
+    assert "class='badge-selector'" in body
+    assert "Selo apresentado no cartão" in body
+    assert "name='selected_badge_type'" in body
+    assert "value='soomei_connector' checked" in body
+    assert "value='founding_member'" in body
+    assert "Associado Fundador" in body
+
+
 def test_photo_only_submission_preserves_profile_fields(monkeypatch):
     request = _request()
     repo = _Repo()
@@ -187,6 +225,14 @@ def test_photo_only_submission_preserves_profile_fields(monkeypatch):
     )
     monkeypatch.setattr(card_edit, "current_user_email", lambda _request: "owner@example.com")
     monkeypatch.setattr(card_edit, "_sql_repo", repo)
+    monkeypatch.setattr(
+        card_edit._referral_service.repository,
+        "active_badges",
+        lambda _uid: [
+            SimpleNamespace(badge_type="soomei_connector"),
+            SimpleNamespace(badge_type="founding_member"),
+        ],
+    )
     monkeypatch.setattr(
         card_edit,
         "_save_resized_image",
@@ -314,6 +360,14 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
     monkeypatch.setattr(card_edit, "current_user_email", lambda _request: "owner@example.com")
     monkeypatch.setattr(card_edit, "_sql_repo", repo)
     monkeypatch.setattr(
+        card_edit._referral_service.repository,
+        "active_badges",
+        lambda _uid: [
+            SimpleNamespace(badge_type="soomei_connector"),
+            SimpleNamespace(badge_type="founding_member"),
+        ],
+    )
+    monkeypatch.setattr(
         card_edit,
         "_save_resized_image",
         lambda _data, filename, _size: f"/static/uploads/{filename}?v=cover",
@@ -333,6 +387,7 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
             address="",
             google_review_url="",
             google_review_show="",
+            selected_badge_type="founding_member",
             featured_label="",
             featured_url="",
             featured_icon="briefcase",
@@ -384,6 +439,7 @@ def test_hidden_cover_data_url_submission_updates_cover(monkeypatch):
         "google_review_url": "",
         "google_review_show": False,
         "spotlight_badge_show": False,
+        "selected_badge_type": "founding_member",
         "featured_color": "#FFB473",
         "featured_label": "",
         "featured_url": "",

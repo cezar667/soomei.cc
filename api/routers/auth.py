@@ -42,8 +42,8 @@ def _templates(request: Request):
 def _brand_footer(html_doc: str) -> str:
     snippet = (
         "\n    <div class='edit-footer soomei-footer-mark'>\n"
-        "      <a class='soomei-watermark' href='https://soomei.cc' target='_blank' rel='noopener' aria-label='Soomei'>\n"
-        "        <span class='soomei-watermark__brand'>Soomei</span>\n"
+        "      <a class='soomei-watermark' href='https://soomei.com.br' target='_blank' rel='noopener' aria-label='Soomei'>\n"
+        "        <img class='soomei-watermark__logo' src='/static/brand/soomei-logo-horizontal-white.svg' alt='Soomei'>\n"
         "        <span class='soomei-watermark__text'>cartão digital</span>\n"
         "      </a>\n"
         "    </div>\n  "
@@ -515,15 +515,20 @@ def activated(request: Request, next: str = "/", configure: str = ""):
               Seu navegador não conseguiu reproduzir a animação de ativação.
             </video>
           </div>
-          <div class='activation-actions' id='activationActions' aria-live='polite'>
-            <a class='btn primary activation-primary' href='{safe_configure}'>Configurar cartão</a>
-            <a class='btn ghost activation-secondary' href='{safe_next}'>Visualizar cartão</a>
+          <div class='activation-next'>
+            <div class='activation-loader' id='activationLoader' role='status' aria-label='Ativando sua experiência Soomei'>
+              <img src='/static/img/soomei_loading.gif' alt='' aria-hidden='true'>
+            </div>
+            <div class='activation-actions' id='activationActions' aria-live='polite'>
+              <a class='btn primary activation-primary' href='{safe_configure}'>Configurar cartão</a>
+              <a class='btn ghost activation-secondary' href='{safe_next}'>Visualizar cartão</a>
+            </div>
           </div>
           <p class='activation-hint' id='activationHint'>Aguarde a animação terminar para continuar.</p>
         </section>
         <div class='edit-footer soomei-footer-mark activation-footer'>
-          <a class='soomei-watermark' href='https://soomei.cc' target='_blank' rel='noopener' aria-label='Soomei'>
-            <span class='soomei-watermark__brand'>Soomei</span>
+          <a class='soomei-watermark' href='https://soomei.com.br' target='_blank' rel='noopener' aria-label='Soomei'>
+            <img class='soomei-watermark__logo' src='/static/brand/soomei-logo-horizontal-white.svg' alt='Soomei'>
             <span class='soomei-watermark__text'>cartão digital</span>
           </a>
         </div>
@@ -532,11 +537,13 @@ def activated(request: Request, next: str = "/", configure: str = ""):
       (function(){{
         var video = document.getElementById('activationVideo');
         var actions = document.getElementById('activationActions');
+        var loader = document.getElementById('activationLoader');
         var hint = document.getElementById('activationHint');
         var revealed = false;
         function reveal(){{
           if (revealed) return;
           revealed = true;
+          if (loader) loader.classList.add('is-hidden');
           if (actions) actions.classList.add('is-ready');
           if (hint) hint.textContent = 'Pronto — escolha o próximo passo.';
         }}
