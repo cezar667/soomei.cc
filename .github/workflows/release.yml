@@ -47,6 +47,17 @@ jobs:
           echo "Listing excluding .git/.github:"
           find . -maxdepth 2 -not -path "./.git/*" -not -path "./.github/*" -printf "%p\n" | head -n 200
 
+      - name: Package application
+        run: |
+          tar \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./release.tar.gz' \
+            --exclude='*.md' \
+            --exclude='.gitignore' \
+            -czf release.tar.gz .
+          tar -tzf release.tar.gz > /dev/null
+
       - name: Upload to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -54,13 +65,7 @@ jobs:
           username: ${{ secrets.PROD_USER }}
           password: ${{ secrets.PROD_PASSWORD }}
           port: 22
-          # use bloco multilinha com globs que sempre dão match
-          source: |
-            ./**
-            !.git/**
-            !.github/**
-            !**/*.md
-            !**/.gitignore
+          source: release.tar.gz
           target: ${{ env.PROD_PATH }}
           overwrite: true
           strip_components: 0
@@ -75,6 +80,8 @@ jobs:
           script: |
             set -e
             cd "${{ env.PROD_PATH }}"
+            tar -xzf release.tar.gz
+            rm release.tar.gz
             systemctl restart soomei
             systemctl is-active --quiet soomei && echo "soomei ativo."
             journalctl -u soomei -n 50 --no-pager || true
