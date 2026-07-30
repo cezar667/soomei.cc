@@ -49,13 +49,10 @@ jobs:
 
       - name: Package application
         run: |
-          tar \
-            --exclude='./.git' \
-            --exclude='./.github' \
-            --exclude='./release.tar.gz' \
-            --exclude='*.md' \
-            --exclude='.gitignore' \
-            -czf release.tar.gz .
+          git archive \
+            --format=tar.gz \
+            --output=release.tar.gz \
+            "${GITHUB_SHA}"
           tar -tzf release.tar.gz > /dev/null
 
       - name: Upload to server
