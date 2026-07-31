@@ -67,7 +67,7 @@ jobs:
           overwrite: true
           strip_components: 0
 
-      - name: Restart service
+      - name: Restart services
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PROD_HOST }}
@@ -80,5 +80,8 @@ jobs:
             tar -xzf release.tar.gz
             rm release.tar.gz
             systemctl restart soomei
+            systemctl restart soomei-admin
             systemctl is-active --quiet soomei && echo "soomei ativo."
+            systemctl is-active --quiet soomei-admin && echo "soomei-admin ativo."
             journalctl -u soomei -n 50 --no-pager || true
+            journalctl -u soomei-admin -n 50 --no-pager || true
